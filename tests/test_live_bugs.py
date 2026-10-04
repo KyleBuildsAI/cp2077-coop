@@ -355,10 +355,15 @@ def test_sender_sends_vehicle_origin():
     lua.execute("function player:CP2077Coop_GetMountedVehiclePose() return {} end")
     lua.execute("outbox = {}")
     for _ in range(10):
+        g.simTime = t  # keeps the clock moving; the 30 Hz schedule itself runs on delta (S.sendAccumulator)
         g.events["onUpdate"](1 / 60)
+        t += 1 / 60
     outbox = g.outbox
-    on_foot = all(abs(outbox[i][1] - 10.0) < 1e-6 and abs(outbox[i][2] - 20.0) < 1e-6 for i in range(1, len(outbox) + 1))
-    print(f"  sender: {len(later)} packets carry the car origin={on_car}, car heading={heading}, on foot -> player position={on_foot}")
+    foot_packets = len(outbox)
+    # 10 frames x 1/60 s at 30 Hz = 5 packets; a sender that stops after dismounting must not pass
+    on_foot = foot_packets >= 4 and all(abs(outbox[i][1] - 10.0) < 1e-6 and abs(outbox[i][2] - 20.0) < 1e-6 for i in range(1, foot_packets + 1))
+    print(f"  sender: {len(later)} packets carry the car origin={on_car}, car heading={heading}, "
+          f"on foot: {foot_packets} packets -> player position={on_foot}")
     return len(later) > 20 and on_car and heading and on_foot
 
 
