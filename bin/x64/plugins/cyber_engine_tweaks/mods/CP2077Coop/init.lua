@@ -4048,10 +4048,97 @@ end
 -- Tabela Diag i Diag.log: na początku pliku (sekcja LOG).
 ------------------------------------------------------------
 
--- Dryf avatara: odległość od miejsca, gdzie drugi gracz jest teraz
--- (ostatni pakiet + prędkość * (wiek pakietu + opóźnienie w jedną
--- stronę), najwyżej PREDICTION_TIME). Cel sterowania S.target* wyprzedza
--- gracza o PREDICTION_TIME (do 2 m), więc zawyżał odczyt przy każdym biegu.
+-- Explicit per-installation bench opt-in. Observed positions only: this does
+-- not change steering, predict motion, or claim a teleport request has applied.
+-- At most 6000 rows / ten minutes, with one buffered write per second.
+function Diag.startSteeringTrace()
+    local gate = io.open("steering-trace.txt", "r")
+    if gate ~= nil then gate:close() end
+    Diag.steeringTrace = {
+        enabled = gate ~= nil, rows = 0, buffer = {}, startedPaths = {},
+        session = 0, avatarGeneration = 0, teleportRequests = 0,
+        header = "wall_unix_s,t_s,session,avatar_generation,transport,retained,source,sample_mode,avatar_x,avatar_y,avatar_z,target_x,target_y,target_z,raw_x,raw_y,raw_z,velocity_x,velocity_y,velocity_z,remote_speed,move_type,remote_flags,commands_started,retargets,hard_corrections,teleport_requests,teleport_age_s,packet_age_s,target_error_m,local_bot_phase\n"
+    }
+    if gate ~= nil then
+        Diag.log("[CP2077Coop] steering trace enabled: at most 10 Hz / 6000 rows / 600 s; coop_steering_<role>.csv")
+    end
+end
+
+function Diag.flushSteeringTrace()
+    local trace = Diag.steeringTrace
+    if trace == nil or #trace.buffer == 0 then return end
+    local path = trace.path
+    local first = not trace.startedPaths[path]
+    local text = (first and trace.header or "") .. table.concat(trace.buffer)
+    trace.buffer = {}
+    local ok, err = pcall(function()
+        local file, openError = io.open(path, first and "w" or "a")
+        if file == nil then error(tostring(openError)) end
+        local written, writeError = file:write(text)
+        local closed, closeError = file:close()
+        if written == nil or closed == nil then error(tostring(writeError or closeError)) end
+    end)
+    if not ok then
+        trace.enabled = false
+        Diag.log("[CP2077Coop] steering trace stopped after write failure: " .. tostring(err))
+        return
+    end
+    trace.startedPaths[path] = true
+    trace.lastFlush = Sync.clock
+end
+
+function Diag.traceAvatar(current)
+    local trace = Diag.steeringTrace
+    if trace == nil or not trace.enabled then return end
+    local now = Sync.clock
+    if trace.startedAt == nil then trace.startedAt = now end
+    if trace.rows >= 6000 or now - trace.startedAt >= 600.0 then
+        Diag.flushSteeringTrace()
+        trace.enabled = false
+        Diag.log("[CP2077Coop] steering trace complete: " .. tostring(trace.rows) .. " rows")
+        return
+    end
+    -- Never invent intermediate samples after a hitch or missing avatar.
+    if trace.lastSample ~= nil and now - trace.lastSample < 0.1 - 0.000001 then return end
+    local path = "coop_steering_" .. (IS_HOST and "host" or "joiner") .. ".csv"
+    if trace.path ~= nil and trace.path ~= path then Diag.flushSteeringTrace() end
+    if not trace.enabled then return end
+    trace.path = path
+    local pose = Sync.v2Sample
+    local native = Sync.isV2()
+    local row = {
+        os.time(), string.format("%.6f", now), trace.session, trace.avatarGeneration,
+        native and "v2" or "v1",
+        native and Sync.transportConfig ~= nil and Sync.transportConfig.native_retarget == true and 1 or 0,
+        pose and pose.source or "legacy", pose and pose.mode or "legacy",
+        current.x, current.y, current.z, S.targetX, S.targetY, S.targetZ,
+        S.previousRemoteX, S.previousRemoteY, S.previousRemoteZ,
+        S.remoteVelocityX, S.remoteVelocityY, S.remoteVelocityZ,
+        S.remoteSpeed or 0, S.activeMoveType or "none", pose and pose.flags or Sync.remoteFlags or 0,
+        S.nativeCommandsStarted or 0, S.nativeRetargets or 0, Diag.hardTotal,
+        trace.teleportRequests,
+        trace.lastTeleport ~= nil and now - trace.lastTeleport or -1,
+        Diag.packetAge() or -1, Diag.avatarError or -1, Bot.phaseName()
+    }
+    for index = 1, 31 do
+        local value = row[index]
+        if type(value) == "number" and index >= 9 and index <= 21 then
+            row[index] = string.format("%.5f", value)
+        else
+            row[index] = tostring(value or "")
+        end
+    end
+    trace.buffer[#trace.buffer + 1] = table.concat(row, ",") .. "\n"
+    trace.rows = trace.rows + 1
+    trace.lastSample = now
+    if trace.lastFlush == nil then trace.lastFlush = now end
+    if #trace.buffer >= 10 or now - trace.lastFlush >= 1.0 or trace.rows >= 6000 then
+        Diag.flushSteeringTrace()
+    end
+end
+
+-- V1 drift uses the estimated present position; v2 drift uses the native
+-- buffered render target. The trace retains raw, target and avatar separately.
 function Diag.recordDrift(current)
 
     if S.previousRemoteX == nil then
@@ -4084,6 +4171,7 @@ function Diag.recordDrift(current)
     Diag.driftSum = Diag.driftSum + distance
     Diag.driftCount = Diag.driftCount + 1
     Diag.driftMax = math.max(Diag.driftMax, distance)
+    Diag.traceAvatar(current)
 end
 
 
@@ -4236,6 +4324,12 @@ end
 -- Nowa sesja (sync ON/OFF, wczytanie gry, zmiana roli): liczniki
 -- i okna od zera, żeby dane sprzed menu nie udawały bieżących.
 function Diag.resetSession()
+
+    Diag.flushSteeringTrace()
+    if Diag.steeringTrace ~= nil then
+        Diag.steeringTrace.session = Diag.steeringTrace.session + 1
+        Diag.steeringTrace.lastTeleport = nil
+    end
 
     Diag.packetsReceived = 0
     Diag.missed = 0
@@ -4679,6 +4773,17 @@ end
 
 
 function Diag.tick(delta)
+
+    local trace = Diag.steeringTrace
+    if trace ~= nil and trace.enabled and trace.startedAt ~= nil then
+        if Sync.clock - trace.startedAt >= 600.0 then
+            Diag.flushSteeringTrace()
+            trace.enabled = false
+            Diag.log("[CP2077Coop] steering trace complete: " .. tostring(trace.rows) .. " rows")
+        elseif Sync.clock - (trace.lastFlush or trace.startedAt) >= 1.0 then
+            Diag.flushSteeringTrace()
+        end
+    end
 
     Diag.windowTimer =
         Diag.windowTimer + delta
@@ -5365,6 +5470,11 @@ end
 -- drugim graczu (Sync.requestSpawn, Sync.spawnPoint).
 function Sync.dropAvatar(player, why)
 
+    if Diag.steeringTrace ~= nil then
+        Diag.steeringTrace.avatarGeneration = Diag.steeringTrace.avatarGeneration + 1
+        Diag.steeringTrace.lastTeleport = nil
+    end
+
     if player ~= nil then
 
         -- broń avatara to osobny obiekt (nie znika z avatarem)
@@ -6036,6 +6146,12 @@ local function hardCorrectRemote(
 
     if isCorrection then
         Diag.onHardCorrection()
+    end
+
+    if Diag.steeringTrace ~= nil then
+        local trace = Diag.steeringTrace
+        trace.teleportRequests = trace.teleportRequests + 1
+        trace.lastTeleport = Sync.clock
     end
 
     cancelMoveCommand()
@@ -6841,6 +6957,7 @@ registerForEvent(
         Diag.loadRole()
         Mods.load()
         Sync.loadTransportConfig()
+        Diag.startSteeringTrace()
 
         -- A CET script reload can leave the redscript player instance alive.
         local player = Game.GetPlayer()
@@ -6858,6 +6975,8 @@ registerForEvent(
 
 
 registerForEvent("onShutdown", function()
+    Diag.flushSteeringTrace()
+    if Diag.steeringTrace ~= nil then Diag.steeringTrace.enabled = false end
     Sync.resetRemoteMarker()
     if Sync.npcTest ~= nil then Sync.npcTest:shutdown(); Sync.npcTest = nil end
     if Sync.transport ~= nil then Sync.transport:stop() end

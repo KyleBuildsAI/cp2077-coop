@@ -36,6 +36,8 @@ coop-tools/coop_monitor_history*.csv
 modlist.txt
 # test-bot autostart switch, created by hand in the host's mod folder
 testpattern.txt
+steering-trace.txt
+coop_steering_*.csv
 __pycache__/
 
 # Offline test suite dependencies (installed by tests/run_all.ps1)

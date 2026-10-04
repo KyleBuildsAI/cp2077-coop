@@ -34,10 +34,10 @@ HARDLINK_DIRS = [os.path.join("archive", "pc", "content"), os.path.join("archive
 HARDLINK_EXTENSIONS = {".cache"}  # engine/shader caches
 
 # Never copied into a new instance or deployed: per-instance runtime output.
-SKIP_NAMES = {"role.txt", "transport.ini", "monitor_status.txt", "coop_monitor_history.csv", "coop_relay.log",
+SKIP_NAMES = {"role.txt", "transport.ini", "steering-trace.txt", "monitor_status.txt", "coop_monitor_history.csv", "coop_relay.log",
               "coop_stats_host.txt", "coop_stats_joiner.txt", "coop_events.log"}
 # The same by pattern: history files the monitor rotated out, its interrupted status swap, logs.
-SKIP_PATTERNS = ("coop_monitor_history*.csv", "monitor_status.txt.tmp", "*.log")
+SKIP_PATTERNS = ("coop_monitor_history*.csv", "coop_steering_*.csv", "monitor_status.txt.tmp", "*.log")
 # Bot autostart switch (init.lua Bot.FILE): belongs only in the test host's mod folder. A cloned
 # instance is usually the joiner, and the bot would replace its player's real movement.
 HOST_ONLY_NAMES = {"testpattern.txt"}
