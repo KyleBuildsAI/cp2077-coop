@@ -1,0 +1,2 @@
+# Test dependency: LuaJIT 2.1 runtime for Python (run_tests.ps1 installs it into .pydeps)
+lupa>=2.0
