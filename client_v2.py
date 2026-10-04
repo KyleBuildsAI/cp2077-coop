@@ -138,13 +138,41 @@ class Endpoint:
         return arrived
 
 
+class SeqSpan:
+    """Oldest and newest 16-bit sequence received, on an unwrapped timeline.
+
+    Each sequence is placed relative to the newest one seen (serial arithmetic), so the span stays
+    right past 32,768 snapshots and across the 16-bit wrap: span - received = snapshots lost
+    between the first and the last one received.
+    """
+
+    def __init__(self):
+        self.newest_seq = None
+        self.newest = 0
+        self.oldest = 0
+
+    def add(self, seq: int) -> None:
+        if self.newest_seq is None:
+            self.newest_seq = seq
+            return
+        distance = ((seq - self.newest_seq + 32768) % 65536) - 32768
+        position = self.newest + distance
+        if distance > 0:
+            self.newest, self.newest_seq = position, seq
+        self.oldest = min(self.oldest, position)
+
+    @property
+    def span(self) -> int:
+        return 0 if self.newest_seq is None else self.newest - self.oldest + 1
+
+
 class RemotePlayer:
     def __init__(self, role: int):
         self.role = role
         self.buffer = InterpBuffer(**InterpBuffer.PLAYER)
         self.follower = LatestSlotFollower()
         self.latest_seq = None
-        self.first_seq = None
+        self.seq_span = SeqSpan()
         self.received = 0
         self.duplicates = 0
         self.reordered = 0
@@ -441,8 +469,7 @@ class CoopClient:
         if remote.latest_seq is None or ((seq - remote.latest_seq) % 65536) < 32768:
             remote.latest_seq = seq
             remote.last = values
-        if remote.first_seq is None or ((remote.first_seq - seq) % 65536) < 32768:
-            remote.first_seq = seq
+        remote.seq_span.add(seq)
         remote.received += 1
         remote.flags_seen |= values["flags"]
         if values["vehicle"] is not None:
@@ -735,10 +762,9 @@ class CoopClient:
             return report
         remotes = {}
         for src, remote in self.remote.items():
-            span = 0 if remote.first_seq is None else (remote.latest_seq - remote.first_seq) % 65536 + 1
             remotes[str(src)] = {"received": remote.received, "duplicates": remote.duplicates,
-                                 "reordered": remote.reordered, "first_seq": remote.first_seq,
-                                 "latest_seq": remote.latest_seq, "seq_span": span, "flags_seen": remote.flags_seen,
+                                 "reordered": remote.reordered, "latest_seq": remote.latest_seq,
+                                 "seq_span": remote.seq_span.span, "flags_seen": remote.flags_seen,
                                  "driving_seen": remote.driving_seen, "buffer": remote.buffer.counts,
                                  "legacy_radius_error": summarize(remote.legacy_radius_error)}
         v2_accel = accelerations(self.v2_track)
