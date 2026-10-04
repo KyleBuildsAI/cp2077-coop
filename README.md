@@ -5,21 +5,23 @@ message transport: a FIFO inbox, an unreliable channel for snapshots, and a reli
 events (resent until acknowledged, delivered once and in order). It replaces the
 "latest position only, extra bits squeezed into the forward vector" limit of `CP2077Coop.dll`.
 
-Version 0.2.0-alpha.1 (wire protocol 1 on the network; protocol v2 codec built and tested).
+Version 0.2.0-alpha.2 (wire protocol 1 on the network; the protocol v2 codec, link and relay clock are built
+and tested but not wired in yet).
 Status: builds, unit and integration tests pass outside the game.
 0.1.0 was loaded in both bench games on 2026-10-04 (Phase 1 go: `Game.Net_*` callable from CET,
 about 1 % unreliable loss at 1 % simulated, 0 reliable order errors, 0.03 ms per frame to drain
-`Net_Poll`, no crash on load, save load or quit). **0.1.1, 0.1.2 and 0.2.0-alpha.1 have not been
-loaded in the game yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1 install and
+`Net_Poll`, no crash on load, save load or quit). **0.1.1, 0.1.2, 0.2.0-alpha.1 and 0.2.0-alpha.2 have
+not been loaded in the game yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1 install and
 in-game check: install steps, the bench relay on port 11779, CET console commands and the log lines
 that prove success.
 
 **Phase 2 (one wire format, v2).** The plugin moves from its own CPN2 framing to protocol v2
 (magic 0xCB77) from the relay repo (`coopnet/proto.py`, `include/coop_proto_v2.h`). Each milestone
 bumps the version to 0.2.0-alpha.N. Milestone 1 (alpha.1) is the C++ codec in `src/v2`, see
-[Protocol v2 codec](#protocol-v2-codec-srcv2). The transport, the natives and the Lua helper still
-run wire protocol 1 until the reliability and handshake milestones land, so `Net_Version` still
-says `proto 1`.
+[Protocol v2 codec](#protocol-v2-codec-srcv2). Milestone 2 (alpha.2) adds the per-hop link (the port of
+`reliability.py`) and the relay clock estimate, see [Protocol v2 link and clock](#protocol-v2-link-and-clock-srcv2).
+The transport, the natives and the Lua helper still run wire protocol 1 until the handshake milestone
+lands, so `Net_Version` still says `proto 1`.
 
 0.1.2 fixes the five confirmed findings of the Phase 1 review:
 - The startup line now checks each native's registration: the parameter and return types resolved
@@ -44,14 +46,19 @@ src/v2/V2Codec.*        v2 packet header, cookie handshake, message framing, eve
 src/v2/V2Delta.*        delta entity snapshots: encoder (acked baselines, byte budget) and decoder
 src/v2/V2Hash.*         SHA-256, HMAC-SHA256, room key hash, mod list hash, game build id, cookies
 src/v2/V2Describe.*     canonical text for decoded datagrams (golden vectors, diagnostics)
+src/v2/V2Reliability.*  per-hop link: packet acks, RTT/RTO, unreliable and reliable ordered messages
+src/v2/ClockSync.*      relay clock offset from TIME_REQ/TIME_RESP (interval intersection) for interpolation
 src/plugin/Main.cpp     RED4ext exports (Query/Main/Supports), Net_* natives, runtime check
 scripts/CP2077CoopNet/  Natives.reds (declarations) + Helpers.reds (parsing, channel ids, self test)
 lua/coopnet.lua         CET helper module
 tools/coopnet_relay.py  relay for this protocol, with latency/jitter/loss/reorder simulation
 tools/*.ps1, *.py       build, dependency fetch, export verification, loopback runner
 tools/v2_golden.py      golden vectors between the C++ v2 codec and the relay's proto.py, both ways
+tools/v2_link_trace.py  records reliability.py in its test scenarios and replays the calls on the C++ link
+tools/run_v2_loopback.py two C++ v2 clients through the relay's relay_v2.py over UDP
 tests/                  unit tests, relay loopback test, plugin probe, relay and Lua tests
-tests/V2*.cpp           v2 codec unit tests, golden-vector checker/emitter, fuzzer
+tests/V2*.cpp           v2 codec unit tests, golden-vector checker/emitter, fuzzer, link and clock
+                        tests, and the UDP client for run_v2_loopback.py
 ```
 
 ## Build
@@ -85,7 +92,11 @@ build\Release\coopnet_v2_tests.exe
 build\Release\coopnet_v2_fuzz.exe 20000
 build\Release\coopnet_v2_fuzz_asan.exe 20000          # when the MSVC ASan runtime is installed
 python tools\v2_golden.py run --exe build\Release\coopnet_v2_golden.exe
+build\Release\coopnet_v2_reliability_tests.exe
+python tools\v2_link_trace.py run --exe build\Release\coopnet_v2_reliability_tests.exe
+build\Release\coopnet_v2_clock_tests.exe
 python tools\run_loopback.py
+python tools\run_v2_loopback.py --exe build\Release\coopnet_v2_loopback_client.exe
 ```
 
 It then recreates `dist\red4ext\plugins\CP2077CoopNet\` and prints each staged file's SHA256. `CMAKE_GENERATOR_INSTANCE` pins the
@@ -113,7 +124,7 @@ parameter type and the return type resolved in RTTI, and looking its name up aga
 `RegisterFunction` returned the function the plugin created (`src/core/NativeRegistration.hpp`):
 
 ```
-CP2077CoopNet 0.2.0-alpha.1 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
+CP2077CoopNet 0.2.0-alpha.2 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
 If a native or the Scripts folder failed, the same line is logged at error level with
@@ -137,7 +148,7 @@ buffer, so a redscript loop such as `let raw = Net_Poll();` would leak one buffe
 | `Net_Stats() -> String` | JSON | `CoopNet.stats()` decodes it |
 | `Net_LocalId() -> Int32` | 0 until welcomed | |
 | `Net_NowMs() -> Double` | ms since the Unix epoch (UTC), sub-ms fraction | `CoopNet.nowMs()` |
-| `Net_Version() -> String` | `"CP2077CoopNet 0.2.0-alpha.1 proto 1"` | `CoopNet.version()`, `CoopNet.parseVersion(s)` |
+| `Net_Version() -> String` | `"CP2077CoopNet 0.2.0-alpha.2 proto 1"` | `CoopNet.version()`, `CoopNet.parseVersion(s)` |
 
 * **Net_NowMs** reads `GetSystemTimePreciseAsFileTime` (100 ns ticks) and returns a Double, not an
   Int64: CET hands Int64 to Lua as LuaJIT cdata (`123LL`, built by compiling a chunk per call), while
@@ -147,7 +158,7 @@ buffer, so a redscript loop such as `let raw = Net_Poll();` would leak one buffe
   need a `d` suffix (`1.0d`); `CoopNet_ElapsedMs(start)` gives a Float span.
 * **Net_Version** is `"CP2077CoopNet <major.minor.patch>[-<alpha|beta|rc>.<n>] proto <wire protocol>"`.
   `Net_Stats` JSON carries the same string as `"version"`. `CoopNet.parseVersion` returns the
-  pre-release as `prerelease` (`"alpha.1"`, or nil for a release) and keeps parsing 0.1.x strings.
+  pre-release as `prerelease` (`"alpha.2"`, or nil for a release) and keeps parsing 0.1.x strings.
 
 * **Channels**: 1..15 are unreliable and sequenced. A snapshot older than one already delivered on
   the same channel is dropped. 16..31 are reliable and ordered, sharing one ordered stream per peer.
@@ -221,6 +232,58 @@ and is not wired into the transport yet.
 * **Limits**: `ModListHash` folds ASCII case and strips ASCII whitespace only, where proto.py uses
   Python's Unicode rules. The quantizers map NaN to 0 where proto.py raises. `PackQuat` follows
   CPython 3.12+ float summation.
+
+## Protocol v2 link and clock (src/v2)
+
+Also in the `coopnet_v2` library, not wired into the transport yet. Times are `double` (seconds for
+the link, milliseconds for the clock) from a monotonic clock; the network thread owns both objects.
+
+* **`Connection`** (`V2Reliability`) is the port of the relay's `coopnet/reliability.py`: one hop
+  (client <-> relay). Every DATA packet has a 16-bit sequence (never 0) and acks the newest packet
+  from the other side plus the 32 before it. Unreliable messages go out once. Reliable messages carry
+  a 16-bit message sequence, wait in a 256-message window until a packet that held them is acked,
+  are resent after RTO = SRTT + max(4 x RTTVAR, 10 ms) + 40 ms (clamped 50 ms to 2 s, backoff up to
+  8 x), and are delivered exactly once and in order. A resend always goes out in a new packet with a
+  new sequence, so every ack names one transmission. A packet holds at most 96 messages.
+  `QueueReliable`, `BuildPackets`, `OnPacket`, `ReliableDue` and the state and counters mirror the
+  Python API; `NextReliableDue` (for the thread's wait) and the min/max RTT sample are C++ additions.
+* **RTT lesson** from the CPN2 prototype (a cumulative ack after a repaired gap read 9.2 s on a
+  200 ms link): an RTT sample is only taken from acks carried by a packet that directly follows the
+  previous packet received. After a lost or reordered packet, the first ack through can cover packets
+  whose earlier acks were lost, and their apparent RTT includes the time the gap stayed open. In the
+  45 % loss test such samples reached 333 ms against a 175 ms clean maximum. `reliability.py` got the
+  same rule (relay commit c556b7c, plus the 96-message split in 5f7afcd), so both sides still behave
+  identically.
+* **Fidelity**: `tools\v2_link_trace.py` records every call and result of `reliability.py`'s
+  `Connection` in the scenarios of the relay's `tests/test_reliability.py` (0/10/30/45 % loss with
+  duplicates, bursts that fill the window, sequence wrap), a 120 ms-jitter reordering link and edge
+  cases (window full, oversized bodies, 96-message packing, bad framing, sequence 0, packets too old
+  to judge, bogus acks half the sequence space away). `coopnet_v2_reliability_tests trace` replays
+  them: same datagrams byte for byte, same deliveries and verdicts, same state after every step,
+  SRTT/RTTVAR/RTO and timestamps to the last bit. Dropping the RTT rule in the C++ code makes the
+  replay fail in every scenario.
+* **`ClockSync`** estimates relay time = local time + offset from TIME_REQ / TIME_RESP. One exchange
+  (t0 local send, t1 relay receive, t2 relay send, t3 local receive) proves t2 - t3 <= offset <=
+  t1 - t0 whatever the jitter, because both one-way delays are positive. `interp.py` takes the
+  midpoint of the lowest-RTT exchange of the last 16; `ClockSync` intersects the intervals of the last
+  32 exchanges instead (Marzullo's algorithm: the region shared by the most intervals, so a bad
+  exchange is outvoted). With symmetric jitter the error drops to half the difference between the
+  smallest uplink and the smallest downlink delay in the window. Details:
+  * The exact local send time is kept per request; the u32 `t0` echo only identifies it. Duplicate,
+    unknown or late (over 5 s) responses and impossible stamps (relay hold negative or longer than
+    the round trip) are refused.
+  * `relay_v2.py` truncates its clock to whole ms, so each interval is widened by 1 ms on the t1
+    side, and intervals widen by 200 ppm per second of age for clock-rate differences.
+  * u32 relay stamps are unwrapped near t0 + offset; `UnwrapRelayMs` does the same for snapshot
+    `sample_time` values.
+  * The applied offset follows `interp.py`: it jumps to the estimate during warm-up (16 exchanges),
+    then slews at most 2 ms per exchange; changes above 50 ms step, and a step above 20 ms is
+    reported so snapshot buffers can reset their timing. `Synced()` after 3 exchanges.
+  * Requests go out at 10 Hz until warm, then at 2 Hz (`client_v2.py` uses 1 Hz), which keeps the
+    32-exchange window within 16 s.
+  * `ErrorBoundMs()` is a hard bound under those assumptions; it has to allow any split of the round
+    trip, so on a real link it is about half the lowest round trip. Asymmetric base latency remains
+    a bias of half the difference, as for any two-way method.
 
 ## Wire protocol v1
 
@@ -296,7 +359,7 @@ port of it, on a host that both players can reach.
   imports. The native list in `LoadReport.hpp`, the registrations in `Main.cpp` and the
   declarations in `Natives.reds` agree, and every name is in the image. The Net_Version string
   matches `CMakeLists.txt`, and the log marker occurs exactly once. `coopnet_plugin_probe.exe`:
-  LoadLibrary + Query gives version 0.2.0 with pre-release alpha (1) number 1, runtime 3.0.80.51928
+  LoadLibrary + Query gives version 0.2.0 with pre-release alpha (1) number 2, runtime 3.0.80.51928
   and SDK 1.0.0.
 * `coopnet_v2_tests.exe`: 24,076 checks: SHA-256 (FIPS vectors) and HMAC (RFC 4231), proto.py's
   hash and quantizer values, UTF-8 rules, the packet header, the handshake bodies and their
@@ -307,12 +370,39 @@ port of it, on a host that both players can reach.
   proto.py, 0 failures.
 * `coopnet_v2_fuzz.exe` and `coopnet_v2_fuzz_asan.exe`: 20,000 inputs each, no crash, no
   AddressSanitizer report, 0 invariant failures.
+* `coopnet_v2_reliability_tests.exe`: the relay's `test_reliability.py` cases ported, 38,493 checks:
+  every reliable message delivered exactly once and in order at 0/10/30/45 % loss with 0/5/10/20 %
+  duplicates (600 messages each way), 25-message bursts filling the window, packet and message
+  sequences wrapping, a 120 ms-jitter reordering link, 70,000 messages at 5 % loss (1,549 messages/s,
+  28 ms CPU); unreliable messages never duplicated; window, size and 96-message limits; ack bits,
+  sequence 0 and bad framing; and the RTT lesson: no sample above the simulation's 190 ms physical
+  maximum at any loss (the largest was 175 ms), and the 1 s late ack after a lost packet is skipped.
+* `v2_link_trace.py`: 8 scenarios, 85,424 calls of `reliability.py` replayed on the C++ `Connection`:
+  20,643 datagrams byte-identical, 19,472 deliveries and 37,863 states equal, 0 mismatches.
+* `coopnet_v2_clock_tests.exe`: 9,501 checks. `test_interp.py`'s clock cases (symmetric jitter:
+  -0.23 ms off; asymmetry bias; slew and step), wire handling, u32 wrap and outlier rejection. On
+  simulated links for 120 s (5 seeds each, relay stamps truncated to whole ms), the worst error after
+  10 s against the `interp.py` estimator fed the same exchanges: loopback 0.39 vs 1.29 ms, 40+20 ms
+  jitter 2.19 vs 7.29 ms, 78+18 ms 2.29 vs 6.29 ms, 60+40 ms with 10 % loss 3.06 vs 11.79 ms,
+  90+60 ms with 20 % loss 4.34 vs 19.29 ms, +100 ppm drift 3.00 ms, -250 ppm drift 3.96 ms, and an
+  asymmetric 20/80 ms link 1.74 ms once its 30 ms bias is taken out.
+* `run_v2_loopback.py`: a host and a joiner `coopnet_v2_loopback_client` through `relay_v2.py` on
+  127.0.0.1, each impairing its own uplink and downlink. Clean, 40 ms + 20 ms jitter with 1 % loss,
+  and 60 ms + 40 ms jitter with 10 % loss and 2 % duplicates: 200-300 reliable `SCRIPT_MSG` events
+  each way arrive exactly once and in order, no duplicate snapshots, relay error after warm-up at
+  most 0.31, 0.83 and 2.30 ms, and the two clients' relay clocks within 0.32, 1.06 and 1.67 ms of
+  each other (Phase 2 exit criterion: under 5 ms). The relay reports no violations or rate drops.
 
 ## Known limits
 
 * Only 0.1.0 has run in the game. The 0.1.1 natives (`Net_NowMs`, `Net_Version`), the startup line,
-  the 0.1.2 fixes and the 0.2.0-alpha.1 version string are verified offline only. Calling the natives from redscript at runtime
-  (`CoopNet_SelfTest`) has not been tried yet.
+  the 0.1.2 fixes and the 0.2.0 alpha builds are verified offline only. Calling the natives from
+  redscript at runtime (`CoopNet_SelfTest`) has not been tried yet.
+* The v2 codec, `Connection` and `ClockSync` are not used by the plugin yet: the transport still
+  speaks CPN2. The C++ v2 client exists only as the loopback test client.
+* `relay_v2.py` applies its chat and reliable-message rate limits after a reliable message was
+  acknowledged, so a burst released when a repaired gap unblocks the stream can be dropped silently
+  (run_demo's brutal scenario shows it). The loopback test keeps events at 20/s to stay clear of it.
 * No authentication or encryption. Anyone who knows the relay address and room can join.
 * IPv4 only. One reliable stream per peer, so a lost event delays later events on every reliable
   channel. No fragmentation above 1180 bytes.
