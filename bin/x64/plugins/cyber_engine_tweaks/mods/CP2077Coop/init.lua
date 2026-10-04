@@ -151,6 +151,10 @@ S.remoteForwardY = 1.0
 S.lastFacingX = nil
 S.lastFacingY = nil
 
+-- gdzie avatar stał przy ostatnim obrocie w bezruchu
+S.facingAtX = 0.0
+S.facingAtY = 0.0
+
 -- drugi gracz jedzie pokazanym autem: avatar ukryty, nie podąża
 S.avatarParked = false
 S.avatarUnhidePending = false
@@ -425,6 +429,12 @@ local function moveRemoteAI(
         SendCommand(command)
 
     S.activeMoveCommand = command
+
+    -- AIMoveTo obraca NPC w stronę drogi (cofanie, krok w bok,
+    -- dojście po zatrzymaniu): następny obrót w bezruchu musi
+    -- ustawić avatar od nowa, nawet gdy gracz się nie obrócił
+    S.lastFacingX = nil
+    S.lastFacingY = nil
 
     return true
 end
@@ -1667,6 +1677,10 @@ local Steer = {
     HARD_CORRECT_BACKOFF = 1.0,
     HARD_CORRECT_MAX_FAILS = 8,
     STUCK_DISTANCE = 1.0,
+
+    -- obrót w bezruchu: avatar przesunięty o tyle od ostatniego
+    -- obrotu dostaje nowy (jego kierunek zmienił się z ruchem)
+    FACING_MOVED = 0.15,
 
     lastHardCorrectAt = -100.0,
     hardCorrectStreak = 0,
@@ -3528,6 +3542,11 @@ local function hardCorrectRemote(
             S.remoteForwardX,
             S.remoteForwardY
         )
+
+    -- następny obrót w bezruchu wyrównuje avatar jeszcze raz
+    -- (AI mogło zmienić obrót przed wykonaniem teleportu)
+    S.lastFacingX = nil
+    S.lastFacingY = nil
 end
 
 
@@ -5012,7 +5031,17 @@ registerForEvent(
                 local facingChanged = 999.0
 
 
-                if S.lastFacingX ~= nil then
+                -- avatar przesunął się od ostatniego obrotu (spóźnione
+                -- AIMoveTo, popchnięcie, reakcja na trafienie): obrócił
+                -- się razem z ruchem, więc wyrównujemy go jeszcze raz
+                if S.lastFacingX ~= nil
+                    and distance2(
+                        current.x,
+                        current.y,
+                        S.facingAtX,
+                        S.facingAtY
+                    ) <= Steer.FACING_MOVED
+                then
 
                     facingChanged =
                         distance2(
@@ -5038,6 +5067,9 @@ registerForEvent(
 
                     S.lastFacingY =
                         S.remoteForwardY
+
+                    S.facingAtX = current.x
+                    S.facingAtY = current.y
                 end
             end
         end
