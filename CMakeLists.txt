@@ -82,9 +82,11 @@ target_link_libraries(coopnet_core PUBLIC ws2_32 coopnet_version)
 
 # -----------------------------------------------------------------------------
 # Protocol v2 (no RED4ext, no Winsock): the codec (port of relay/coopnet/proto.py and
-# snapshot.py) and the per-hop link (port of reliability.py).
+# snapshot.py), the per-hop link (port of reliability.py) and the relay clock estimate.
 # -----------------------------------------------------------------------------
 set(COOPNET_V2_SOURCES
+  src/v2/ClockSync.cpp
+  src/v2/ClockSync.hpp
   src/v2/coop_proto_v2.h
   src/v2/V2Codec.cpp
   src/v2/V2Codec.hpp
