@@ -1041,7 +1041,15 @@ function Mods.receive(packetType, value, clock)
 
         Mods.notePeerHigh(clock)
 
+        -- start nowego cyklu, a poprzedni nie dostał znacznika końca
+        -- (zgubiona albo nadpisana ostatnia para): liczy się i tak,
+        -- zamiast czekać na pełny cykl z par co TRICKLE_INTERVAL
         if flag then
+
+            if next(Mods.building) ~= nil then
+                Mods.closeCycle(false)
+            end
+
             Mods.building = {}
         end
 
@@ -1049,37 +1057,66 @@ function Mods.receive(packetType, value, clock)
         return
     end
 
-    -- TYPE_LO bez poprzedzającego HI (zgubiony pakiet): pomijamy
-    if Mods.pendingHigh == nil then
+    -- TYPE_LO bez poprzedzającego HI (zgubiony albo nadpisany w DLL):
+    -- bez odcisku, ale znacznik końca cyklu się liczy. Inaczej jeden
+    -- zgubiony HI ostatniej pary = cykl przepada, a następny pełny
+    -- przychodzi dopiero z par co TRICKLE_INTERVAL (minuta i więcej).
+    -- Pusty zbiór (np. koniec cyklu sprzed naszego resetu) nic nie mówi.
+    local complete =
+        Mods.pendingHigh ~= nil
+
+    if Mods.pendingHigh ~= nil then
+
+        local hash =
+            Mods.pendingHigh * 256 +
+            byte
+
+        Mods.pendingHigh = nil
+
+        if hash ~= Mods.EMPTY_SENTINEL then
+            Mods.building[hash] = true
+        end
+
+    elseif next(Mods.building) == nil then
         return
     end
 
-    local hash =
-        Mods.pendingHigh * 256 +
-        byte
-
-    Mods.pendingHigh = nil
-
-    if hash ~= Mods.EMPTY_SENTINEL then
-        Mods.building[hash] = true
-    end
-
     if flag then
+        Mods.closeCycle(complete)
+    end
+end
+
+
+-- Koniec cyklu odcisków drugiej strony: dwa ostatnie cykle tworzą jej
+-- listę (Mods.remoteSet), po dwóch pierwszych porównanie. Cykl
+-- uszkodzony (bez ostatniej pary albo bez znacznika końca) liczy się do
+-- porównania, ale jego odciski dołączają do najnowszego cyklu, zamiast
+-- wypychać pełny cykl z sumy.
+function Mods.closeCycle(complete)
+
+    if complete or Mods.lastCycle == nil then
 
         Mods.previousCycle = Mods.lastCycle
         Mods.lastCycle = Mods.building
-        Mods.building = {}
-        Mods.cyclesReceived = Mods.cyclesReceived + 1
 
-        if not Mods.compared and Mods.cyclesReceived >= 2 then
+    else
 
-            Mods.compared = true
-            Mods.logComparison()
-
-            -- "mods compared" + BURST_CYCLES pełnych cykli: druga strona
-            -- też dostaje naszą listę dwa razy w całości
-            Mods.arm()
+        for hash in pairs(Mods.building) do
+            Mods.lastCycle[hash] = true
         end
+    end
+
+    Mods.building = {}
+    Mods.cyclesReceived = Mods.cyclesReceived + 1
+
+    if not Mods.compared and Mods.cyclesReceived >= 2 then
+
+        Mods.compared = true
+        Mods.logComparison()
+
+        -- "mods compared" + BURST_CYCLES pełnych cykli: druga strona
+        -- też dostaje naszą listę dwa razy w całości
+        Mods.arm()
     end
 end
 
