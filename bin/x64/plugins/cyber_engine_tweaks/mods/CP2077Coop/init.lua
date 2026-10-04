@@ -120,6 +120,10 @@ S.joinStartZ = 0.0
 -- wynik ostatniej próby (panel): błąd do punktu teleportu i opis porażki
 S.joinError = nil
 S.joinFailure = nil
+-- host też może się jeszcze wczytywać albo właśnie szybko podróżować:
+-- s czasu jego pakietów bez skoku pozycji i Sync.clock przy ostatnim skoku
+S.hostSettled = 0.0
+S.hostJumpAt = -100.0
 
 
 ------------------------------------------------------------
@@ -4300,6 +4304,19 @@ function Diag.joinStatus()
             "warn"
     end
 
+    if S.hostSettled < Sync.JOIN_SETTLE_SECONDS
+        and Diag.lastPacketClock ~= nil
+    then
+
+        return
+            string.format(
+                "waiting for the host to settle (%.1f / %.0f s)",
+                S.hostSettled,
+                Sync.JOIN_SETTLE_SECONDS
+            ),
+            "warn"
+    end
+
     return "waiting for the host's position", "warn"
 end
 
@@ -5217,6 +5234,63 @@ function Sync.joinReady()
         and S.joinPhase == "settle"
         and S.joinSettled >=
             Sync.JOIN_SETTLE_SECONDS
+        and S.hostSettled >=
+            Sync.JOIN_SETTLE_SECONDS
+end
+
+
+-- Pakiet hosta (joiner, przed Sync.joinReady i przed zapisem
+-- S.previousRemoteX): skok pozycji = host się wczytuje, robi szybką
+-- podróż albo teleport. Cel teleportu z takiej pozycji byłby nieaktualny
+-- (WORLD SYNC OK obok miejsca, gdzie hosta już nie ma), więc licznik
+-- spokoju hosta od zera. Auto do VEHICLE_MAX_SPEED przez lukę w pakietach
+-- nie jest skokiem.
+function Sync.noteHostPacket(x, y, z, sequenceDelta, isRestart)
+
+    local tick =
+        SEND_INTERVAL *
+        sequenceDelta
+
+    local jump = 0.0
+
+    if S.previousRemoteX ~= nil
+        and not isRestart
+    then
+
+        jump =
+            distance3(
+                x, y, z,
+                S.previousRemoteX,
+                S.previousRemoteY,
+                S.previousRemoteZ
+            )
+    end
+
+    if isRestart
+        or jump > Sync.JOIN_JUMP_DISTANCE + Sync.VEHICLE_MAX_SPEED * tick
+    then
+
+        S.hostSettled = 0.0
+        S.hostJumpAt = Sync.clock
+
+        if not S.worldJoinComplete
+            and not isRestart
+        then
+
+            Diag.log(
+                string.format(
+                    "[CP2077Coop] WORLD SYNC waiting: host position jumped %.1f m (host loading or fast travelling), waiting for it to settle",
+                    jump
+                )
+            )
+        end
+
+        return
+    end
+
+    S.hostSettled =
+        S.hostSettled +
+        tick
 end
 
 
@@ -5516,7 +5590,15 @@ function Sync.updateJoin(player, delta)
                 delta
         end
 
-        if miss <= Sync.JOIN_TOLERANCE then
+        -- host skoczył po wzięciu celu: punkt jest nieaktualny, choć
+        -- wylądowaliśmy na nim (próba się liczy, kolejna celuje w nowe
+        -- miejsce, gdy host się uspokoi)
+        local hostJumped =
+            S.hostJumpAt >= S.joinCalledAt
+
+        if miss <= Sync.JOIN_TOLERANCE
+            and not hostJumped
+        then
 
             Sync.finishJoin(
                 position,
@@ -5524,6 +5606,16 @@ function Sync.updateJoin(player, delta)
                 phase == "retry"
                     and " (previous teleport applied late)"
                     or ""
+            )
+
+        elseif miss <= Sync.JOIN_TOLERANCE
+            and phase == "teleport"
+        then
+
+            Sync.failJoinAttempt(
+                position,
+                miss,
+                "the host jumped during the attempt (fast travel or still loading)"
             )
 
         elseif phase == "teleport"
@@ -5740,6 +5832,8 @@ local function resetRemote()
     S.joinLastZ = nil
     S.joinError = nil
     S.joinFailure = nil
+    S.hostSettled = 0.0
+    S.hostJumpAt = -100.0
 
     S.worldJoinComplete = IS_HOST
 
@@ -6249,6 +6343,10 @@ registerForEvent(
             -- (nie w aucie, nie w scenie: Sync.updateJoin),
             -- z pozycją hosta z tego pakietu
             ------------------------------------------------
+
+            if not IS_HOST then
+                Sync.noteHostPacket(rx, ry, rz, sequenceDelta, isRestart)
+            end
 
             if Sync.joinReady() then
 

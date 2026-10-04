@@ -24,6 +24,12 @@ J4  a teleport the game applies after the 2.5 s wait still counts: joined during
     the pause, no second call.
 J5  the panel's "Join" row says what the join is doing in every phase (and the
     "Avatar" row that the spawn waits for it); the host's panel has no Join row.
+J6  the host's own position must be steady too: the joiner is settled before the
+    host's first packet, the host's first second is from before the game placed it
+    (60 m away). The first Teleport waits for 4 s of steady host packets and aims
+    at the placed host.
+J7  the host jumps 60 m during an attempt: landing at the old point is a failed
+    attempt ("host jumped"), the next one aims at the new spot and joins.
 
 Usage: python test_join.py path/to/init.lua
 """
@@ -475,6 +481,86 @@ def test_panel_rows():
     return join_ok and avatar_ok and "Join" not in host_rows
 
 
+# ------------------------------------------------------------------ J6 + J7
+
+HOST_PLACED = (HOST_START[0] + 60.0, HOST_START[1] + 0.0)  # where the game really puts the host
+
+
+def jumping_host(jump_at):
+    """Host stands at HOST_START, then the game moves it 60 m (load placement, fast travel)."""
+    def path(t):
+        x, y = HOST_PLACED if t >= jump_at() else HOST_START
+        return x, y, 0.0, 0.0, 1.0, FLAG_HOST
+    return path
+
+
+def test_host_loads_late():
+    # the joiner is settled long before the host's first packet (host still loading);
+    # the host's first second of packets is from before the game placed it
+    host_from, jump = 7.0, 8.0
+    session = Session(new_source(), jumping_host(lambda: jump), ignore_for=0.0, apply_delay=0.6)
+
+    def host_online(s, t):
+        s.remote.silent_from = None if t >= host_from else 0.0
+
+    session.run(16.0, host_online)
+    calls = session.calls()
+    joined = session.lines("WORLD SYNC OK")
+    jumped = session.lines("host position jumped")
+    placed = side_point(HOST_PLACED[0], HOST_PLACED[1], 0.0, 1.0)
+    first = calls[0] if calls else None
+    aim = math.hypot(first["x"] - placed[0], first["y"] - placed[1]) if first else None
+    px, py = session.player()
+    end_miss = math.hypot(px - placed[0], py - placed[1])
+    print(f"  host silent until {host_from:.0f} s, jumps 60 m at {jump:.0f} s (joiner settled at {LOAD_AT + SETTLE:.0f} s):")
+    show(session, JOIN_LINES + ("host position jumped",))
+    print(f"    first Teleport at {first['t'] if first else None}, {aim if aim is None else round(aim, 2)} m from the placed "
+          f"host's side point; player ends {end_miss:.2f} m from it")
+    return (
+        bool(jumped) and first is not None
+        and first["t"] >= jump + SETTLE - 0.1 and aim <= 0.1
+        and len(joined) == 1 and "attempt=1/3" in joined[0][1]
+        and end_miss <= TOLERANCE
+        and session.g.updateErrors == 0
+    )
+
+
+def test_host_jumps_during_attempt():
+    # the host fast-travels 0.3 s after our Teleport call: landing at the old point is no join
+    marks = {}
+
+    def jump_at():
+        return marks["call"] + 0.3 if "call" in marks else 1e9
+
+    session = Session(new_source(), jumping_host(jump_at), ignore_for=0.0, apply_delay=0.6)
+
+    def watch(s, t):
+        if "call" not in marks and s.calls():
+            marks["call"] = s.calls()[0]["t"]
+
+    session.run(18.0, watch)
+    calls = session.calls()
+    failed = session.lines("WORLD SYNC FAILED")
+    joined = session.lines("WORLD SYNC OK")
+    placed = side_point(HOST_PLACED[0], HOST_PLACED[1], 0.0, 1.0)
+    second = calls[1] if len(calls) > 1 else None
+    aim = math.hypot(second["x"] - placed[0], second["y"] - placed[1]) if second else None
+    px, py = session.player()
+    end_miss = math.hypot(px - placed[0], py - placed[1])
+    print("  host jumps 60 m 0.3 s after the first Teleport call (applied 0.6 s after it):")
+    show(session, JOIN_LINES + ("host position jumped",))
+    print(f"    calls at {[round(c['t'], 2) for c in calls]}; second aims {aim if aim is None else round(aim, 2)} m "
+          f"from the placed host's side point; player ends {end_miss:.2f} m from it")
+    return (
+        len(failed) == 1 and "host jumped" in failed[0][1]
+        and second is not None and second["t"] - calls[0]["t"] >= max(RETRY_DELAYS[0], SETTLE)
+        and aim <= 0.1
+        and len(joined) == 1 and "attempt=2/3" in joined[0][1]
+        and end_miss <= TOLERANCE
+        and session.g.updateErrors == 0
+    )
+
+
 if __name__ == "__main__":
     tests = {
         "J1 slow game: settle, one Teleport per attempt, measured at the teleport point, joins; old logic gives up": test_slow_game_joins,
@@ -482,6 +568,8 @@ if __name__ == "__main__":
         "J3 car, scene and position jump restart the 4 s settle; avatar spawns while in the car": test_settle_gate,
         "J4 a teleport applied after the 2.5 s wait counts, no second call": test_late_apply_counts,
         "J5 panel 'Join' row through settle, teleport, retry, done, vehicle, gave up; host has none": test_panel_rows,
+        "J6 host still loading (silent, then a 60 m placement jump): no join at the stale point, joins the placed host": test_host_loads_late,
+        "J7 host jumps during the attempt: landing at the old point fails the attempt, the next one joins the new spot": test_host_jumps_during_attempt,
     }
     results = {}
     for name, test in tests.items():
