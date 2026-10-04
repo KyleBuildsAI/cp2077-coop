@@ -32,6 +32,8 @@ D15 [STATS] frame_p99_ms follows hitches, hard_per_min counts the avatar
     teleports that fix drift (not fast follow) over the last minute, and
     flags_rx_ps matches the partner's flags packets that arrived; the two roles
     receive flags within 15 % of each other
+D16 the build's version (what devkit.py reads from init.lua) is the first
+    [STATS] field, in the panel title and in its Version row
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
@@ -55,6 +57,7 @@ PACKAGE = os.path.abspath(os.path.join(os.path.dirname(SCRIPT), *[os.pardir] * 6
 TOOLS = os.path.join(PACKAGE, "coop-tools")
 sys.path.insert(0, TOOLS)
 import coop_monitor as monitor  # noqa: E402
+import devkit  # noqa: E402
 
 MOD_DIR = os.path.join("bin", "x64", "plugins", "cyber_engine_tweaks", "mods", "CP2077Coop")
 
@@ -883,6 +886,41 @@ def test_frame_corrections_flags_stats():
     )
 
 
+# ------------------------------------------------------------------ D16
+
+VERSION_PROBE = r"""
+panelTitles, versionRows = {}, {}
+ImGui.Begin = function(title) panelTitles[#panelTitles + 1] = title return true end
+local text = ImGui.Text
+local label = nil
+ImGui.Text = function(s) label = s return text(s) end
+local colored = ImGui.TextColored
+ImGui.TextColored = function(r, g, b, a, s)
+    if label == "Version" then versionRows[#versionRows + 1] = s end
+    return colored(r, g, b, a, s)
+end
+"""
+
+
+def test_version_everywhere():
+    game, mod_dir = make_game_dir()
+    try:
+        shutil.copy(SCRIPT, os.path.join(mod_dir, "init.lua"))
+        expected = devkit.mod_version(game).lstrip("v")
+    finally:
+        shutil.rmtree(game, ignore_errors=True)
+    host, _ = harness.run_session(6.0)
+    host.execute(VERSION_PROBE)
+    host.globals().events["onDraw"]()
+    line = harness.last_stats(host)
+    titles = list(host.globals().panelTitles.values())
+    rows = list(host.globals().versionRows.values())
+    stats_version = harness.stat(line, "version")
+    print(f"  devkit reads v{expected}; [STATS] version={stats_version}; panel title {titles}; Version row {rows}")
+    return (expected == "0.0.32" and stats_version == expected and line.split("[STATS] ", 1)[1].startswith("version=")
+            and titles == [f"CP2077 Coop v{expected}###CP2077Coop"] and rows == [expected])
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -900,6 +938,7 @@ if __name__ == "__main__":
         "D13 relay ping parsed in any Windows language (TTL= anchor) and on Linux/macOS": test_ping_any_language,
         "D14 a v0.0.26 partner gets a constant vector length (no rotate spam); current builds sync at once": test_old_partner_sees_constant_vector,
         "D15 STATS: frame p99, hard corrections per minute (not fast follow), partner flags per second": test_frame_corrections_flags_stats,
+        "D16 version 0.0.32 in every [STATS] line, the panel title and the Version row": test_version_everywhere,
     }
     results = {}
     for name, test in tests.items():

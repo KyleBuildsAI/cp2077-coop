@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.31 WORLD + STATE + VEHICLE + COMBAT SYNC + DIAGNOSTICS + TEST BOT
+-- v0.0.32 WORLD + STATE + VEHICLE + COMBAT SYNC + DIAGNOSTICS + TEST BOT
 --
 -- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
 -- albo domyślnie poniżej. role.txt ma pierwszeństwo.
@@ -253,8 +253,11 @@ S.joinForwardY = nil
 -- DIAGNOSTICS niżej).
 ------------------------------------------------------------
 
+-- VERSION: podbić przy każdym wdrożeniu (Total Sync Plan). Widać ją w
+-- tytule i pierwszym wierszu panelu oraz w każdej linii [STATS]
+-- (version=), więc stary build na stanowisku testowym od razu widać.
 local Diag = {
-    VERSION = "0.0.31",
+    VERSION = "0.0.32",
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
@@ -3876,7 +3879,8 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f fps=%.0f peer_rate=%.1f missed_pct=%s missed_total_pct=%.1f overwritten_pct=%s out_merged_pct=%s ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d frame_p99_ms=%s hard_per_min=%s flags_rx_ps=%s",
+            "[CP2077Coop] [STATS] version=%s state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f fps=%.0f peer_rate=%.1f missed_pct=%s missed_total_pct=%.1f overwritten_pct=%s out_merged_pct=%s ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d frame_p99_ms=%s hard_per_min=%s flags_rx_ps=%s",
+            Diag.VERSION,
             Diag.lastState,
             S.syncActive and "on" or "off",
             IS_HOST and "host" or "joiner",
@@ -4271,7 +4275,9 @@ function Diag.draw()
 
     ImGui.SetNextWindowPos(20, 300, ImGuiCond.FirstUseEver)
 
-    if not ImGui.Begin("CP2077 Coop", ImGuiWindowFlags.AlwaysAutoResize) then
+    -- wersja w tytule (widać ją też po zwinięciu okna); "###" = stałe ID
+    -- okna, więc pozycja zapisana przez ImGui nie zależy od wersji
+    if not ImGui.Begin("CP2077 Coop v" .. Diag.VERSION .. "###CP2077Coop", ImGuiWindowFlags.AlwaysAutoResize) then
 
         ImGui.End()
         return
