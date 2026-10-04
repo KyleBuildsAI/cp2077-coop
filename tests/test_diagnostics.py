@@ -923,8 +923,17 @@ def test_version_everywhere():
     titles = list(host.globals().panelTitles.values())
     rows = list(host.globals().versionRows.values())
     stats_version = harness.stat(line, "version")
-    print(f"  devkit reads v{expected}; [STATS] version={stats_version}; panel title {titles}; Version row {rows}")
-    return (expected == "0.0.32" and stats_version == expected and line.split("[STATS] ", 1)[1].startswith("version=")
+    runtime_version = upvalue(host, "Diag").VERSION
+    # any x.y.z passes (a version bump on every deploy must not turn the suite red);
+    # devkit's "unknown" / "not installed" fallbacks fail
+    well_formed = re.fullmatch(r"\d+\.\d+\.\d+", expected) is not None
+    with open(SCRIPT, encoding="utf-8") as handle:
+        banner = re.search(r"^-- v(\d+\.\d+\.\d+) ", handle.read(), re.M)
+    banner_version = banner.group(1) if banner else None
+    print(f"  devkit reads v{expected} (x.y.z: {well_formed}); Diag.VERSION {runtime_version}; header banner v{banner_version}; "
+          f"[STATS] version={stats_version}; panel title {titles}; Version row {rows}")
+    return (well_formed and runtime_version == expected and banner_version == expected
+            and stats_version == expected and line.split("[STATS] ", 1)[1].startswith("version=")
             and titles == [f"CP2077 Coop v{expected}###CP2077Coop"] and rows == [expected])
 
 
@@ -945,7 +954,7 @@ if __name__ == "__main__":
         "D13 relay ping parsed in any Windows language (TTL= anchor) and on Linux/macOS": test_ping_any_language,
         "D14 a v0.0.26 partner gets a constant vector length (no rotate spam); current builds sync at once": test_old_partner_sees_constant_vector,
         "D15 STATS: frame p99, hard corrections per minute (not fast follow), partner flags per second": test_frame_corrections_flags_stats,
-        "D16 version 0.0.32 in every [STATS] line, the panel title and the Version row": test_version_everywhere,
+        "D16 the init.lua version (x.y.z, header banner too) in every [STATS] line, the panel title and the Version row": test_version_everywhere,
     }
     results = {}
     for name, test in tests.items():
