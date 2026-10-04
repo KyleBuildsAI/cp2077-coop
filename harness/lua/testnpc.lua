@@ -68,7 +68,7 @@ function TestNpc:spawn(pose)
     if not self.enabled or self.role ~= "host" or self.actor or not validPose(pose) then return false end
     self.serial = self.serial + 1
     if self.serial > 2147483647 then return false end -- require new session rather than wrap IDs
-    self.actor = {id=self.serial, target=copy(pose), started=self.now, nextRetry=0, nextState=0, seq=0}
+    self.actor = {id=self.serial, target=copy(pose), started=self.now, nextRetry=0, nextState=0, seq=0, awaitClear=true}
     return true
 end
 
@@ -82,8 +82,14 @@ end
 function TestNpc:stop()
     if not self.enabled or self.role ~= "host" or not self.actor then return false end
     self.entity.clear()
+    self.localClearPending = true
     self.actor.stopping, self.actor.nextRetry = true, 0
     return true
+end
+
+function TestNpc:present()
+    if self.entity.exists then return self.entity.exists() == true end
+    return self.entity.read() ~= nil
 end
 
 function TestNpc:reject()
@@ -112,7 +118,7 @@ function TestNpc:receive(sender, reliable, message)
         if not a or id > a.id then
             self.entity.clear()
             if a then self.tombstone = math.max(self.tombstone, a.id) end
-            a = {id=id, target=p, started=self.now, last=self.now, seq=0, nextAck=0}
+            a = {id=id, target=p, started=self.now, last=self.now, seq=0, nextAck=0, awaitClear=true}
             self.actor = a
         end
         a.last = self.now
@@ -120,7 +126,8 @@ function TestNpc:receive(sender, reliable, message)
     elseif kind == "D" then
         if not reliable or #f ~= 4 then return self:reject() end
         self.tombstone = math.max(self.tombstone, id)
-        if a and a.id <= id then self.entity.clear(); self.actor = nil end
+        self.deleteNeedsClear = not a or a.id <= id
+        if self.deleteNeedsClear then self.entity.clear(); self.actor = nil end
         self.pendingDeleteAck = id
     elseif kind == "S" then
         local seq = tonumber(f[5])
@@ -136,7 +143,16 @@ end
 function TestNpc:update(dt)
     if not self.enabled or not finite(dt) or dt < 0 then return end
     self.now = self.now + dt
-    if self.pendingDeleteAck and self:emit(true, "X", self.pendingDeleteAck) then self.pendingDeleteAck = nil end
+    if self.localClearPending then
+        self.entity.clear()
+        if not self:present() then self.localClearPending = false end
+    end
+    if self.pendingDeleteAck then
+        if self.deleteNeedsClear then self.entity.clear() end
+        if (not self.deleteNeedsClear or not self:present()) and self:emit(true, "X", self.pendingDeleteAck) then
+            self.pendingDeleteAck, self.deleteNeedsClear = nil, false
+        end
+    end
     local a = self.actor
     if not a then return end
     if a.stopping then
@@ -149,8 +165,16 @@ function TestNpc:update(dt)
     end
     if self.role == "joiner" and self.now - a.last > self.STALE then
         self.entity.clear()
+        self.localClearPending = true
         self.tombstone, self.actor, self.expired = math.max(self.tombstone, a.id), nil, self.expired + 1
         return
+    end
+    -- DeleteTagged is asynchronous in the engine. Never mistake the previous
+    -- incarnation for the newly bound actor, or ACK removal while its tag exists.
+    if a.awaitClear then
+        self.entity.clear()
+        if self:present() then return end
+        a.awaitClear = false
     end
     local actual = self.entity.read()
     if not validPose(actual) then
@@ -210,6 +234,10 @@ function TestNpc.cetEntity(playerProvider)
             if not actor or actor:IsDead() then return nil end
             local p = actor:GetWorldPosition()
             return {x=p.x, y=p.y, z=p.z, yaw=actor:GetWorldYaw()}
+        end,
+        exists=function()
+            local player = playerProvider()
+            return player ~= nil and player:CP2077Coop_TestNpcGet() ~= nil
         end,
         clear=function()
             local player = playerProvider()

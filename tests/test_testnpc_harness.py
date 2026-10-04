@@ -29,7 +29,7 @@ local function entity()
         e.pose = {x=p.x, y=p.y, z=p.z, yaw=p.yaw}
         return true
     end
-    e.clear = function() e.clears = e.clears + 1; e.pose = nil end
+    e.clear = function() e.clears = e.clears + 1; if not e.holdDeletion then e.pose = nil end end
     return e
 end
 local env = {out={}, blocked=false, h=entity(), j=entity()}
@@ -232,6 +232,34 @@ def test_shutdown_clears_and_disables_inbound_processing(bench):
     env.joiner.shutdown(env.joiner)
     assert env.h.pose is None and env.j.pose is None
     assert not env.joiner.receive(env.joiner, 41, True, "NT1|123456|B|2|1|2|3|45")
+
+
+def test_async_removal_ack_waits_for_entity_to_disappear(bench):
+    lua, _, env = active(bench)
+    env.j.holdDeletion = True
+    assert env.host.stop(env.host)
+    ticks(env, 20)
+    assert env.j.pose is not None and env.host.actor.stopping
+    assert env.joiner.pendingDeleteAck == 1
+    env.j.holdDeletion = False
+    ticks(env, 20)
+    assert env.j.pose is None and env.host.actor is None
+    assert env.joiner.pendingDeleteAck is None
+    assert env.host.spawn(env.host, pose(lua, x=9))
+    ticks(env, 20)
+    assert env.j.pose.x == 9 and env.j.spawns == 2
+
+
+def test_new_incarnation_waits_for_previous_tag_to_clear(bench):
+    lua, _, env = bench
+    env.h.pose = pose(lua, x=99)
+    env.h.holdDeletion = True
+    assert env.host.spawn(env.host, pose(lua, x=1))
+    ticks(env, 20)
+    assert env.h.spawns == 0 and env.j.spawns == 0
+    env.h.holdDeletion = False
+    ticks(env, 30)
+    assert env.h.spawns == 1 and env.j.spawns == 1 and env.j.pose.x == 1
 
 
 def test_missing_epoch_and_peer_are_configuration_errors(bench):

@@ -58,7 +58,9 @@ Wrong direction/channel/epoch/sender, malformed numeric fields, stale sequence n
 
 ## Validation and first live acceptance
 
-As of 2026-10-04: **37 tests pass** (25 LuaJIT harness cases, 12 existing codec/probe cases). Compile against Baseline + Codeware + the main mod succeeded. Neither game has loaded this harness. Install only the `harness/scripts/CP2077Coop_testnpc` folder and its Lua module when the adapter extension and bench are ready; do not install the broad prototype folder beside it.
+As of 2026-10-04: **39 tests pass** (27 LuaJIT harness cases, 12 existing codec/probe cases). Compile against Baseline + Codeware + the main mod succeeded. The main mod's source v0.0.35 now includes an opt-in coordinator and this harness; live deployment/verification is owned by the main bench. It must not load the broad prototype folder beside it.
+
+Engine tag deletion can be asynchronous. `entity.exists()` (optional for mocks; implemented by the CET bridge) checks tag presence including a dead actor. Removal ACK waits until the old tag disappears, and a new incarnation cannot reuse an actor pending deletion. The lifecycle system is explicitly instantiated before spawn so its session cleanup callback is registered.
 
 ```powershell
 python -m pip install -r harness/requirements-test.txt
