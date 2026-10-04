@@ -25,7 +25,9 @@
 local IS_HOST = true
 
 -- 30 pakietów/s (było 20). OBAJ gracze muszą mieć tę samą
--- wartość - prędkość liczona jest z numeru sekwencji.
+-- wartość - prędkość liczona jest z numeru sekwencji: nadawca
+-- wysyła pozycję z równej siatki 30 Hz przy każdym fps
+-- (Sync.sendLocalState), więc jeden numer = SEND_INTERVAL.
 local SEND_INTERVAL = 1.0 / 30.0
 
 -- Jak często aktualizujemy cel AI.
@@ -57,8 +59,10 @@ local VERTICAL_SNAP = 0.8
 -- UDP: duży spadek sekwencji = restart klienta drugiego gracza
 local SEQUENCE_RESET_GAP = 200
 
--- po przycięciu gry nie wysyłamy zaległych pakietów seriami
-local MAX_SEND_BACKLOG = 2
+-- po przycięciu gry: najwyżej tyle zaległych tyknięć 30 Hz w jednej
+-- klatce (1 s). Push jest tani, DLL wysyła i tak tylko ostatni,
+-- a odbiorca widzi lukę w numerach = upływ czasu, nie skok prędkości.
+local MAX_SEND_BACKLOG = 30
 
 local ROTATE_INTERVAL = 0.10
 
@@ -107,6 +111,18 @@ S.syncActive = false
 
 S.rolePrinted = false
 S.lastRemoteSequence = -1
+
+-- numer i licznik tyknięć ostatniego pakietu RUCHU; pakiety bojowe
+-- zużywają numery, ale nie są upływem czasu
+S.lastMoveSequence = nil
+S.combatSinceMove = 0
+S.moveTicks = 0
+
+-- nadawca: pozycja z poprzedniej klatki (interpolacja do siatki 30 Hz)
+S.sendPrevX = nil
+S.sendPrevY = nil
+S.sendPrevZ = nil
+S.sendPrevSource = nil
 
 
 ------------------------------------------------------------
@@ -1153,6 +1169,7 @@ end
 
 
 -- Każdy nowy pakiet ruchu: poza, prędkość i prędkość skrętu drugiego gracza.
+-- sequence: licznik tyknięć 30 Hz ruchu (S.moveTicks, bez pakietów bojowych).
 function Sync.recordRemotePose(sequence, x, y, z, forwardX, forwardY)
 
     local history = Sync.poseHistory
@@ -3190,6 +3207,192 @@ end
 
 
 ------------------------------------------------------------
+-- LOCAL PLAYER -> VPS
+--
+-- Odbiorca liczy czas z numerów sekwencji (numer = SEND_INTERVAL).
+-- Wcześniej pakiet niósł pozycję z chwili klatki, a klatki nie
+-- trafiają w siatkę 30 Hz (45 fps: odstępy 22/44 ms, 25 fps: 40 ms),
+-- więc prędkość skakała o +-50%: sprint wyglądał jak dash (teleporty),
+-- a po przycięciu gry jeden numer niósł ruch z wielu klatek.
+-- Teraz pozycję czytamy co klatkę, a każde tyknięcie siatki 30 Hz
+-- dostaje pozycję interpolowaną na swoją chwilę. Kilka tyknięć w
+-- jednej klatce = kilka pushy; wątek DLL wysyła tylko ostatni, a
+-- odbiorca liczy lukę w numerach jako upływ czasu.
+------------------------------------------------------------
+
+-- Pozycja, kierunek i źródło (zmiana źródła = skok, bez interpolacji).
+function Sync.localPose(player)
+
+    -- bot testowy podmienia pozycję i kierunek
+    if Bot.active then
+        return
+            { x = Bot.x, y = Bot.y, z = Bot.z, w = 1.0 },
+            { x = Bot.forwardX, y = Bot.forwardY, z = 0.0 },
+            "bot"
+    end
+
+    local pos =
+        player:GetWorldPosition()
+
+    local forward =
+        player:GetWorldForward()
+
+    -- w aucie: środek i kierunek auta, nie fotel gracza
+    if Sync.hasFlag(
+        Sync.localFlags,
+        Sync.FLAG_IN_VEHICLE
+    ) then
+
+        local carPos, carForward =
+            Sync.mountedVehiclePose(
+                player,
+                pos,
+                forward
+            )
+
+        if carPos ~= pos then
+            return carPos, carForward, "vehicle"
+        end
+    end
+
+    return pos, forward, "player"
+end
+
+
+function Sync.sendLocalState(player, delta)
+
+    local pos, forward, source =
+        Sync.localPose(player)
+
+    S.sendAccumulator =
+        S.sendAccumulator +
+        delta
+
+    local ticks =
+        math.floor(
+            S.sendAccumulator /
+            SEND_INTERVAL
+        )
+
+    if ticks > 0 then
+
+        -- długie przycięcie: tylko najnowsze tyknięcia
+        if ticks > MAX_SEND_BACKLOG then
+
+            S.sendAccumulator =
+                S.sendAccumulator -
+                (ticks - MAX_SEND_BACKLOG) *
+                SEND_INTERVAL
+
+            ticks = MAX_SEND_BACKLOG
+        end
+
+        -- kierunek w poziomie, długość dokładnie 1,
+        -- zanim zakodujemy w niej stan gry
+        local forwardLength =
+            distance2(
+                forward.x,
+                forward.y,
+                0.0,
+                0.0
+            )
+
+        local flatX = 0.0
+        local flatY = 1.0
+
+        if forwardLength > 0.001 then
+
+            flatX =
+                forward.x /
+                forwardLength
+
+            flatY =
+                forward.y /
+                forwardLength
+        end
+
+        -- jeden stan gry na klatkę: każdy push w tej klatce niesie ten
+        -- sam, więc ten, który DLL faktycznie wyśle, go dowiezie
+        local sendX, sendY =
+            Sync.encodeForward(
+                flatX,
+                flatY,
+                Sync.buildPayload(
+                    player,
+                    IS_HOST
+                )
+            )
+
+        local fromX = S.sendPrevX
+        local fromY = S.sendPrevY
+        local fromZ = S.sendPrevZ
+
+        -- teleport, wczytanie gry, wejście do auta, start bota:
+        -- bez pozycji pośrednich
+        local smooth =
+            fromX ~= nil
+            and delta > 0.0
+            and S.sendPrevSource == source
+            and distance3(
+                fromX,
+                fromY,
+                fromZ,
+                pos.x,
+                pos.y,
+                pos.z
+            ) <= math.max(
+                TELEPORT_DISTANCE,
+                Sync.VEHICLE_MAX_SPEED * delta
+            )
+
+        for _ = 1, ticks do
+
+            S.sendAccumulator =
+                S.sendAccumulator -
+                SEND_INTERVAL
+
+            local x = pos.x
+            local y = pos.y
+            local z = pos.z
+
+            if smooth then
+
+                -- tyknięcie było S.sendAccumulator s przed końcem klatki
+                local alpha =
+                    math.max(
+                        0.0,
+                        math.min(
+                            1.0,
+                            1.0 - S.sendAccumulator / delta
+                        )
+                    )
+
+                x = fromX + (pos.x - fromX) * alpha
+                y = fromY + (pos.y - fromY) * alpha
+                z = fromZ + (pos.z - fromZ) * alpha
+            end
+
+            Game.CP2077Coop_PushPlayerState(
+                x,
+                y,
+                z,
+                pos.w,
+                sendX,
+                sendY
+            )
+
+            Diag.onSent()
+        end
+    end
+
+    S.sendPrevX = pos.x
+    S.sendPrevY = pos.y
+    S.sendPrevZ = pos.z
+    S.sendPrevSource = source
+end
+
+
+------------------------------------------------------------
 -- TELEPORT REMOTE AVATAR
 ------------------------------------------------------------
 
@@ -3406,6 +3609,10 @@ local function resetRemote()
 
     S.lastRemoteSequence = -1
 
+    S.lastMoveSequence = nil
+    S.combatSinceMove = 0
+    S.moveTicks = 0
+
     S.previousRemoteX = nil
     S.previousRemoteY = nil
     S.previousRemoteZ = nil
@@ -3458,6 +3665,11 @@ local function resetRemote()
     S.sendAccumulator = 0.0
     S.commandAccumulator = 0.0
     S.rotateAccumulator = 0.0
+
+    S.sendPrevX = nil
+    S.sendPrevY = nil
+    S.sendPrevZ = nil
+    S.sendPrevSource = nil
 
     S.rolePrinted = false
 
@@ -3668,110 +3880,13 @@ registerForEvent(
 
 
         ----------------------------------------------------
-        -- LOCAL PLAYER -> VPS
+        -- LOCAL PLAYER -> VPS (siatka 30 Hz, patrz Sync.sendLocalState)
         ----------------------------------------------------
 
-        S.sendAccumulator =
-            S.sendAccumulator +
+        Sync.sendLocalState(
+            player,
             delta
-
-
-        if S.sendAccumulator >=
-            SEND_INTERVAL
-        then
-
-            S.sendAccumulator =
-                S.sendAccumulator -
-                SEND_INTERVAL
-
-            -- po przycięciu nie nadrabiamy serią identycznych pozycji
-            -- (druga strona widziałaby wtedy IDLE)
-            S.sendAccumulator =
-                math.min(
-                    S.sendAccumulator,
-                    SEND_INTERVAL * MAX_SEND_BACKLOG
-                )
-
-
-            local pos =
-                player:
-                    GetWorldPosition()
-
-
-            local forward =
-                player:
-                    GetWorldForward()
-
-
-            -- w aucie: środek i kierunek auta, nie fotel gracza
-            if Sync.hasFlag(
-                Sync.localFlags,
-                Sync.FLAG_IN_VEHICLE
-            ) then
-
-                pos, forward =
-                    Sync.mountedVehiclePose(
-                        player,
-                        pos,
-                        forward
-                    )
-            end
-
-
-            -- bot testowy podmienia pozycję i kierunek
-            if Bot.active then
-
-                pos = { x = Bot.x, y = Bot.y, z = Bot.z, w = 1.0 }
-                forward = { x = Bot.forwardX, y = Bot.forwardY, z = 0.0 }
-            end
-
-
-            -- kierunek w poziomie, długość dokładnie 1,
-            -- zanim zakodujemy w niej stan gry
-            local forwardLength =
-                distance2(
-                    forward.x,
-                    forward.y,
-                    0.0,
-                    0.0
-                )
-
-            local flatX = 0.0
-            local flatY = 1.0
-
-            if forwardLength > 0.001 then
-
-                flatX =
-                    forward.x /
-                    forwardLength
-
-                flatY =
-                    forward.y /
-                    forwardLength
-            end
-
-            local sendX, sendY =
-                Sync.encodeForward(
-                    flatX,
-                    flatY,
-                    Sync.buildPayload(
-                        player,
-                        IS_HOST
-                    )
-                )
-
-
-            Game.CP2077Coop_PushPlayerState(
-                pos.x,
-                pos.y,
-                pos.z,
-                pos.w,
-                sendX,
-                sendY
-            )
-
-            Diag.onSent()
-        end
+        )
 
 
         ----------------------------------------------------
@@ -3872,6 +3987,10 @@ registerForEvent(
                     rawForwardX
                 )
 
+                -- ten numer nie był tyknięciem ruchu
+                S.combatSinceMove =
+                    S.combatSinceMove + 1
+
                 return
             end
 
@@ -3896,9 +4015,41 @@ registerForEvent(
 
             Sync.receivePayload(payload)
 
+
+            -- czas od poprzedniego pakietu RUCHU w tyknięciach 30 Hz.
+            -- Luka w numerach (zgubione w sieci, nadpisane w DLL, kilka
+            -- tyknięć w jednej klatce nadawcy) to upływ czasu; numery
+            -- odebranych pakietów bojowych nie.
+            local sequenceDelta = 1
+
+            if S.lastMoveSequence ~= nil
+                and not isRestart
+            then
+
+                sequenceDelta =
+                    math.max(
+                        1,
+                        sequence -
+                        S.lastMoveSequence -
+                        S.combatSinceMove
+                    )
+            end
+
+            S.lastMoveSequence = sequence
+            S.combatSinceMove = 0
+
+            S.moveTicks =
+                S.moveTicks +
+                sequenceDelta
+
+            -- nowa sesja drugiego gracza: stara historia pozy nie pasuje
+            if isRestart then
+                Sync.poseHistory = {}
+            end
+
             -- auto rysuje Sync.updateRemoteVehicle co klatkę
             Sync.recordRemotePose(
-                sequence,
+                S.moveTicks,
                 rx, ry, rz,
                 forwardX, forwardY
             )
@@ -3936,14 +4087,6 @@ registerForEvent(
             ------------------------------------------------
 
             if S.previousRemoteX ~= nil then
-
-                local sequenceDelta =
-                    sequence -
-                    previousSequence
-
-                if sequenceDelta <= 0 then
-                    sequenceDelta = 1
-                end
 
                 local packetTime =
                     SEND_INTERVAL *
@@ -3985,14 +4128,16 @@ registerForEvent(
                     speed
 
                 -- skok / spadek: pozioma prędkość nie wystarczy
+                -- (na jedno tyknięcie: luka w numerach to dłuższy czas)
                 S.remoteVerticalJump =
-                    math.abs(dz) >
+                    math.abs(dz) / sequenceDelta >
                     VERTICAL_SNAP *
                     0.5
 
 
                 if packetDistance >
-                    MOVEMENT_EPSILON
+                    MOVEMENT_EPSILON *
+                    sequenceDelta
                 then
 
                     S.remoteMoving = true
