@@ -27,7 +27,9 @@ dist\red4ext\plugins\CP2077CoopNet\Scripts\Helpers.reds
 (`dist` is `D:\Downloads\syncfix\coopnet\dllproto\dist`.) The plugin goes in its own folder. It
 does not touch `red4ext\plugins\CP2077Coop\` (Jakub's DLL). On load it hands its own `Scripts`
 folder to the redscript compiler, so **do not** also copy the `.reds` files into `r6\scripts`:
-that would declare the natives twice and break the script compile.
+that would declare the natives twice and break the script compile. The only exception is the
+fallback in section 7. The install in section 2 and the uninstall in section 8 remove that copy
+again.
 
 The build that produced this `dist` is listed under "Build provenance" at the end of this file.
 
@@ -44,16 +46,26 @@ $games = 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Baseline',
          'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Test B'
 foreach ($game in $games) {
     $dest = Join-Path $game 'red4ext\plugins\CP2077CoopNet'
+    # A section 7 fallback copy would declare the natives a second time next to the plugin's own
+    # Scripts folder, and the failed compile would take Jakub's CP2077Coop scripts down with it.
+    $fallback = Join-Path $game 'r6\scripts\CP2077CoopNet'
+    if (Test-Path $fallback) {
+        Remove-Item -Recurse -Force $fallback
+        "$game -> removed the r6\scripts\CP2077CoopNet fallback copy"
+    }
     # /MIR makes the folder an exact copy (an older version's leftovers are removed).
     # Robocopy exit codes 0-7 mean success.
     robocopy $src $dest /MIR /NJH /NJS /NDL
     Get-ChildItem -Recurse -File $dest | Select-Object FullName, Length
     (Get-FileHash -Algorithm SHA256 (Join-Path $dest 'CP2077CoopNet.dll')).Hash
+    "$game -> r6\scripts\CP2077CoopNet present: $(Test-Path $fallback)"
 }
 ```
 
 Each game must list exactly `CP2077CoopNet.dll`, `Scripts\Helpers.reds` and `Scripts\Natives.reds`,
-and the DLL hash must match the one under "Build provenance".
+and the DLL hash must match the one under "Build provenance". The last line for each game must say
+`present: False`. If the new build's log again says `scripts NOT added`, apply the section 7
+fallback again.
 
 Then refresh the mod list that the coop panel compares, so both instances list
 `red4ext/CP2077CoopNet` and the v1 "mods compared" step still matches:
@@ -268,7 +280,7 @@ this check.
 | RED4ext log: `CP2077CoopNet did not initialize properly, unloading...` | `Main` returned false | The plugin log says why, for example `unsupported game version ...`. |
 | Plugin log has the `loaded` line but no `registered Net_* natives` line | The RTTI post-register callback never ran | Natives are absent. Report it; this is the Phase 1 hard-stop question. |
 | Summary line at `[error]` with `MISSING: Net_X (<step>)` | That native failed a registration check: a parameter or return type is not in RTTI (`... not in RTTI, native not registered`), or the RTTI lookup after `RegisterFunction` did not return it | Report the summary line and the `Net_X not registered: ...` error line above it. The missing natives cannot be used. If CET can still call one of them (step 5), the lookup check is wrong, not the registration; report that too. |
-| Summary line with `scripts NOT added: ...` | `sdk->scripts->Add` refused the folder | Fallback from the plan: copy `Scripts\*.reds` into `<game>\r6\scripts\CP2077CoopNet\` **and** delete the plugin's `Scripts` folder, so the natives are declared only once. |
+| Summary line with `scripts NOT added: ...` | `sdk->scripts->Add` refused the folder | Fallback from the plan: copy `Scripts\*.reds` into `<game>\r6\scripts\CP2077CoopNet\` **and** delete the plugin's `Scripts` folder, so the natives are declared only once. From then on the r6 copy stands in for the plugin's folder and must go whenever the DLL goes or the plugin's `Scripts` folder comes back. Otherwise the game is left with declarations for natives that no DLL provides, or with every native declared twice, which fails the whole script compile including v1. The section 8 uninstall and the section 2 reinstall both remove it. |
 | CET: `attempt to call a nil value (field 'Net_Version')` | CET does not see the native | Check the summary line first. |
 | `Game.Net_*` works but `Game.CoopNet_SelfTest` is nil | The redscript side did not compile our files | Check `redscript_rCURRENT.log`. |
 | `Net_Connect` returns true but no `welcome` arrives | The relay is not reachable | Check that the relay window is open on 11779. `Net_Stats` `lastError` gives details. |
@@ -276,8 +288,30 @@ this check.
 
 ## 8. Uninstall
 
-With the games closed, delete `<game>\red4ext\plugins\CP2077CoopNet\` and run the `devkit.py modlist`
-command from step 2 again. Jakub's plugin and v1 are not affected.
+With the games closed, remove the plugin folder **and** the r6 fallback copy, if the section 7
+fallback was ever applied. The fallback copy declares the `Net_*` natives. Without the DLL behind
+them, the game would be left with declarations for natives that do not exist.
+
+```powershell
+# Must print nothing. If it lists a process, close the games first.
+Get-Process Cyberpunk2077 -ErrorAction SilentlyContinue
+
+$games = 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Baseline',
+         'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Test B'
+foreach ($game in $games) {
+    foreach ($folder in 'red4ext\plugins\CP2077CoopNet', 'r6\scripts\CP2077CoopNet') {
+        $path = Join-Path $game $folder
+        if (Test-Path $path) {
+            Remove-Item -Recurse -Force $path
+            "$game -> removed $folder"
+        }
+        "$game -> $folder present: $(Test-Path $path)"
+    }
+}
+```
+
+Both lines per game must end in `present: False`. Then run the `devkit.py modlist` command from
+step 2 again. Once both folders are gone, Jakub's plugin and v1 are as they were before the install.
 
 ## Build provenance
 
