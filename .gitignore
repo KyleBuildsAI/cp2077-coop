@@ -1,0 +1,26 @@
+# Third-party binaries and runtime files: obtain from the release zip, never commit
+*.dll
+*.asi
+*.exe
+*.kark
+*.ttf
+*.otf
+*.log
+*.sqlite3
+*.zip
+LICENSE
+LICENSE.txt
+THIRD_PARTY_LICENSES
+THIRD_PARTY_LICENSES.txt
+ThirdParty_LICENSES
+
+# Bundled third-party script mods (CET, Codeware) and their data
+bin/x64/plugins/cyber_engine_tweaks/scripts/
+bin/x64/plugins/cyber_engine_tweaks/fonts/
+red4ext/plugins/Codeware/
+engine/
+r6/config/
+bin/x64/global.ini
+
+# Local environment
+.env
