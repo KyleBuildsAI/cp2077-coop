@@ -1,6 +1,6 @@
 # Controlled test NPC harness
 
-This separate slice creates one temporary, tagged NPC in each game and mirrors the host actor's measured position/yaw at 10 Hz. It is **off by default, not installed in either game, and not integrated into the main mod**. The existing `r6/scripts/CP2077Coop_npcsync` prototype is not required and must not be enabled for this test.
+This separate slice creates one temporary, tagged NPC in each game and mirrors the host actor's measured position/yaw at 10 Hz. It is **off by default**. Main source v0.0.35 now includes this harness behind `npc_test=false`; live deployment and verification belong to the main bench, not this standalone package. The existing `r6/scripts/CP2077Coop_npcsync` prototype is not required and must not be enabled for this test.
 
 The intended first live check is an inert transform demonstration: spawn a generic actor, move its target a few metres from the test panel, observe the peer copy, then remove it. This does not provide autonomous shared AI, navigation/animation, combat, health/deaths, traffic, vanilla/quest NPC mirroring, loot or quest synchronization. Ten-Hz direct transform updates may look choppy; visual behavior is still untested.
 
@@ -12,9 +12,9 @@ The intended first live check is an inert transform demonstration: spawn a gener
 
 The redscript attach callback disables perception for this tag; updates also set attitude toward the local player to neutral. That does not prove the NPC's entire AI is suspended. Inspect live for attacks, AI fighting transforms, animation or collision problems before expanding the slice. Stop/remove the test actor if any of those occur.
 
-## Integration contract (requires an adapter extension)
+## Standalone integration contract and main adapter
 
-The current main adapter does not yet expose an NPC extension API. Do not add another `Net_Poll`, call the old broad `CP2077Coop_NpcSetRole`, or paste a second `registerForEvent` handler. The existing event and transport owner must call the module after it has authenticated the opposite role and exchanged fresh session metadata.
+Main source v0.0.35 exposes an optional session-bound extension API and `npc_test.lua` coordinates its opt-in handshake. Do not add another `Net_Poll`, call the old broad `CP2077Coop_NpcSetRole`, or paste a second `registerForEvent` handler. The existing event and transport owner calls the module after authenticating the opposite role and exchanging fresh session metadata. Main uses enableExtensions/extensionContext/sendExtension/takeExtension; its coordinator adds both app sessions, a fresh joiner challenge and a fresh host epoch before activation.
 
 Create the module with `enabled=true` only after an explicit test feature flag is enabled in both games. Both sides must receive the **same freshly negotiated host harness epoch**; use a new epoch for every harness activation/reload/reconnect. Do not reuse an old epoch with a reset actor counter. `peer` is the native authenticated remote peer ID, not an ID parsed from an untrusted payload. Bind these values to the adapter's current connection generation and destroy the harness immediately when it changes.
 
@@ -27,14 +27,14 @@ local actor = TestNpc.new({
     peer = authenticatedPeerId,
     entity = TestNpc.cetEntity(Game.GetPlayer),
     send = function(reliable, message)
-        -- Adapter extension hook, not an API that exists in main today.
+        -- Adapter wrapper: use sendExtension(currentContext, channel, message).
         -- Return true only after its bounded outbox/native accepted this payload.
         return sendTestNpcToCurrentPeer(reliable, message)
     end,
 })
 ```
 
-The adapter owner reserved **reliable channel 20** for lifecycle (`B/A/D/X`) and **unreliable channel 2** for pose (`S`). Preserve actual sender and reliability metadata and dispatch only to the current generation. Existing main assignments are movement=1, extra=16 and HELLO=30; do not reuse them. Main currently discards unrecognized channels, so these reservations require a real extension dispatcher before the harness can function in-game. `status().epoch` is a local generation counter, `status().session` is the local wire epoch, and the remote session is currently internal: none is automatically an agreed fresh harness epoch. Transport reliable delivery and this module's creation/removal ACK are different: accepting a reliable send does not establish that the game entity attached.
+The adapter owner reserved **reliable channel 20** for lifecycle (`B/A/D/X`) and **unreliable channel 2** for pose (`S`). Preserve actual sender and reliability metadata and dispatch only to the current generation. Existing main assignments are movement=1, extra=16 and HELLO=30; do not reuse them. The main adapter dispatches these channels only after local opt-in through a bounded extension inbox; overflow disables the experiment while preserving player transport. `status().epoch` is a local generation counter, `status().session` is the local wire epoch, and `extensionContext()` includes both current sessions: none is automatically an agreed fresh harness epoch. Transport reliable delivery and this module's creation/removal ACK are different: accepting a reliable send does not establish that the game entity attached.
 
 Call `actor:update(deltaTime)` once each frame. From the single receive dispatcher call `actor:receive(actualSender, isReliableChannel, payload)`. Only the host can invoke `actor:spawn({x=..., y=..., z=..., yaw=...})` and `actor:move(pose)`; position is in metres, yaw in degrees. The first call creates an ID scoped to the agreed epoch, and duplicate bind messages cannot create duplicate actors or rewind their pose.
 
