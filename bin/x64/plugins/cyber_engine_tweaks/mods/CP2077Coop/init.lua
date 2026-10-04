@@ -1382,6 +1382,20 @@ local Steer = {
     ENDPOINT_DRIFT = 1.5,
     MIN_INTERVAL = 0.25,
 
+    -- korekta >= TELEPORT_DISTANCE: AITeleportCommand działa z opóźnieniem,
+    -- więc nie wysyłamy go co klatkę; avatar, który się nie rusza
+    -- (martwy, ragdoll, zablokowany) dostaje teleport rzadziej
+    HARD_CORRECT_COOLDOWN = 0.25,
+    HARD_CORRECT_BACKOFF = 1.0,
+    HARD_CORRECT_MAX_FAILS = 8,
+    STUCK_DISTANCE = 1.0,
+
+    lastHardCorrectAt = -100.0,
+    hardCorrectStreak = 0,
+    stuckX = 0.0,
+    stuckY = 0.0,
+    stuckZ = 0.0,
+
     sinceIssue = 99.0,
     endX = nil,
     endY = nil,
@@ -1527,6 +1541,79 @@ function Steer.reset()
     Steer.moveType = nil
     Steer.crouched = nil
     Steer.sinceIssue = 99.0
+end
+
+
+-- Czy wysłać teraz teleport avatara (snapNow = szybki ruch, nowy pakiet).
+-- Przy błędzie >= TELEPORT_DISTANCE: najwyżej co HARD_CORRECT_COOLDOWN,
+-- a gdy avatar mimo teleportów stoi w miejscu - co HARD_CORRECT_BACKOFF.
+function Steer.hardCorrectAllowed(current, errorDistance, snapNow)
+
+    local farError =
+        errorDistance >= TELEPORT_DISTANCE
+
+    local stuck =
+        Steer.hardCorrectStreak >=
+        Steer.HARD_CORRECT_MAX_FAILS
+
+    local wait =
+        stuck and Steer.HARD_CORRECT_BACKOFF
+        or Steer.HARD_CORRECT_COOLDOWN
+
+    -- snapNow i tak wysyła najwyżej jeden teleport na nowy pakiet
+    if (not snapNow or stuck)
+        and Sync.clock - Steer.lastHardCorrectAt < wait
+    then
+        return false
+    end
+
+    if farError then
+
+        -- avatar się przesunął od poprzedniej próby: teleporty działają
+        if Steer.hardCorrectStreak == 0
+            or distance3(
+                current.x,
+                current.y,
+                current.z,
+                Steer.stuckX,
+                Steer.stuckY,
+                Steer.stuckZ
+            ) > Steer.STUCK_DISTANCE
+        then
+
+            Steer.hardCorrectStreak = 0
+            Steer.stuckX = current.x
+            Steer.stuckY = current.y
+            Steer.stuckZ = current.z
+        end
+
+        Steer.hardCorrectStreak =
+            Steer.hardCorrectStreak + 1
+
+        if Steer.hardCorrectStreak ==
+            Steer.HARD_CORRECT_MAX_FAILS
+        then
+
+            print(
+                string.format(
+                    "[CP2077Coop] REMOTE AVATAR NOT RESPONDING TO TELEPORT error=%.2f - retrying every %.1f s",
+                    errorDistance,
+                    Steer.HARD_CORRECT_BACKOFF
+                )
+            )
+        end
+    end
+
+    Steer.lastHardCorrectAt = Sync.clock
+
+    return true
+end
+
+
+function Steer.resetHardCorrect()
+
+    Steer.lastHardCorrectAt = -100.0
+    Steer.hardCorrectStreak = 0
 end
 
 
@@ -2940,6 +3027,7 @@ local function resetRemote()
 
     Sync.reset()
     Steer.reset()
+    Steer.resetHardCorrect()
 end
 
 
@@ -3918,9 +4006,23 @@ registerForEvent(
                 S.lastCommandZ
             ) >= MIN_TARGET_CHANGE
 
-        if (snapFollow and targetMoved)
+        local snapNow =
+            snapFollow
+            and targetMoved
+
+        if snapNow
             or errorDistance >= TELEPORT_DISTANCE
         then
+
+            -- teleport jeszcze w drodze: żadnej nowej komendy
+            -- (kolejny teleport albo AIMoveTo by go nadpisały)
+            if not Steer.hardCorrectAllowed(
+                current,
+                errorDistance,
+                snapNow
+            ) then
+                return
+            end
 
             hardCorrectRemote(
                 player,
@@ -3933,6 +4035,13 @@ registerForEvent(
             S.lastCommandY = S.targetY
             S.lastCommandZ = S.targetZ
 
+            return
+        end
+
+        -- Szybki ruch: tylko teleport przy nowym pakiecie. AIMoveTo
+        -- wysłane w następnej klatce nadpisywało teleport i avatar
+        -- zostawał 14-16 m w tyle (test na żywo, faza "vehicle").
+        if snapFollow then
             return
         end
 
@@ -3975,6 +4084,9 @@ registerForEvent(
                     crouched
                 ) then
 
+                    -- S.lastCommand* zostaje "ostatni teleport / cel
+                    -- korekty" (bramka targetMoved); punkt Steer
+                    -- pamięta Steer.remember
                     Steer.remember(
                         endX,
                         endY,
@@ -3982,10 +4094,6 @@ registerForEvent(
                         moveType,
                         crouched
                     )
-
-                    S.lastCommandX = endX
-                    S.lastCommandY = endY
-                    S.lastCommandZ = endZ
                 end
             end
 
