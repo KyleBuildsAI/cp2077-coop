@@ -354,3 +354,61 @@ def test_optional_spawn_audit_is_bounded_to_transition_events(bench):
     assert "spawn_placed role=host" in env.audit[2]
     assert "first_bind_sent role=host" in env.audit[3]
     assert all("x=100.000" in env.audit[i] for i in (1, 2, 3))
+
+
+def test_idle_pose_queues_nothing_and_motion_is_paced(bench):
+    lua, _, env = active(bench)
+    assert env.h.moves == env.j.moves == 0
+    lua.execute('''local e=...; e.moveTimes={}; local move=e.h.move
+      e.h.move=function(p) table.insert(e.moveTimes,e.host.now); return move(p) end''', env)
+    for i in range(400):
+        env.host.move(env.host, pose(lua, x=1+i*.02))
+        env.tick(.005, None)
+    assert 18 <= len(env.moveTimes) <= 21
+    assert all(env.moveTimes[i]-env.moveTimes[i-1] >= .099999 for i in range(2,len(env.moveTimes)+1))
+    ticks(env, 10)
+    before = env.h.moves
+    ticks(env, 20)
+    assert env.h.moves == before
+
+
+def test_stuck_move_cancel_waits_for_terminal_then_uses_latest_target(bench):
+    lua, _, env = active(bench)
+    lua.execute('''local e=...; e.commandState=-1; e.cancels=0; e.requests={}
+      e.h.moveState=function() return e.commandState end
+      e.h.cancelMove=function() e.cancels=e.cancels+1 end
+      e.h.move=function(p) table.insert(e.requests,p.x); e.commandState=1; return true end''', env)
+    env.host.move(env.host, pose(lua, x=10)); ticks(env, 10)
+    env.host.move(env.host, pose(lua, x=20)); ticks(env, 70)
+    assert len(env.requests) == 1 and env.cancels == 1
+    assert env.host.moveExpiries == 1 and env.j.pose.x == 1
+    ticks(env, 30)
+    assert len(env.requests) == 1 and env.cancels == 1
+    env.commandState = 5
+    ticks(env, 1)
+    assert len(env.requests) == 2 and env.requests[2] == 20
+    env.commandState = 3
+    env.h.pose = pose(lua, x=20)
+    ticks(env, 10)
+    assert len(env.requests) == 2
+
+
+def test_refused_moves_are_paced_and_do_not_replace_actual_network_pose(bench):
+    lua, _, env = active(bench)
+    lua.execute('''local e=...; e.attempts=0
+      e.h.move=function() e.attempts=e.attempts+1; return false end''', env)
+    env.host.move(env.host, pose(lua, x=20)); ticks(env, 20)
+    assert 8 <= env.attempts <= 11
+    assert env.host.moveRequests == 0 and env.j.pose.x == env.h.pose.x == 1
+
+
+def test_shutdown_cancels_pending_movement_before_new_incarnation(bench):
+    lua, _, env = active(bench)
+    lua.execute('''local e=...; e.pending=false
+      e.h.moveState=function() return e.pending and 1 or -1 end
+      e.h.move=function() e.pending=true; return true end
+      local clear=e.h.clear; e.h.clear=function() e.pending=false; clear() end''', env)
+    env.host.move(env.host, pose(lua, x=20)); ticks(env, 10)
+    assert env.pending
+    env.host.shutdown(env.host)
+    assert not env.pending and env.h.pose is None

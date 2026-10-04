@@ -5,6 +5,50 @@ public class CP2077CoopTestNpcLifecycle extends ScriptableSystem {
     private let retiringActor: wref<NPCPuppet>;
     private let retiring: Bool;
     private let deleteRequested: Bool;
+    private let moveCommand: ref<AITeleportCommand>;
+    private let moveActor: wref<NPCPuppet>;
+    private let moveCancelRequested: Bool;
+
+    public func MoveState() -> Int32 {
+        return IsDefined(this.moveCommand) ? EnumInt(this.moveCommand.state) : -1;
+    }
+
+    public func CancelMove() -> Void {
+        if !IsDefined(this.moveCommand) || this.moveCancelRequested {
+            return;
+        }
+        let state = this.MoveState();
+        if state >= 0 && state <= 2 && IsDefined(this.moveActor) {
+            let controller = this.moveActor.GetAIControllerComponent();
+            if IsDefined(controller) {
+                // Use the controller's cancellation API; do not mark a timed-out
+                // teleport successful with StopExecutingCommand(..., true).
+                controller.CancelCommand(this.moveCommand);
+            }
+        }
+        this.moveCancelRequested = true;
+    }
+
+    public func RequestMove(actor: ref<NPCPuppet>, x: Float, y: Float, z: Float, yaw: Float) -> Bool {
+        if this.retiring || (this.MoveState() >= 0 && this.MoveState() <= 2) {
+            return false;
+        }
+        let controller = actor.GetAIControllerComponent();
+        if !IsDefined(controller) {
+            return false;
+        }
+        let command = new AITeleportCommand();
+        command.position = new Vector4(x, y, z, 1.0);
+        command.rotation = yaw;
+        command.doNavTest = false;
+        if !controller.SendCommand(command) {
+            return false; // no pending handle for a command the engine refused
+        }
+        this.moveCommand = command;
+        this.moveActor = actor;
+        this.moveCancelRequested = false;
+        return true;
+    }
 
     public func Track(id: EntityID) -> Void {
         this.ownedID = id;
@@ -36,6 +80,7 @@ public class CP2077CoopTestNpcLifecycle extends ScriptableSystem {
     }
 
     public func ClearOwned(force: Bool) -> Void {
+        this.CancelMove();
         let system = GameInstance.GetDynamicEntitySystem();
         if !IsDefined(system) || !system.IsReady() {
             return;
@@ -62,6 +107,9 @@ public class CP2077CoopTestNpcLifecycle extends ScriptableSystem {
             this.retiringActor = null;
             this.retiring = false;
             this.deleteRequested = false;
+            this.moveCommand = null;
+            this.moveActor = null;
+            this.moveCancelRequested = false;
         }
     }
 
@@ -118,6 +166,20 @@ public func CP2077Coop_TestNpcExists() -> Bool {
 }
 
 @addMethod(PlayerPuppet)
+public func CP2077Coop_TestNpcMoveState() -> Int32 {
+    let lifecycle = GameInstance.GetScriptableSystemsContainer(this.GetGame()).Get(n"CP2077CoopTestNpcLifecycle") as CP2077CoopTestNpcLifecycle;
+    return IsDefined(lifecycle) ? lifecycle.MoveState() : -1;
+}
+
+@addMethod(PlayerPuppet)
+public func CP2077Coop_TestNpcCancelMove() -> Void {
+    let lifecycle = GameInstance.GetScriptableSystemsContainer(this.GetGame()).Get(n"CP2077CoopTestNpcLifecycle") as CP2077CoopTestNpcLifecycle;
+    if IsDefined(lifecycle) {
+        lifecycle.CancelMove();
+    }
+}
+
+@addMethod(PlayerPuppet)
 public func CP2077Coop_TestNpcSpawn(x: Float, y: Float, z: Float, yaw: Float) -> Bool {
     let system = GameInstance.GetDynamicEntitySystem();
     if !IsDefined(system) || !system.IsReady() {
@@ -170,8 +232,6 @@ public func CP2077Coop_TestNpcMove(x: Float, y: Float, z: Float, yaw: Float) -> 
     if IsDefined(attitude) && IsDefined(playerAttitude) {
         attitude.SetAttitudeTowards(playerAttitude, EAIAttitude.AIA_Neutral);
     }
-    let angles: EulerAngles;
-    angles.Yaw = yaw;
-    GameInstance.GetTeleportationFacility(this.GetGame()).Teleport(actor, new Vector4(x, y, z, 1.0), angles);
-    return true;
+    let lifecycle = GameInstance.GetScriptableSystemsContainer(this.GetGame()).Get(n"CP2077CoopTestNpcLifecycle") as CP2077CoopTestNpcLifecycle;
+    return IsDefined(lifecycle) && lifecycle.RequestMove(actor, x, y, z, yaw);
 }

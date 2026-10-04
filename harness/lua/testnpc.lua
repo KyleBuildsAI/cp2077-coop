@@ -3,11 +3,12 @@
 -- sole transport owner. Nothing runs unless enabled=true is explicitly supplied.
 local TestNpc = {}
 TestNpc.__index = TestNpc
-TestNpc.VERSION = "0.1.1"
+TestNpc.VERSION = "0.1.2"
 -- Reserved by the main adapter's optional extension dispatcher.
 TestNpc.RELIABLE_CHANNEL, TestNpc.POSE_CHANNEL = 20, 2
 TestNpc.INTERVAL, TestNpc.RETRY, TestNpc.STALE, TestNpc.SPAWN_TIMEOUT = 0.1, 0.25, 3, 5
 TestNpc.PLACEMENT_TOLERANCE = 2.0
+TestNpc.MOVE_TIMEOUT, TestNpc.MOVE_DISTANCE, TestNpc.MOVE_YAW = 2.0, 0.02, 0.5
 
 local function finite(n)
     return type(n) == "number" and n == n and n > -math.huge and n < math.huge
@@ -44,6 +45,7 @@ function TestNpc.new(options)
     self.now, self.serial, self.tombstone = 0, 0, 0
     self.sent, self.received, self.rejected, self.expired = 0, 0, 0, 0
     self.spawnFailures = 0
+    self.moveRequests, self.moveExpiries = 0, 0
     if self.enabled then
         assert(self.role == "host" or self.role == "joiner", "explicit role required")
         assert(epoch(self.epoch), "host session epoch required")
@@ -115,6 +117,31 @@ function TestNpc:failSpawn(reason)
     self.localClearPending = true
     if self.role == "host" then self:stop()
     else self.tombstone, self.actor = math.max(self.tombstone, a.id), nil end
+end
+
+function TestNpc:updateMove(a, actual)
+    if a.movePending then
+        local state = self.entity.moveState and self.entity.moveState() or -1
+        if state >= 0 and state <= 2 then
+            if not a.moveCancelRequested and self.now-a.moveStarted >= self.MOVE_TIMEOUT then
+                if self.entity.cancelMove then self.entity.cancelMove() end
+                a.moveCancelRequested = true
+                self.moveExpiries = self.moveExpiries + 1
+                self:note("move_cancel_requested reason=pending_timeout", a)
+            end
+            return -- never overlap even if cancellation is delayed or ineffective
+        end
+        a.movePending, a.moveCancelRequested = false, false
+    end
+    if self.now < (a.nextMove or 0) then return end
+    local dx,dy,dz = actual.x-a.target.x, actual.y-a.target.y, actual.z-a.target.z
+    local yaw = (actual.yaw-a.target.yaw+180)%360-180
+    if dx*dx+dy*dy+dz*dz <= self.MOVE_DISTANCE*self.MOVE_DISTANCE and math.abs(yaw) <= self.MOVE_YAW then return end
+    a.nextMove = self.now + self.INTERVAL
+    if self.entity.move(a.target) == true then
+        self.moveRequests = self.moveRequests + 1
+        a.movePending, a.moveStarted = self.entity.moveState ~= nil, self.now
+    end
 end
 
 function TestNpc:receive(sender, reliable, message)
@@ -224,7 +251,7 @@ function TestNpc:update(dt)
     end
     -- This slice mirrors transforms only. No autonomous AI, navmesh animation,
     -- combat, health or quest-state synchronization is promised by this call.
-    self.entity.move(a.target)
+    self:updateMove(a, actual)
     actual = self.entity.read()
     if not validPose(actual) then return end
     if self.role == "host" then
@@ -263,6 +290,14 @@ function TestNpc.cetEntity(playerProvider)
         move=function(p)
             local player = playerProvider()
             return player and player:CP2077Coop_TestNpcMove(p.x, p.y, p.z, p.yaw) or false
+        end,
+        moveState=function()
+            local player = playerProvider()
+            return player and player:CP2077Coop_TestNpcMoveState() or -1
+        end,
+        cancelMove=function()
+            local player = playerProvider()
+            if player then player:CP2077Coop_TestNpcCancelMove() end
         end,
         read=function()
             local player = playerProvider()
