@@ -14,7 +14,10 @@ T5  torn read of the DLL slot (packet lands mid-read) is skipped
 T6  joiner's test bot is anchored after the join teleport; its vehicle phase
     does not block "Teleport to host"
 T7  joiner spawns the avatar after the join teleport, next to the host
-T8  no global variable reads/writes (a local declared below its user)
+T8  no global variable reads/writes (a local declared below its user) in the
+    code a 10 s session runs, load and onInit included
+T9  the same for every function in init.lua, from the bytecode (also code that
+    only runs on a role switch, a reset or shutdown)
 
 Usage: python test_timing.py path/to/init.lua
 """
@@ -106,10 +109,12 @@ def make_peer(role, position, trap=False):
     if role == "joiner":
         source, count = re.subn(r"(?m)^local IS_HOST = true", "local IS_HOST = false", source)
         assert count == 1
+    if trap:
+        # before the load, so the top level and onInit are watched too; mocks are
+        # already defined and the trap only reports accesses made from init.lua
+        lua.execute(GLOBAL_TRAP)
     lua.eval("function(source) assert(load(source, '=init.lua'))() end")(source)
     lua.globals().events["onInit"]()
-    if trap:
-        lua.execute(GLOBAL_TRAP)
     return lua
 
 
@@ -569,6 +574,91 @@ def test_no_global_access():
     return not hits and upvalues < 60
 
 
+# ------------------------------------------------------------------ T9
+
+# Every global read (GGET) and write (GSET) in every function of a chunk, read from
+# LuaJIT's bytecode without running anything. The opcode numbers come from two probes,
+# so the scan follows the VM instead of hard-coding them.
+STATIC_GLOBAL_SCAN = r"""
+return function(source, chunkName)
+    local util = require("jit.util")
+    local function opcodeOf(code)
+        local probe = assert(loadstring(code))
+        local pc = 1
+        while true do
+            local ins = util.funcbc(probe, pc)
+            if ins == nil then return nil end
+            if util.funck(probe, -bit.rshift(ins, 16) - 1) == "probe_global_name" then
+                return bit.band(ins, 0xff)
+            end
+            pc = pc + 1
+        end
+    end
+    local GGET = assert(opcodeOf("return probe_global_name"), "no GGET opcode found")
+    local GSET = assert(opcodeOf("probe_global_name = 1"), "no GSET opcode found")
+    local hits = {}
+    local function walk(fn)
+        local pc = 1
+        while true do
+            local ins = util.funcbc(fn, pc)
+            if ins == nil then break end
+            local op = bit.band(ins, 0xff)
+            if op == GGET or op == GSET then
+                hits[#hits + 1] = {
+                    kind = op == GGET and "read" or "write",
+                    name = tostring(util.funck(fn, -bit.rshift(ins, 16) - 1)),
+                    line = util.funcinfo(fn, pc).currentline,
+                }
+            end
+            pc = pc + 1
+        end
+        local index = -1
+        while true do
+            local constant = util.funck(fn, index)
+            if constant == nil then break end
+            if type(constant) == "proto" then walk(constant) end
+            index = index - 1
+        end
+    end
+    walk(assert(loadstring(source, chunkName)))
+    return hits
+end
+"""
+
+# Real globals of CET 1.37 / LuaJIT 2.1 (not the test mocks, so a mock cannot hide a
+# local that is declared below its user and therefore read as a nil global).
+ALLOWED_GLOBALS = {
+    # Lua / LuaJIT
+    "assert", "bit", "error", "getmetatable", "io", "ipairs", "math", "next", "os", "pairs", "pcall",
+    "print", "select", "setmetatable", "string", "table", "tonumber", "tostring", "type", "unpack", "xpcall",
+    # CET
+    "registerForEvent", "registerHotkey", "registerInput", "Game", "GetMod", "GetSingleton", "IsDefined",
+    "NewObject", "Observe", "ObserveAfter", "Override", "ImGui", "ImGuiCond", "ImGuiWindowFlags", "ImGuiCol",
+    "ImGuiStyleVar", "Vector4", "EulerAngles", "Quaternion", "CName", "TweakDB", "TweakDBID", "EngineTime",
+    "gameGodModeType",
+}
+# a forward-local bug the scan must report (the runtime trap only sees code that runs)
+PLANTED_FORWARD_LOCAL = "local function onlyAtInit() return declaredBelow end\nlocal declaredBelow = 1\nreturn onlyAtInit\n"
+
+
+def scan_globals(lua, source, chunk_name):
+    hits = lua.execute(STATIC_GLOBAL_SCAN)(source, chunk_name)
+    return [(hits[i].kind, hits[i].name, hits[i].line) for i in range(1, len(hits) + 1)]
+
+
+def test_static_global_scan():
+    lua = LuaRuntime(unpack_returned_tuples=True)
+    planted = scan_globals(lua, PLANTED_FORWARD_LOCAL, "=planted")
+    hits = scan_globals(lua, open(harness.SCRIPT, encoding="utf-8").read(), "=init.lua")
+    writes = [f"write {name} @{line}" for kind, name, line in hits if kind == "write"]
+    unknown = [f"read {name} @{line}" for kind, name, line in hits if kind == "read" and name not in ALLOWED_GLOBALS]
+    read_names = sorted({name for kind, name, _ in hits if kind == "read"})
+    print(f"  planted forward local found: {planted}")
+    print(f"  init.lua: {len(hits)} global accesses in all functions, names {read_names}")
+    print(f"  writes {writes}; reads outside the CET/Lua allow-list {unknown}")
+    return planted == [("read", "declaredBelow", 1)] and len(hits) > 0 and not writes and not unknown
+
+
 if __name__ == "__main__":
     tests = {
         "T1 remote speed right at any sender fps (25/40/45/50/60/144/20, jitter, hitches)": test_speed_any_sender_fps,
@@ -579,6 +669,7 @@ if __name__ == "__main__":
         "T6 joiner bot anchored after join; bot vehicle phase does not block teleport": test_bot_anchored_after_join,
         "T7 joiner spawns the avatar after the join teleport": test_spawn_after_join,
         "T8 no global access, onUpdate under the upvalue limit": test_no_global_access,
+        "T9 static bytecode scan: no global writes, reads only CET/Lua globals, in every function": test_static_global_scan,
     }
     results = {}
     for name, test in tests.items():
