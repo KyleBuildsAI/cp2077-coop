@@ -197,6 +197,12 @@ def run(args):
         print(f"Coop mod not found in {game_dir}. Pass --game with the game folder.")
         return 2
 
+    try:
+        import devkit  # same folder
+        devkit.write_modlist(game_dir)
+    except (ImportError, OSError) as error:
+        print(f"could not refresh modlist.txt: {error}")
+
     ip, port, ini_error = read_server_address(game_dir)
     location = None if args.no_geo or not ip else relay_location(ip)
 

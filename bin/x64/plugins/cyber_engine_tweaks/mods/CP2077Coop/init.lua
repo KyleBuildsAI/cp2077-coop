@@ -474,6 +474,289 @@ end
 
 
 ------------------------------------------------------------
+-- MOD COMPARISON
+--
+-- modlist.txt (pisany przez coop-tools/devkit.py i coop_monitor.py)
+-- zawiera zainstalowane mody: "kategoria/nazwa" w każdej linii.
+-- Każda nazwa -> 16-bitowy odcisk. Odciski krążą w pętli przez
+-- kanał stanu (typ 6 = starszy bajt, typ 7 = młodszy bajt).
+-- Panel pokazuje wspólne mody, mody tylko u nas (z nazwami)
+-- i liczbę modów tylko u partnera (nazwy nie mieszczą się w kanale).
+------------------------------------------------------------
+
+local Mods = {
+    FILE = "modlist.txt",
+    TYPE_HI = 6,
+    TYPE_LO = 7,
+    STRIDE = 512,
+    START_FLAG = 256,
+    END_FLAG = 256,
+    HASH_MODULO = 65521,
+    -- odcisk niemożliwy dla nazw (>= HASH_MODULO): pusta lista
+    EMPTY_SENTINEL = 65535,
+
+    names = {},
+    hashes = {},
+    localSet = {},
+
+    sendIndex = 1,
+    sendLow = false,
+
+    pendingHigh = nil,
+    building = {},
+    lastCycle = nil,
+    previousCycle = nil,
+    cyclesReceived = 0,
+    compared = false
+}
+
+
+function Mods.hash(name)
+
+    local value = 0
+    local lower = string.lower(name)
+
+    for index = 1, #lower do
+
+        value =
+            (value * 31 + string.byte(lower, index)) %
+            Mods.HASH_MODULO
+    end
+
+    return value
+end
+
+
+function Mods.load()
+
+    Mods.names = {}
+    Mods.hashes = {}
+    Mods.localSet = {}
+
+    local file =
+        io.open(Mods.FILE, "r")
+
+    if file == nil then
+
+        print("[CP2077Coop] no modlist.txt - run coop-tools/devkit.py modlist or coop_monitor.py")
+        return
+    end
+
+    for line in file:lines() do
+
+        local name =
+            string.match(line, "^%s*(.-)%s*$")
+
+        if name ~= nil and name ~= "" then
+
+            local hash = Mods.hash(name)
+
+            if Mods.localSet[hash] == nil then
+
+                Mods.localSet[hash] = name
+                Mods.hashes[#Mods.hashes + 1] = hash
+            end
+
+            Mods.names[#Mods.names + 1] = name
+        end
+    end
+
+    file:close()
+
+    print(string.format("[CP2077Coop] mod list loaded: %d mods", #Mods.names))
+end
+
+
+-- Następny pakiet z odciskiem (wysyłane w pętli bez końca).
+function Mods.nextPayload()
+
+    local count = #Mods.hashes
+
+    local hash =
+        count > 0 and Mods.hashes[Mods.sendIndex] or Mods.EMPTY_SENTINEL
+
+    if not Mods.sendLow then
+
+        Mods.sendLow = true
+
+        local start =
+            (Mods.sendIndex == 1) and Mods.START_FLAG or 0
+
+        return
+            Mods.TYPE_HI * Mods.STRIDE +
+            math.floor(hash / 256) +
+            start
+    end
+
+    Mods.sendLow = false
+
+    local isLast =
+        count == 0 or Mods.sendIndex >= count
+
+    local finish =
+        isLast and Mods.END_FLAG or 0
+
+    if isLast then
+        Mods.sendIndex = 1
+    else
+        Mods.sendIndex = Mods.sendIndex + 1
+    end
+
+    return
+        Mods.TYPE_LO * Mods.STRIDE +
+        hash % 256 +
+        finish
+end
+
+
+function Mods.receive(packetType, value)
+
+    local flag =
+        value >= 256
+
+    local byte =
+        value % 256
+
+    if packetType == Mods.TYPE_HI then
+
+        if flag then
+            Mods.building = {}
+        end
+
+        Mods.pendingHigh = byte
+        return
+    end
+
+    -- TYPE_LO bez poprzedzającego HI (zgubiony pakiet): pomijamy
+    if Mods.pendingHigh == nil then
+        return
+    end
+
+    local hash =
+        Mods.pendingHigh * 256 +
+        byte
+
+    Mods.pendingHigh = nil
+
+    if hash ~= Mods.EMPTY_SENTINEL then
+        Mods.building[hash] = true
+    end
+
+    if flag then
+
+        Mods.previousCycle = Mods.lastCycle
+        Mods.lastCycle = Mods.building
+        Mods.building = {}
+        Mods.cyclesReceived = Mods.cyclesReceived + 1
+
+        if not Mods.compared and Mods.cyclesReceived >= 2 then
+
+            Mods.compared = true
+            Mods.logComparison()
+        end
+    end
+end
+
+
+-- Suma dwóch ostatnich pełnych cykli: zgubiony pakiet nie robi
+-- fałszywego "partner nie ma tego moda".
+function Mods.remoteSet()
+
+    if Mods.lastCycle == nil then
+        return nil
+    end
+
+    local union = {}
+
+    for hash in pairs(Mods.lastCycle) do
+        union[hash] = true
+    end
+
+    if Mods.previousCycle ~= nil then
+
+        for hash in pairs(Mods.previousCycle) do
+            union[hash] = true
+        end
+    end
+
+    return union
+end
+
+
+-- shared, onlyMine (nazwy), onlyPartnerCount, remoteCount
+function Mods.compare()
+
+    local remote = Mods.remoteSet()
+
+    if remote == nil then
+        return nil
+    end
+
+    local shared = 0
+    local onlyMine = {}
+    local remoteCount = 0
+    local onlyPartner = 0
+
+    for _, hash in ipairs(Mods.hashes) do
+
+        if remote[hash] then
+            shared = shared + 1
+        else
+            onlyMine[#onlyMine + 1] = Mods.localSet[hash]
+        end
+    end
+
+    for hash in pairs(remote) do
+
+        remoteCount = remoteCount + 1
+
+        if Mods.localSet[hash] == nil then
+            onlyPartner = onlyPartner + 1
+        end
+    end
+
+    return shared, onlyMine, onlyPartner, remoteCount
+end
+
+
+function Mods.logComparison()
+
+    local shared, onlyMine, onlyPartner, remoteCount =
+        Mods.compare()
+
+    if shared == nil then
+        return
+    end
+
+    print(
+        string.format(
+            "[CP2077Coop] EVENT mods compared: you=%d partner=%d shared=%d only_you=%d only_partner=%d",
+            #Mods.hashes,
+            remoteCount,
+            shared,
+            #onlyMine,
+            onlyPartner
+        )
+    )
+
+    for _, name in ipairs(onlyMine) do
+        print("[CP2077Coop] MOD only you: " .. name)
+    end
+end
+
+
+function Mods.resetRemote()
+
+    Mods.pendingHigh = nil
+    Mods.building = {}
+    Mods.lastCycle = nil
+    Mods.previousCycle = nil
+    Mods.cyclesReceived = 0
+    Mods.compared = false
+end
+
+
+------------------------------------------------------------
 -- GAMEPLAY / WORLD STATE SYNC
 --
 -- Protokół DLL przenosi tylko pozycję i kierunek (fx, fy).
@@ -649,6 +932,11 @@ function Sync.buildPayload(player, isHost)
         end
     end
 
+    -- lista modów: co 4. pakiet (nieparzysty)
+    if Sync.sendSlot % 4 == 1 then
+        return Mods.nextPayload()
+    end
+
     if isHost
         and Sync.sendSlot % 2 == 0
     then
@@ -755,6 +1043,12 @@ function Sync.receivePayload(payload)
     elseif packetType == Sync.TYPE_VEHICLE then
 
         Sync.remoteVehicleIndex = value
+
+    elseif packetType == Mods.TYPE_HI
+        or packetType == Mods.TYPE_LO
+    then
+
+        Mods.receive(packetType, value)
     end
 end
 
@@ -1044,6 +1338,8 @@ function Sync.reset()
     Sync.remoteVehicleIndex = nil
     Sync.vehicleShown = false
     Sync.vehicleIndexOverride = nil
+
+    Mods.resetRemote()
 end
 
 
@@ -1658,7 +1954,11 @@ local Diag = {
 
     teleportRequested = false,
     roleChanged = false,
-    botToggleRequested = false
+    botToggleRequested = false,
+    testAreaRequested = false,
+
+    -- pusty, płaski teren do testów (AMM: "The Oil Fields", Badlands)
+    TEST_AREA = { name = "Oil Fields (Badlands)", x = -1818.82, y = 3858.03, z = 7.16 }
 }
 
 
@@ -1882,6 +2182,19 @@ function Diag.formatMs(value)
 end
 
 
+-- pole porównania modów do linii STATS (1 = wspólne, 4 = partner)
+function Diag.modsField(position)
+
+    local results = { Mods.compare() }
+
+    if results[1] == nil then
+        return "-"
+    end
+
+    return tostring(results[position])
+end
+
+
 function Diag.statsLine()
 
     local age =
@@ -1889,7 +2202,7 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d conflict=%s peer_old=%s",
+            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s",
             Diag.connectionState(),
             IS_HOST and "host" or "joiner",
             Diag.formatMs(Sync.rttMs),
@@ -1911,6 +2224,9 @@ function Diag.statsLine()
             Combat.hitsReceived,
             Combat.hitsApplied,
             Combat.hitsUnmatched,
+            #Mods.hashes,
+            Diag.modsField(4),
+            Diag.modsField(1),
             tostring(Diag.roleConflict()),
             tostring(Diag.peerLooksOutdated())
         )
@@ -2239,6 +2555,53 @@ function Diag.draw()
     end
     Diag.row("Your state", Diag.describeFlags(Sync.localFlags), "neutral")
 
+    -- porównanie modów
+    local shared, onlyMine, onlyPartner, remoteCount =
+        Mods.compare()
+
+    if shared == nil then
+
+        Diag.row(
+            "Mods",
+            string.format("you %d, partner list receiving...", #Mods.hashes),
+            "neutral"
+        )
+    else
+
+        local level = "good"
+
+        if #onlyMine > 0 or onlyPartner > 0 then
+            level = "warn"
+        end
+
+        Diag.row(
+            "Mods",
+            string.format("you %d, partner %d, shared %d", #Mods.hashes, remoteCount, shared),
+            level
+        )
+
+        if onlyPartner > 0 then
+            Diag.row("Only partner has", string.format("%d mod(s) you don't have", onlyPartner), "warn")
+        end
+
+        if #onlyMine > 0 then
+
+            local shown = {}
+
+            for index = 1, math.min(6, #onlyMine) do
+                shown[#shown + 1] = onlyMine[index]
+            end
+
+            local more = #onlyMine - #shown
+
+            Diag.row(
+                "Only you have",
+                table.concat(shown, ", ") .. (more > 0 and string.format(" (+%d more, see log)", more) or ""),
+                "warn"
+            )
+        end
+    end
+
     Diag.row(
         "Partner hits",
         string.format("%d received, %d applied, %d no match", Combat.hitsReceived, Combat.hitsApplied, Combat.hitsUnmatched),
@@ -2274,6 +2637,12 @@ function Diag.draw()
         print(Diag.statsLine())
     end
 
+
+    if ImGui.Button("Go to test area") then
+        Diag.testAreaRequested = true
+    end
+
+    ImGui.SameLine()
 
     -- bot testowy: wysyła trasę zamiast prawdziwej pozycji
     if ImGui.Button(Bot.active and "Stop test pattern" or "Start test pattern") then
@@ -2538,6 +2907,7 @@ registerForEvent(
     function()
 
         Diag.loadRole()
+        Mods.load()
 
         print(
             "[CP2077Coop] bridge v" .. Diag.VERSION .. " loaded, role="
@@ -2695,6 +3065,18 @@ registerForEvent(
                 Bot.stop()
             else
                 Bot.start(player)
+            end
+        end
+
+        -- przycisk "Go to test area" w panelu
+        if Diag.testAreaRequested then
+
+            Diag.testAreaRequested = false
+
+            local area = Diag.TEST_AREA
+
+            if teleportLocalPlayer(player, area.x, area.y, area.z) then
+                print("[CP2077Coop] EVENT teleported to test area: " .. area.name)
             end
         end
 

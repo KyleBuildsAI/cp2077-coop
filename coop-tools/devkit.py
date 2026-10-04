@@ -6,6 +6,7 @@ Commands:
     server GAME local|warsaw|IP:PORT [...]
     role GAME host|joiner
     status GAME [GAME ...]     show server, role and mod version of each folder
+    modlist GAME [GAME ...]    write the installed-mods list the coop panel compares
 
 Examples:
     python coop-tools/devkit.py make-instance "G:/.../Cyberpunk 2077 - Baseline" "G:/.../Cyberpunk 2077 - Test B"
@@ -119,7 +120,49 @@ def deploy(games):
         for relative in DEPLOY_DIRS:
             shutil.copytree(os.path.join(PACKAGE_ROOT, relative), os.path.join(game, relative), dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns(*SKIP_NAMES, "__pycache__", "*.log"))
+        write_modlist(game)
         print(f"deployed {mod_version(PACKAGE_ROOT)} -> {game}")
+
+
+# Infrastructure shared by every coop install; not shown in the mod comparison.
+MODLIST_IGNORE = {"cp2077coop", "codeware", "cyber_engine_tweaks", "red4ext"}
+
+
+def collect_mods(game):
+    """Installed mods as 'category/name', sorted. Categories match common install locations."""
+    sources = [
+        ("cet", os.path.join("bin", "x64", "plugins", "cyber_engine_tweaks", "mods"), "dirs"),
+        ("redscript", os.path.join("r6", "scripts"), "entries"),
+        ("red4ext", os.path.join("red4ext", "plugins"), "dirs"),
+        ("archive", os.path.join("archive", "pc", "mod"), "files"),
+        ("tweak", os.path.join("r6", "tweaks"), "entries"),
+        ("redmod", "mods", "dirs"),
+    ]
+    found = set()
+    for category, relative, kind in sources:
+        folder = os.path.join(game, relative)
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            if name.startswith(".") or name.lower() in MODLIST_IGNORE:
+                continue
+            if kind == "dirs" and not os.path.isdir(path):
+                continue
+            if kind == "files" and not os.path.isfile(path):
+                continue
+            if kind == "files" and not name.lower().endswith((".archive", ".xl")):
+                continue
+            found.add(f"{category}/{os.path.splitext(name)[0] if kind == 'files' else name}")
+    return sorted(found)
+
+
+def write_modlist(game):
+    mods = collect_mods(game)
+    target = os.path.join(game, MOD_DIR, "modlist.txt")
+    with open(target, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write("".join(m + "\n" for m in mods))
+    print(f"{game}: {len(mods)} mods listed in modlist.txt")
 
 
 def read_server(game):
@@ -187,6 +230,7 @@ def main():
     p = sub.add_parser("server"); p.add_argument("game"); p.add_argument("target")
     p = sub.add_parser("role"); p.add_argument("game"); p.add_argument("role", choices=["host", "joiner"])
     p = sub.add_parser("status"); p.add_argument("games", nargs="+")
+    p = sub.add_parser("modlist"); p.add_argument("games", nargs="+")
     args = parser.parse_args()
 
     if args.command == "make-instance":
@@ -199,6 +243,9 @@ def main():
         set_role(args.game, args.role)
     elif args.command == "status":
         status(args.games)
+    elif args.command == "modlist":
+        for game in args.games:
+            write_modlist(game)
 
 
 if __name__ == "__main__":
