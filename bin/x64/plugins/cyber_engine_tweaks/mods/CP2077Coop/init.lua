@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.32 WORLD + STATE + VEHICLE + COMBAT SYNC + DIAGNOSTICS + TEST BOT
+-- v0.0.33 WORLD + STATE + VEHICLE + COMBAT SYNC + PARTNER MARKER
 --
 -- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
 -- albo domyślnie poniżej. role.txt ma pierwszeństwo.
@@ -270,7 +270,7 @@ S.joinForwardY = nil
 -- tytule i pierwszym wierszu panelu oraz w każdej linii [STATS]
 -- (version=), więc stary build na stanowisku testowym od razu widać.
 local Diag = {
-    VERSION = "0.0.32",
+    VERSION = "0.0.33",
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
@@ -2908,6 +2908,88 @@ end
 
 
 ------------------------------------------------------------
+-- PARTNER MAP / MINIMAP MARKER
+------------------------------------------------------------
+
+-- Separate movement freshness from Diag.packetAge(): combat packets carry
+-- the hit NPC's coordinates and must never keep an old player marker alive.
+Sync.marker = { at = nil, owner = nil, shown = false, retryAt = 0.0 }
+
+function Sync.hideRemoteMarker()
+    local marker = Sync.marker
+    if marker.owner ~= nil then
+        local ok, err = pcall(function()
+            marker.owner:CP2077Coop_HideRemoteMarker()
+        end)
+        if not ok then
+            Diag.log("[CP2077Coop] partner marker cleanup: " .. tostring(err))
+        end
+    end
+    marker.owner = nil
+    marker.shown = false
+end
+
+function Sync.resetRemoteMarker()
+    Sync.hideRemoteMarker()
+    Sync.marker.at = nil
+    Sync.marker.retryAt = 0.0
+    Sync.marker.failed = false
+end
+
+function Sync.markerFresh()
+    return S.syncActive and Sync.marker.at ~= nil
+        and Sync.clock - Sync.marker.at < Diag.STALE_AFTER
+        and Game.CP2077Coop_HasRemotePlayer()
+end
+
+function Sync.updateRemoteMarker(player)
+    local marker = Sync.marker
+    if not Sync.markerFresh() or player == nil then
+        if marker.shown then Sync.hideRemoteMarker() end
+        return
+    end
+    if Sync.clock < marker.retryAt then return end
+    if player.CP2077Coop_ShowRemoteMarker == nil then
+        marker.failed = true
+        marker.retryAt = Sync.clock + 2.0
+        return
+    end
+    local ok, shown = pcall(function()
+        return player:CP2077Coop_ShowRemoteMarker(marker.x, marker.y, marker.z)
+    end)
+    if ok and shown then
+        if not marker.shown then
+            Diag.log("[CP2077Coop] partner marker ON (latest received position)")
+        end
+        marker.owner = player
+        marker.shown = true
+        marker.failed = false
+    else
+        if not marker.failed then
+            Diag.log("[CP2077Coop] partner marker unavailable: " .. tostring(shown))
+        end
+        marker.failed = true
+        marker.retryAt = Sync.clock + 2.0
+    end
+end
+
+function Sync.noteMarkerPosition(player, x, y, z)
+    -- The marker is optional presentation; malformed coordinates must not be
+    -- passed into the engine even if an older network plugin accepts them.
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number"
+        or x ~= x or y ~= y or z ~= z
+        or math.abs(x) > 1000000 or math.abs(y) > 1000000 or math.abs(z) > 1000000
+    then
+        return
+    end
+    local marker = Sync.marker
+    marker.x, marker.y, marker.z = x, y, z
+    marker.at = Sync.clock
+    Sync.updateRemoteMarker(player)
+end
+
+
+------------------------------------------------------------
 -- STEER: komendy ruchu avatara
 --
 -- Stara metoda: co 0.12 s anuluj AIMoveTo i wyślij nowe.
@@ -4734,6 +4816,16 @@ function Diag.draw()
 
     -- OPÓŹNIENIE
     Diag.row("Player RTT", Diag.formatMs(Sync.rttMs) .. " ms", Diag.levelFor(Sync.rttMs, Diag.LIMITS.rtt_ms))
+    local markerPlayer = Game.GetPlayer()
+    if Sync.markerFresh() and markerPlayer ~= nil then
+        local marker = Sync.marker
+        local own = markerPlayer:GetWorldPosition()
+        Diag.row("Partner location", string.format("X %.1f / Y %.1f / Z %.1f", marker.x, marker.y, marker.z), "neutral")
+        Diag.row("Partner distance", string.format("%.1f m (latest received position)", distance3(own.x, own.y, own.z, marker.x, marker.y, marker.z)), "neutral")
+        Diag.row("Partner marker", marker.shown and "map / minimap" or "unavailable - check marker.reds", marker.shown and "good" or "warn")
+    else
+        Diag.row("Partner marker", "hidden - waiting for fresh player position", "neutral")
+    end
     Diag.row(
         "RTT min/max",
         Diag.formatMs(Sync.rttMinMs) .. " / " .. Diag.formatMs(Sync.rttMaxMs) .. " ms",
@@ -6285,6 +6377,7 @@ end
 local function resetRemote()
 
     cancelMoveCommand()
+    Sync.resetRemoteMarker()
 
     -- auto drugiego gracza i ukryty avatar nie mogą zostać w świecie
     -- (Sync.reset tylko zapomina o nich)
@@ -6431,6 +6524,12 @@ registerForEvent(
         Diag.loadRole()
         Mods.load()
 
+        -- A CET script reload can leave the redscript player instance alive.
+        local player = Game.GetPlayer()
+        if player ~= nil and player.CP2077Coop_HideRemoteMarker ~= nil then
+            player:CP2077Coop_HideRemoteMarker()
+        end
+
         Diag.log(
             "[CP2077Coop] bridge v" .. Diag.VERSION .. " loaded, role="
             .. (IS_HOST and "host" or "joiner")
@@ -6438,6 +6537,11 @@ registerForEvent(
 
     end
 )
+
+
+registerForEvent("onShutdown", function()
+    Sync.resetRemoteMarker()
+end)
 
 
 ------------------------------------------------------------
@@ -6549,6 +6653,10 @@ registerForEvent(
 
         -- menu / mapa / ekwipunek: świat stoi (Sync.frozen)
         Sync.updateFrozen(delta)
+
+        -- Expire on movement silence even if the DLL keeps its last slot.
+        -- Fresh packet updates below also work before the avatar has spawned.
+        if not Sync.markerFresh() then Sync.updateRemoteMarker(player) end
 
 
         ----------------------------------------------------
@@ -6828,6 +6936,9 @@ registerForEvent(
 
                 return
             end
+
+
+            Sync.noteMarkerPosition(player, rx, ry, rz)
 
 
             -- kierunek + zakodowany stan gry (patrz GAMEPLAY / WORLD STATE SYNC)

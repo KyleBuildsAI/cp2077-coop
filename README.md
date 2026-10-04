@@ -24,7 +24,7 @@ All of these ship inside the release zip:
 3. Pick a role in the in-game **CP2077 Coop** panel (open the CET overlay, click *Switch to HOST/JOINER*).
    The choice is saved to `role.txt` in the mod folder. One player must be host, the other joiner.
 
-**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.32*), the
+**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.33*), the
 *Version* row at the top of the panel and `version=` at the start of every `[STATS]` line show it.
 The protocol changes between builds: a partner on an older build shows up as *Peer: no ping reply -
 other player on old version?* and *Role check: unknown*, not as a role problem. Update the older
@@ -37,6 +37,16 @@ Start the game normally. The **CP2077 Coop** panel shows connection state, playe
 player-to-player round trip, packet rates, missed packets, avatar drift, both players' state,
 the joiner's teleport to the host and the relay server. Toggle it under CET *Bindings* →
 *Toggle coop panel*.
+
+**Partner marker.** A moving waypoint-style pin on the map/minimap follows the partner's
+latest received world position, including while driving and beyond avatar spawn range.
+The panel shows X/Y/Z coordinates, distance and the existing *Player RTT* ping.
+The pin has its own ID and does not change your selected waypoint or GPS route.
+Coordinates are the last received sample, not a claim of zero network delay. The marker
+hides after 1.5 s without a player-position packet and clears on session reset, save
+unload or CET shutdown. Combat hit positions never move the marker. Deploy `marker.reds`
+with `init.lua`; an older script install keeps movement working and reports the marker
+as unavailable. Icon visibility with the game's map filters requires a live check.
 
 **Joining.** The joiner is teleported next to the host once their game has settled: 4 s in the
 world in a row, not in a car and not in a scene that holds the player (a car, a scene or the game
@@ -133,6 +143,7 @@ See [tests/README.md](tests/README.md) for requirements and what each test cover
 | `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/init.lua` | Network loop, avatar movement, state sync |
 | `r6/scripts/CP2077Coop/natives.reds` | Declarations of functions exported by `CP2077Coop.dll` |
 | `r6/scripts/CP2077Coop/remote.reds` | Spawning and teleporting the remote avatar |
+| `r6/scripts/CP2077Coop/marker.reds` | Partner map/minimap marker, position updates and detach cleanup |
 | `r6/scripts/CP2077Coop/state.reds` | Reading and applying crouch, weapon, time and weather |
 | `r6/scripts/CP2077Coop/vehicle.reds` | The other player's car (placed every frame where they are now), mounted vehicle pose, avatar hidden while they drive |
 | `red4ext/plugins/CP2077Coop/` | Network plugin (binary, source kept separately by Jakub) |
