@@ -1,13 +1,15 @@
+// true = avatar istnieje albo spawn zlecony; false = nic nie zlecono
+// (system encji jeszcze niegotowy, świat się wczytuje): Lua ponowi
 @addMethod(PlayerPuppet)
-public func CP2077Coop_SpawnRemoteTest() -> Void {
+public func CP2077Coop_SpawnRemoteTest() -> Bool {
     let system = GameInstance.GetDynamicEntitySystem();
 
     if !IsDefined(system) || !system.IsReady() {
-        return;
+        return false;
     }
 
     if system.IsPopulated(n"CP2077Coop.Remote") {
-        return;
+        return true;
     }
 
     let position = this.GetWorldPosition();
@@ -34,7 +36,19 @@ public func CP2077Coop_SpawnRemoteTest() -> Void {
         n"CP2077Coop.Remote"
     ];
 
-    system.CreateEntity(spec);
+    return EntityID.IsDefined(system.CreateEntity(spec));
+}
+
+
+// Usuwa wpis avatara, który nie pojawił się w świecie (IsPopulated = true
+// przy pustym GetTagged blokowałoby każdy kolejny spawn).
+@addMethod(PlayerPuppet)
+public func CP2077Coop_DespawnRemote() -> Void {
+    let system = GameInstance.GetDynamicEntitySystem();
+
+    if IsDefined(system) && system.IsReady() && system.IsPopulated(n"CP2077Coop.Remote") {
+        system.DeleteTagged(n"CP2077Coop.Remote");
+    }
 }
 
 

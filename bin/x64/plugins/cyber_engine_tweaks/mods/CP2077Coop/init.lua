@@ -140,6 +140,13 @@ S.sendPrevSource = nil
 S.remoteInitialized = false
 S.remoteHandle = nil
 
+-- spawn avatara (Sync.requestSpawn): kiedy ostatnio wołany (nil = nie
+-- był), ile żądań, czy zalogowano odłożenie, licznik odpytywania GetTagged
+S.spawnRequestedAt = nil
+S.spawnAttempts = 0
+S.spawnDeferredLogged = false
+S.handlePollAccumulator = 0.0
+
 S.activeMoveCommand = nil
 
 S.remoteMoving = false
@@ -1639,9 +1646,24 @@ end
 
 ------------------------------------------------------------
 -- SPAWN AVATARA
+--
+-- Spawn może nie wyjść: system encji jeszcze niegotowy (świat się
+-- wczytuje; remote.reds zwraca wtedy false) albo encja nigdy nie
+-- pojawia się w GetTagged. Wcześniej żądanie szło raz, a avatar
+-- nie pojawiał się do końca sesji ("spawning" w panelu).
 ------------------------------------------------------------
 
--- Pierwszy pakiet drugiego gracza: avatar przed lokalnym graczem.
+-- najwyżej jedno wywołanie spawnu na tyle sekund (odłożony spawn
+-- nie woła CreateEntity z każdym pakietem)
+Sync.SPAWN_CALL_INTERVAL = 1.0
+-- brak encji po żądaniu: nowe żądanie po tyle s * numer żądania
+Sync.SPAWN_RETRY_SECONDS = 3.0
+Sync.SPAWN_RETRY_MAX = 30.0
+-- GetTagged (tablica przy każdym wywołaniu) nie co klatkę
+Sync.HANDLE_POLL_INTERVAL = 0.1
+
+
+-- Pierwszy pakiet drugiego gracza (i powtórki): avatar przed lokalnym graczem.
 function Sync.requestSpawn(player)
 
     -- redscript się nie skompilował: bez avatara (log raz),
@@ -1652,9 +1674,34 @@ function Sync.requestSpawn(player)
         return
     end
 
-    player:CP2077Coop_SpawnRemoteTest()
+    if S.spawnRequestedAt ~= nil
+        and Sync.clock - S.spawnRequestedAt <
+            Sync.SPAWN_CALL_INTERVAL
+    then
+        return
+    end
+
+    S.spawnRequestedAt = Sync.clock
+
+    -- false = nic nie zlecono, ponowimy z kolejnym pakietem;
+    -- nil = stary remote.reds bez wyniku (Void): jak zlecony
+    if player:CP2077Coop_SpawnRemoteTest() == false then
+
+        if not S.spawnDeferredLogged then
+
+            S.spawnDeferredLogged = true
+
+            print("[CP2077Coop] remote spawn deferred: entity system not ready")
+        end
+
+        return
+    end
 
     S.remoteInitialized = true
+    S.spawnAttempts = S.spawnAttempts + 1
+
+    -- pierwsze sprawdzenie GetTagged jeszcze w tej klatce
+    S.handlePollAccumulator = Sync.HANDLE_POLL_INTERVAL
 
     print(
         string.format(
@@ -1664,6 +1711,47 @@ function Sync.requestSpawn(player)
             S.targetZ
         )
     )
+end
+
+
+-- Encji avatara nadal nie ma: następny pakiet poprosi o spawn znowu.
+-- Od drugiej powtórki najpierw kasujemy stary wpis: IsPopulated = true
+-- przy pustym GetTagged zatrzymałoby każdy kolejny spawn.
+function Sync.checkSpawnTimeout(player)
+
+    local waited =
+        Sync.clock -
+        (S.spawnRequestedAt or Sync.clock)
+
+    local limit =
+        math.min(
+            Sync.SPAWN_RETRY_MAX,
+            Sync.SPAWN_RETRY_SECONDS *
+            math.max(1, S.spawnAttempts)
+        )
+
+    if waited < limit then
+        return
+    end
+
+    local despawn =
+        S.spawnAttempts >= 2
+        and player.CP2077Coop_DespawnRemote ~= nil
+
+    if despawn then
+        player:CP2077Coop_DespawnRemote()
+    end
+
+    print(
+        string.format(
+            "[CP2077Coop] remote avatar not found %.1f s after spawn request %d%s, requesting again",
+            waited,
+            S.spawnAttempts,
+            despawn and " (stale entry deleted)" or ""
+        )
+    )
+
+    S.remoteInitialized = false
 end
 
 
@@ -3043,6 +3131,26 @@ function Diag.describeFlags(flags)
 end
 
 
+function Diag.avatarState()
+
+    if S.remoteHandle ~= nil then
+        return "spawned"
+    end
+
+    if S.spawnAttempts == 0 then
+
+        -- spawn odłożony: system encji jeszcze niegotowy
+        return S.spawnRequestedAt ~= nil and "waiting for world" or "none"
+    end
+
+    if S.spawnAttempts == 1 then
+        return "spawning"
+    end
+
+    return string.format("spawning (request %d)", S.spawnAttempts)
+end
+
+
 function Diag.draw()
 
     if not Diag.visible then
@@ -3167,7 +3275,7 @@ function Diag.draw()
     -- AVATAR / STAN
     Diag.row(
         "Avatar",
-        S.remoteHandle ~= nil and "spawned" or (S.remoteInitialized and "spawning" or "none"),
+        Diag.avatarState(),
         S.remoteHandle ~= nil and "good" or "warn"
     )
 
@@ -3912,6 +4020,11 @@ local function resetRemote()
 
     S.remoteInitialized = false
     S.remoteHandle = nil
+
+    S.spawnRequestedAt = nil
+    S.spawnAttempts = 0
+    S.spawnDeferredLogged = false
+    S.handlePollAccumulator = 0.0
 
     S.lastRemoteSequence = -1
 
@@ -4794,8 +4907,23 @@ registerForEvent(
             and S.remoteHandle == nil
         then
 
-            S.remoteHandle =
-                getRemoteHandle()
+            S.handlePollAccumulator =
+                S.handlePollAccumulator +
+                delta
+
+            if S.handlePollAccumulator >=
+                Sync.HANDLE_POLL_INTERVAL
+            then
+
+                S.handlePollAccumulator = 0.0
+
+                S.remoteHandle =
+                    getRemoteHandle()
+
+                if S.remoteHandle == nil then
+                    Sync.checkSpawnTimeout(player)
+                end
+            end
 
 
             if S.remoteHandle ~= nil then
@@ -4803,6 +4931,9 @@ registerForEvent(
                 print(
                     "[CP2077Coop] remote entity acquired"
                 )
+
+                -- nowy avatar: kucanie i broń od nowa
+                Sync.appliedFlags = -1
 
                 local playerPos =
                     player:
