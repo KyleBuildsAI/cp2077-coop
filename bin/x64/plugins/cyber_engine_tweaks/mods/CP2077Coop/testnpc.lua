@@ -40,7 +40,7 @@ function TestNpc.new(options)
     local self = setmetatable({}, TestNpc)
     self.enabled = options.enabled == true
     self.role, self.epoch, self.peer = options.role, options.epoch, options.peer
-    self.entity, self.send = options.entity, options.send
+    self.entity, self.send, self.log = options.entity, options.send, options.log
     self.now, self.serial, self.tombstone = 0, 0, 0
     self.sent, self.received, self.rejected, self.expired = 0, 0, 0, 0
     self.spawnFailures = 0
@@ -99,10 +99,18 @@ function TestNpc:reject()
     return false
 end
 
+function TestNpc:note(kind, a, p)
+    if self.log then
+        self.log("[NPC TEST] " .. kind .. " role=" .. self.role .. " epoch=" .. self.epoch .. " id=" .. a.id ..
+            (p and string.format(" x=%.3f y=%.3f z=%.3f yaw=%.3f", p.x, p.y, p.z, p.yaw) or ""))
+    end
+end
+
 function TestNpc:failSpawn(reason)
     local a = self.actor
     if not a then return end
     self.spawnFailures, self.lastFailure = self.spawnFailures + 1, reason
+    self:note("spawn_failed reason=" .. reason, a)
     self.entity.clear()
     self.localClearPending = true
     if self.role == "host" then self:stop()
@@ -182,10 +190,14 @@ function TestNpc:update(dt)
         return
     end
     -- DeleteTagged is asynchronous in the engine. Never mistake the previous
-    -- incarnation for the newly bound actor, or ACK removal while its tag exists.
+    -- incarnation for the newly bound actor. The bridge tracks owned IDs even
+    -- after Codeware drops a tag, until population/attachment cleanup completes.
     if a.awaitClear then
         self.entity.clear()
-        if self:present() then return end
+        if self:present() then
+            if self.now - a.started > self.SPAWN_TIMEOUT then self:failSpawn("previous actor cleanup timeout") end
+            return
+        end
         a.awaitClear = false
     end
     local actual = self.entity.read()
@@ -196,7 +208,7 @@ function TestNpc:update(dt)
         end
         if not a.requested and self.now >= (a.nextSpawn or 0) then
             a.requested = self.entity.spawn(a.target) == true
-            if a.requested then a.spawnPose = copy(a.target) end
+            if a.requested then a.spawnPose = copy(a.target); self:note("spawn_requested", a, a.spawnPose) end
             a.nextSpawn = self.now + self.RETRY
         end
         -- GetTagged can expose a registered NPC with a finite (0,0,0) transform
@@ -208,6 +220,7 @@ function TestNpc:update(dt)
         a.placementError = math.sqrt(dx*dx+dy*dy+dz*dz)
         if a.placementError > self.PLACEMENT_TOLERANCE then a.waitReason = "initial placement"; return end
         a.placed, a.waitReason = true, nil
+        self:note("spawn_placed", a, actual)
     end
     -- This slice mirrors transforms only. No autonomous AI, navmesh animation,
     -- combat, health or quest-state synchronization is promised by this call.
@@ -216,7 +229,10 @@ function TestNpc:update(dt)
     if not validPose(actual) then return end
     if self.role == "host" then
         if not a.ack and self.now >= a.nextRetry then
-            self:emit(true, "B", a.id, poseText(actual)); a.nextRetry = self.now + self.RETRY
+            if self:emit(true, "B", a.id, poseText(actual)) and not a.bindLogged then
+                a.bindLogged = true; self:note("first_bind_sent", a, actual)
+            end
+            a.nextRetry = self.now + self.RETRY
         end
         if self.now >= a.nextState then
             a.seq = a.seq + 1
@@ -257,7 +273,7 @@ function TestNpc.cetEntity(playerProvider)
         end,
         exists=function()
             local player = playerProvider()
-            return player ~= nil and player:CP2077Coop_TestNpcGet() ~= nil
+            return player ~= nil and player:CP2077Coop_TestNpcExists() == true
         end,
         clear=function()
             local player = playerProvider()

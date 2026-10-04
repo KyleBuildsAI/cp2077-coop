@@ -202,12 +202,16 @@ def test_overflow_on_menu_frame_stays_disabled_after_resume():
     ''')
 
 
-def test_async_engine_removal_is_not_acknowledged_until_tag_disappears():
+def test_async_engine_removal_is_not_acknowledged_until_owned_actor_disappears():
     runtime().execute(r'''
         active()
         ej.holdDeletion=true
+        ej.tagged=true
+        local clear=ej.clear
+        ej.clear=function() ej.tagged=false; clear() end
+        ej.exists=function() return ej.pose~=nil end -- population survives tag removal
         assert(nh:remove()); run(20)
-        assert(ej.pose and nh.actor.actor and nh.actor.actor.stopping)
+        assert(not ej.tagged and ej.pose and nh.actor.actor and nh.actor.actor.stopping)
         assert(nj.actor.pendingDeleteAck==1)
         ej.holdDeletion=false
         run(20)
@@ -253,16 +257,49 @@ def test_origin_ghost_that_never_places_times_out_despite_fresh_state_packets():
     ''')
 
 
-def test_cet_bridge_rejects_unattached_actor_but_keeps_tag_presence_for_cleanup():
+def test_cet_bridge_rejects_unattached_actor_but_checks_tracked_existence():
     runtime().execute(r'''
         local attached=false
         local actor={IsAttached=function() return attached end,IsDead=function() return false end,
             GetWorldPosition=function() return {x=20,y=30,z=5} end,GetWorldYaw=function() return 0 end}
-        local player={CP2077Coop_TestNpcGet=function() return actor end}
+        local player={CP2077Coop_TestNpcGet=function() return actor end,
+            CP2077Coop_TestNpcExists=function() return true end}
         local bridge=require('testnpc').cetEntity(function() return player end)
         assert(bridge.read()==nil and bridge.exists())
         attached=true
         assert(bridge.read().x==20 and bridge.exists())
+        player.CP2077Coop_TestNpcGet=function() return nil end -- tag removed, owned ID still present
+        assert(bridge.read()==nil and bridge.exists())
+    ''')
+
+
+def test_previous_actor_cleanup_has_deadline_and_blocks_replacement():
+    runtime().execute(r'''
+        start(true,true)
+        ej.pose={x=1,y=2,z=3,yaw=0}; ej.holdDeletion=true
+        assert(nh:spawnNear({x=100,y=200,z=3})); run(140)
+        assert(ej.spawns==0 and ej.pose and nj.actor.actor==nil)
+        assert(nj.actor.lastFailure=='previous actor cleanup timeout')
+        assert(not nh.actor.actor.ack)
+        run(100)
+        assert(nh.actor.actor.stopping and nj.actor.pendingDeleteAck==1)
+        ej.holdDeletion=false; run(20)
+        assert(nh.actor.actor==nil and ej.pose==nil)
+    ''')
+
+
+def test_spawn_audit_records_requested_placed_and_first_bind_once():
+    runtime().execute(r'''
+        start(true,true)
+        local lines={}
+        nh.actor.log=function(line) table.insert(lines,line) end
+        assert(nh:spawnNear({x=100,y=200,z=3})); run(50)
+        assert(#lines==3)
+        assert(lines[1]:find('spawn_requested role=host',1,true))
+        assert(lines[2]:find('spawn_placed role=host',1,true))
+        assert(lines[3]:find('first_bind_sent role=host',1,true))
+        for _,line in ipairs(lines) do assert(line:find('x=94.000 y=200.000 z=3.000',1,true)) end
+        run(20); assert(#lines==3)
     ''')
 
 
@@ -297,6 +334,7 @@ def opted_in_init(bridge=True):
         npcClears,npcSpawns=0,0
         npcPose=nil
         function player:CP2077Coop_TestNpcClear() npcClears=npcClears+1; npcPose=nil end
+        function player:CP2077Coop_TestNpcExists() return npcPose~=nil end
         function player:CP2077Coop_TestNpcSpawn(x,y,z,yaw)
             npcSpawns=npcSpawns+1; npcPose={x=x,y=y,z=z,yaw=yaw}; return true
         end

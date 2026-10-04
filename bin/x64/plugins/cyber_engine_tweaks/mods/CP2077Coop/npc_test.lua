@@ -72,7 +72,7 @@ function Npc:activate()
     if self.actor then return end
     local context = self.context
     self.actor = Harness.new({enabled=true, role=context.localRole, epoch=self.hostEpoch,
-        peer=context.peer, entity=self.entity,
+        peer=context.peer, entity=self.entity, log=self.log,
         send=function(reliable, payload)
             return self.transport:sendExtension(context, reliable and 20 or 2, payload)
         end})

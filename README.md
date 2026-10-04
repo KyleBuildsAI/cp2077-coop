@@ -113,7 +113,7 @@ following the sampled target, so pathfinding and animation still affect the visi
 result. Default v1 retains its existing proximity-based ranged-hit approximation.
 Neither transport constitutes full-world multiplayer synchronization yet.
 
-### Optional controlled test NPC (v0.0.35)
+### Optional controlled test NPC (v0.0.36)
 
 Set `npc_test=true` in both installations' `transport.ini` to opt into one temporary
 test actor. It requires v2 and the packaged `npc_test.lua`, `testnpc.lua` and
@@ -140,12 +140,18 @@ accepting a network send. A tagged handle is not enough: the actor must be attac
 and measured within 2 m of its original requested spawn pose before movement or
 creation ACK. A registered origin ghost expires after five seconds even while
 network snapshots arrive, and logs an explicit placement failure. Old IDs/epochs
-cannot revive removed actors. The adapter's
+cannot revive removed actors. Request, measured placement and first transmitted
+bind each log their role/epoch/actor ID/pose once, so an origin request is traceable.
+Removal tracks the private created EntityID, population spawning and retiring
+actor attachment after Codeware drops its tag. Cancellation during asynchronous
+creation waits for the entity before deleting it. A five-second cleanup wait fails
+the new spawn but keeps tracking the old actor; it cannot send a false removal ACK.
+The adapter's
 bounded extension inbox fails closed without disconnecting the player stream.
 
 Host/joiner menu pause removes the experimental actor and renegotiates on resume;
 respawn explicitly. Silence expires the peer actor after three seconds. Disconnect,
-role change, save unload and CET shutdown clear the private tag. Codeware's session
+role change, save unload and CET shutdown request scoped actor cleanup. Codeware's session
 cleanup is also registered before spawn. Appearance variation, AI, health/deaths,
 combat, traffic and quest/world identity are outside this slice. The generic record
 is fixed, but its runtime appearance is not serialized. No shared-world completion
@@ -157,7 +163,10 @@ and `retargets` in `[STATS]` plus actual visible drift before selecting it for n
 play; changing a target can behave differently in the real game than in the mock.
 
 The tagged spawn/lifecycle interfaces follow [Codeware's primary documentation](https://github.com/psiberx/cp2077-codeware/wiki/)
-(checked 2026-10-04); the broad NPC design and research remain in the Obsidian vault.
+(checked 2026-10-04). [Codeware 1.18.0 source](https://github.com/psiberx/cp2077-codeware/blob/b1b2770cdf6ad2631666fb6ef4ccda99d864298e/src/App/World/DynamicEntitySystem.cpp)
+shows why tag removal is earlier than engine deletion and why pending creation
+must retain its ID. Live removal still requires checking actual actor absence.
+The broad NPC design and research remain in the Obsidian vault.
 
 The standard test bot's sprint lasts **3 seconds**. The offline A10 regression uses
 12 seconds and still has its documented measured-lag failure; a normal bot cycle
