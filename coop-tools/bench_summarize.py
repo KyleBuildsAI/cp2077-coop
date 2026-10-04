@@ -49,6 +49,15 @@ def summarize(folder, expected_version=None, probe_disabled=False):
                     pass
             result[field] = {"median": statistics.median(values), "max": max(values),
                              "samples": len(values)} if values else None
+        result["counters"] = {}
+        for field in ("commands_started", "retargets"):
+            values = [int(s[field]) for s in active if s.get(field, "").isdigit()]
+            if values:
+                result["counters"][field] = {
+                    "first": values[0], "last": values[-1],
+                    "observed_increase": sum(b-a if b >= a else b for a,b in zip(values, values[1:])),
+                    "resets": sum(b < a for a,b in zip(values, values[1:])),
+                }
         probe_lines = [line for line in role["probe"].splitlines() if " REPORT " in line]
         if probe_lines:
             result["probe_last"] = dict(re.findall(r"(\w+)=([^\s]+)", probe_lines[-1].split(" stats=", 1)[0]))
