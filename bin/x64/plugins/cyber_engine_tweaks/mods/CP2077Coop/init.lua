@@ -284,7 +284,10 @@ local Diag = {
     ppsOut = 0.0,
 
     lastPacketClock = nil,
-    lastState = "WAITING",
+    -- stan i wiek pakietu z ostatniego odczytu DLL (Diag.updateConnectionState);
+    -- start moda = menu główne
+    lastState = "PAUSED",
+    lastAge = nil,
 
     statsTimer = 0.0,
     monitorTimer = 0.0,
@@ -3184,12 +3187,12 @@ end
 function Diag.statsLine()
 
     local age =
-        Diag.packetAge()
+        Diag.lastAge
 
     return
         string.format(
             "[CP2077Coop] [STATS] state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d",
-            Diag.connectionState(),
+            Diag.lastState,
             S.syncActive and "on" or "off",
             IS_HOST and "host" or "joiner",
             Diag.formatMs(Sync.rttMs),
@@ -3268,6 +3271,33 @@ function Diag.readMonitorStatus()
 end
 
 
+-- Wołane na początku klatki, przed Sync.tick: zegar stoi jeszcze na
+-- odczycie DLL z poprzedniej klatki. Liczone po Sync.tick, jedna długa
+-- klatka (autozapis, streaming, przeciąganie okna) dodawała swój czas
+-- do wieku pakietu i logowała "OK -> STALE", choć pakiety szły cały
+-- czas i ta sama klatka je zaraz odczytywała.
+function Diag.updateConnectionState()
+
+    local state =
+        Diag.connectionState()
+
+    Diag.lastAge =
+        Diag.packetAge()
+
+    if state ~= Diag.lastState then
+
+        Diag.log(
+            "[CP2077Coop] EVENT connection "
+            .. Diag.lastState
+            .. " -> "
+            .. state
+        )
+
+        Diag.lastState = state
+    end
+end
+
+
 function Diag.tick(delta)
 
     Diag.windowTimer =
@@ -3286,22 +3316,6 @@ function Diag.tick(delta)
         Diag.windowReceived = 0
         Diag.windowSent = 0
         Diag.windowTimer = 0.0
-    end
-
-
-    local state =
-        Diag.connectionState()
-
-    if state ~= Diag.lastState then
-
-        Diag.log(
-            "[CP2077Coop] EVENT connection "
-            .. Diag.lastState
-            .. " -> "
-            .. state
-        )
-
-        Diag.lastState = state
     end
 
 
@@ -3447,9 +3461,9 @@ function Diag.draw()
     end
 
 
-    -- POŁĄCZENIE
+    -- POŁĄCZENIE (stan z ostatniego odczytu DLL, jak w logu)
     local state =
-        Diag.connectionState()
+        Diag.lastState
 
     local stateLevel = "bad"
 
@@ -3502,7 +3516,7 @@ function Diag.draw()
     )
 
     local age =
-        Diag.packetAge()
+        Diag.lastAge
 
     local ageLevel = "good"
 
@@ -4465,6 +4479,7 @@ registerForEvent(
         -- CLOCK / DIAGNOSTICS
         ----------------------------------------------------
 
+        Diag.updateConnectionState()
         Sync.tick(delta)
         Diag.tick(delta)
 
