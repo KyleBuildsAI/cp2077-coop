@@ -209,15 +209,19 @@ function Npc:status()
     local text = self.state
     if a then
         local phase = a.stopping and " removing" or (not p and " waiting for actor" or " active")
-        if p and self.context.localRole == "host" and not a.ack and not a.stopping then phase = " awaiting peer actor" end
+        if not a.stopping and not a.placed then phase = " waiting for " .. (a.waitReason or "initial placement")
+        elseif p and self.context.localRole == "host" and not a.ack and not a.stopping then phase = " awaiting peer actor" end
         text = text .. " | id=" .. a.id .. phase
         if p then
             local dx, dy, dz = p.x-a.target.x, p.y-a.target.y, p.z-a.target.z
             text = text .. string.format(" | %.2f %.2f %.2f target_err_m=%.2f", p.x, p.y, p.z, math.sqrt(dx*dx+dy*dy+dz*dz))
         end
     end
-    if self.actor then text = text .. string.format(" | sent=%d rx=%d rejected=%d expired=%d",
-        self.actor.sent, self.actor.received, self.actor.rejected, self.actor.expired) end
+    if self.actor then
+        text = text .. string.format(" | sent=%d rx=%d rejected=%d expired=%d spawn_failures=%d",
+            self.actor.sent, self.actor.received, self.actor.rejected, self.actor.expired, self.actor.spawnFailures)
+        if self.actor.lastFailure then text = text .. " last_failure=" .. self.actor.lastFailure end
+    end
     return {state=self.state, ready=self.actor ~= nil, actor=a ~= nil, path=self.path == true, text=text}
 end
 

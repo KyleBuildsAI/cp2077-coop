@@ -3,10 +3,11 @@
 -- sole transport owner. Nothing runs unless enabled=true is explicitly supplied.
 local TestNpc = {}
 TestNpc.__index = TestNpc
-TestNpc.VERSION = "0.1.0"
--- Reserved with the main adapter owner; its extension dispatcher is not installed yet.
+TestNpc.VERSION = "0.1.1"
+-- Reserved by the main adapter's optional extension dispatcher.
 TestNpc.RELIABLE_CHANNEL, TestNpc.POSE_CHANNEL = 20, 2
 TestNpc.INTERVAL, TestNpc.RETRY, TestNpc.STALE, TestNpc.SPAWN_TIMEOUT = 0.1, 0.25, 3, 5
+TestNpc.PLACEMENT_TOLERANCE = 2.0
 
 local function finite(n)
     return type(n) == "number" and n == n and n > -math.huge and n < math.huge
@@ -42,6 +43,7 @@ function TestNpc.new(options)
     self.entity, self.send = options.entity, options.send
     self.now, self.serial, self.tombstone = 0, 0, 0
     self.sent, self.received, self.rejected, self.expired = 0, 0, 0, 0
+    self.spawnFailures = 0
     if self.enabled then
         assert(self.role == "host" or self.role == "joiner", "explicit role required")
         assert(epoch(self.epoch), "host session epoch required")
@@ -95,6 +97,16 @@ end
 function TestNpc:reject()
     self.rejected = self.rejected + 1
     return false
+end
+
+function TestNpc:failSpawn(reason)
+    local a = self.actor
+    if not a then return end
+    self.spawnFailures, self.lastFailure = self.spawnFailures + 1, reason
+    self.entity.clear()
+    self.localClearPending = true
+    if self.role == "host" then self:stop()
+    else self.tombstone, self.actor = math.max(self.tombstone, a.id), nil end
 end
 
 function TestNpc:receive(sender, reliable, message)
@@ -160,7 +172,7 @@ function TestNpc:update(dt)
         return
     end
     if self.role == "host" and not a.ack and self.now - a.started > self.SPAWN_TIMEOUT * 2 then
-        self:stop() -- peer never created/acknowledged its actor; do not retry forever
+        self:failSpawn("peer placement acknowledgement timeout")
         return
     end
     if self.role == "joiner" and self.now - a.last > self.STALE then
@@ -177,17 +189,25 @@ function TestNpc:update(dt)
         a.awaitClear = false
     end
     local actual = self.entity.read()
-    if not validPose(actual) then
+    if not a.placed or not validPose(actual) then
         if self.now - a.started > self.SPAWN_TIMEOUT then
-            self.entity.clear()
-            if self.role == "host" then self:stop() else self.tombstone, self.actor = math.max(self.tombstone, a.id), nil end
+            self:failSpawn(a.requested and "initial attachment/placement timeout" or "spawn request timeout")
             return
         end
         if not a.requested and self.now >= (a.nextSpawn or 0) then
             a.requested = self.entity.spawn(a.target) == true
+            if a.requested then a.spawnPose = copy(a.target) end
             a.nextSpawn = self.now + self.RETRY
         end
-        return
+        -- GetTagged can expose a registered NPC with a finite (0,0,0) transform
+        -- before the engine has attached/placed it. Sending movement then can
+        -- interfere with placement. Only the measured spawn location proves this
+        -- incarnation ready; newer network targets do not redefine that location.
+        if not a.requested or not validPose(actual) then a.waitReason = "attachment"; return end
+        local dx, dy, dz = actual.x-a.spawnPose.x, actual.y-a.spawnPose.y, actual.z-a.spawnPose.z
+        a.placementError = math.sqrt(dx*dx+dy*dy+dz*dz)
+        if a.placementError > self.PLACEMENT_TOLERANCE then a.waitReason = "initial placement"; return end
+        a.placed, a.waitReason = true, nil
     end
     -- This slice mirrors transforms only. No autonomous AI, navmesh animation,
     -- combat, health or quest-state synchronization is promised by this call.
@@ -231,7 +251,7 @@ function TestNpc.cetEntity(playerProvider)
         read=function()
             local player = playerProvider()
             local actor = player and player:CP2077Coop_TestNpcGet()
-            if not actor or actor:IsDead() then return nil end
+            if not actor or not actor:IsAttached() or actor:IsDead() then return nil end
             local p = actor:GetWorldPosition()
             return {x=p.x, y=p.y, z=p.z, yaw=actor:GetWorldYaw()}
         end,

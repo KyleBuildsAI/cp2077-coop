@@ -217,6 +217,55 @@ def test_async_engine_removal_is_not_acknowledged_until_tag_disappears():
     ''')
 
 
+def test_registered_origin_handle_waits_for_real_initial_placement_before_ack_or_move():
+    runtime().execute(r'''
+        start(true,true)
+        ej.spawn=function(p)
+            ej.spawns=ej.spawns+1
+            ej.spawnPose={x=p.x,y=p.y,z=p.z,yaw=p.yaw}
+            ej.pose={x=0,y=0,z=0,yaw=0} -- registered handle, engine has not placed it
+            return true
+        end
+        assert(nh:spawnNear({x=100,y=200,z=3})); run(20)
+        assert(ej.spawns==1 and ej.moves==0 and not nh.actor.actor.ack)
+        assert(not nj.actor.actor.placed and nj:status().text:find('initial placement',1,true))
+        assert(nh:togglePath()); run(50) -- latest target moves >2 m from original spawn
+        assert(ej.moves==0 and not nh.actor.actor.ack)
+        ej.pose=ej.spawnPose
+        run(10)
+        assert(nj.actor.actor.placed and nh.actor.actor.ack and ej.moves>0)
+        assert(ej.pose.y>ej.spawnPose.y+2) -- initial readiness used immutable spawn pose
+    ''')
+
+
+def test_origin_ghost_that_never_places_times_out_despite_fresh_state_packets():
+    runtime().execute(r'''
+        start(true,true)
+        ej.spawn=function(p)
+            ej.spawns=ej.spawns+1; ej.pose={x=0,y=0,z=0,yaw=0}; return true
+        end
+        assert(nh:spawnNear({x=100,y=200,z=3})); run(140)
+        assert(ej.pose==nil and ej.moves==0 and nj.actor.spawnFailures==1)
+        assert(nj.actor.lastFailure=='initial attachment/placement timeout')
+        assert(nh.actor.actor and not nh.actor.actor.ack)
+        run(110)
+        assert(nh.actor.actor==nil and nh.actor.spawnFailures==1)
+    ''')
+
+
+def test_cet_bridge_rejects_unattached_actor_but_keeps_tag_presence_for_cleanup():
+    runtime().execute(r'''
+        local attached=false
+        local actor={IsAttached=function() return attached end,IsDead=function() return false end,
+            GetWorldPosition=function() return {x=20,y=30,z=5} end,GetWorldYaw=function() return 0 end}
+        local player={CP2077Coop_TestNpcGet=function() return actor end}
+        local bridge=require('testnpc').cetEntity(function() return player end)
+        assert(bridge.read()==nil and bridge.exists())
+        attached=true
+        assert(bridge.read().x==20 and bridge.exists())
+    ''')
+
+
 def test_real_init_default_off_and_primary_controls_precede_diagnostics():
     lua = integration.receiver(extra=r'''
         Game.Net_NowMs=function() error('NPC clock called while disabled') end
@@ -254,7 +303,7 @@ def opted_in_init(bridge=True):
         function player:CP2077Coop_TestNpcMove(x,y,z,yaw) npcPose={x=x,y=y,z=z,yaw=yaw}; return true end
         function player:CP2077Coop_TestNpcGet()
             if not npcPose then return nil end
-            return {IsDead=function() return false end,
+            return {IsAttached=function() return true end, IsDead=function() return false end,
                 GetWorldPosition=function() return npcPose end, GetWorldYaw=function() return npcPose.yaw end}
         end
     ''' if bridge else "Game.Net_NowMs=function() return 123456.789 end"

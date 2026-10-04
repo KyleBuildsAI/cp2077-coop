@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.35 WORLD + STATE + VEHICLE + COMBAT SYNC + OPTIONAL TEST NPC
+-- v0.0.36 WORLD + STATE + VEHICLE + COMBAT SYNC + OPTIONAL TEST NPC
 --
 -- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
 -- albo domyślnie poniżej. role.txt ma pierwszeństwo.
@@ -270,7 +270,7 @@ S.joinForwardY = nil
 -- tytule i pierwszym wierszu panelu oraz w każdej linii [STATS]
 -- (version=), więc stary build na stanowisku testowym od razu widać.
 local Diag = {
-    VERSION = "0.0.35",
+    VERSION = "0.0.36",
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,

@@ -87,7 +87,7 @@ public func CP2077Coop_TestNpcSpawn(x: Float, y: Float, z: Float, yaw: Float) ->
 @addMethod(PlayerPuppet)
 public func CP2077Coop_TestNpcMove(x: Float, y: Float, z: Float, yaw: Float) -> Bool {
     let actor = this.CP2077Coop_TestNpcGet();
-    if !IsDefined(actor) || actor.IsDead() {
+    if !IsDefined(actor) || !actor.IsAttached() || actor.IsDead() {
         return false;
     }
     let senses = actor.GetSensesComponent();

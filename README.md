@@ -24,7 +24,7 @@ All of these ship inside the release zip:
 3. Pick a role in the in-game **CP2077 Coop** panel (open the CET overlay, click *Switch to HOST/JOINER*).
    The choice is saved to `role.txt` in the mod folder. One player must be host, the other joiner.
 
-**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.35*), the
+**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.36*), the
 *Version* row at the top of the panel and `version=` at the start of every `[STATS]` line show it.
 The protocol changes between builds: a partner on an older build shows up as *Peer: no ping reply -
 other player on old version?* and *Role check: unknown*, not as a role problem. Update the older
@@ -136,7 +136,11 @@ lifecycle, and unreliable channel 2 carries measured actor poses at 10 Hz. Both
 current application sessions, the authenticated sender, a fresh joiner activation
 challenge and a fresh host NPC epoch must match before actor APIs can run. Reliable
 creation/removal acknowledgement concerns actual actor attachment/removal, beyond
-accepting a network send. Old IDs/epochs cannot revive removed actors. The adapter's
+accepting a network send. A tagged handle is not enough: the actor must be attached
+and measured within 2 m of its original requested spawn pose before movement or
+creation ACK. A registered origin ghost expires after five seconds even while
+network snapshots arrive, and logs an explicit placement failure. Old IDs/epochs
+cannot revive removed actors. The adapter's
 bounded extension inbox fails closed without disconnecting the player stream.
 
 Host/joiner menu pause removes the experimental actor and renegotiates on resume;
