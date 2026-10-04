@@ -16,6 +16,8 @@ import coopnet_relay as relay  # noqa: E402
 
 PORT = 11799
 RELAY_ADDRESS = ("127.0.0.1", PORT)
+RELAY_LOG = os.path.join(ROOT, "build", "relay_protocol_test.log")
+READY_TIMEOUT_SECONDS = 20.0
 
 
 class Client:
@@ -64,15 +66,42 @@ class Client:
         return echoed == self.nonce
 
 
+def read_relay_log():
+    try:
+        with open(RELAY_LOG, encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError as error:
+        return f"<could not read {RELAY_LOG}: {error}>"
+
+
+def wait_until_ready(process):
+    """Waits for the relay's startup banner (printed after bind) instead of a fixed sleep."""
+    deadline = time.monotonic() + READY_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        if "coopnet relay v" in read_relay_log():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def main():
-    process = subprocess.Popen([sys.executable, os.path.join(ROOT, "tools", "coopnet_relay.py"), "--port", str(PORT)],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    os.makedirs(os.path.dirname(RELAY_LOG), exist_ok=True)
+    with open(RELAY_LOG, "w", encoding="utf-8") as log_handle:
+        process = subprocess.Popen(
+            [sys.executable, os.path.join(ROOT, "tools", "coopnet_relay.py"), "--port", str(PORT)],
+            stdout=log_handle, stderr=subprocess.STDOUT,
+        )
     checks = []
     try:
-        time.sleep(0.5)
+        ready = wait_until_ready(process)
+        checks.append(("relay started", ready))
         alpha, bravo = Client(0x1111), Client(0x2222)
-        checks.append(("alpha welcomed", alpha.hello() and alpha.client_id == 1))
-        checks.append(("bravo welcomed", bravo.hello() and bravo.client_id == 2))
+        checks.append(("alpha welcomed", ready and alpha.hello() and alpha.client_id == 1))
+        checks.append(("bravo welcomed", ready and bravo.hello() and bravo.client_id == 2))
+        if alpha.client_id is None or bravo.client_id is None:
+            raise RuntimeError("relay did not welcome both clients; skipping the remaining checks")
 
         peers = alpha.receive(relay.OP_PEERS)
         while peers is not None and struct.unpack_from("<H", peers[1], 1)[0] < 2:
@@ -115,6 +144,8 @@ def main():
         while peers is not None and struct.unpack_from("<H", peers[1], 1)[0] != 1:
             peers = bravo.receive(relay.OP_PEERS)
         checks.append(("bye removes client", peers is not None))
+    except RuntimeError as error:
+        checks.append((str(error), False))
     finally:
         process.terminate()
         process.wait(timeout=10)
@@ -122,6 +153,9 @@ def main():
     for name, passed in checks:
         print(f"  {'ok  ' if passed else 'FAIL'} {name}")
     failed = [name for name, passed in checks if not passed]
+    if failed:
+        print(f"relay exit code: {process.returncode}; relay log ({RELAY_LOG}):")
+        print(read_relay_log().rstrip() or "<empty>")
     print("RELAY PASS" if not failed else f"RELAY FAIL: {failed}")
     return 0 if not failed else 1
 
