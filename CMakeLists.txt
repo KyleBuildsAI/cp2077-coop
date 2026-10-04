@@ -58,7 +58,9 @@ target_compile_definitions(coopnet_version INTERFACE
 )
 
 # -----------------------------------------------------------------------------
-# Transport core (no RED4ext dependency, shared by the plugin and the tests)
+# Transport core (no RED4ext dependency, shared by the plugin and the tests): the protocol v2
+# client on its network thread, the clock and version behind Net_NowMs/Net_Version, and the
+# native registration helpers.
 # -----------------------------------------------------------------------------
 add_library(coopnet_core STATIC
   src/core/Clock.cpp
@@ -66,10 +68,6 @@ add_library(coopnet_core STATIC
   src/core/LoadReport.cpp
   src/core/LoadReport.hpp
   src/core/NativeRegistration.hpp
-  src/core/Protocol.cpp
-  src/core/Protocol.hpp
-  src/core/Reliability.cpp
-  src/core/Reliability.hpp
   src/core/ScriptString.hpp
   src/core/Transport.cpp
   src/core/Transport.hpp
@@ -78,7 +76,7 @@ add_library(coopnet_core STATIC
 target_include_directories(coopnet_core PUBLIC "${PROJECT_SOURCE_DIR}/src")
 target_compile_definitions(coopnet_core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
 target_compile_options(coopnet_core PRIVATE ${COOPNET_WARNINGS} /WX)
-target_link_libraries(coopnet_core PUBLIC ws2_32 coopnet_version)
+target_link_libraries(coopnet_core PUBLIC ws2_32 coopnet_version coopnet_v2)
 
 # -----------------------------------------------------------------------------
 # Protocol v2 (no RED4ext, no Winsock): the codec (port of relay/coopnet/proto.py and

@@ -6,7 +6,7 @@
 // CMakeLists.txt through the coopnet_version interface target, so the DLL, the probe and the tests
 // can never disagree.
 
-#include "core/Protocol.hpp"
+#include "v2/coop_proto_v2.h"
 
 #include <cstdint>
 #include <string_view>
@@ -21,6 +21,9 @@
 #define COOPNET_STRINGIFY(x) COOPNET_STRINGIFY_IMPL(x)
 // "major.minor.patch" or "major.minor.patch-<alpha|beta|rc>.<n>"
 #define COOPNET_SEMVER_STRING COOPNET_SEMVER_TEXT
+// The wire protocol the transport speaks: v2 (relay/coopnet/proto.py), minor 1 (SCRIPT_MSG).
+#define COOPNET_WIRE_MAJOR 2
+#define COOPNET_WIRE_MINOR 1
 
 namespace coopnet
 {
@@ -34,11 +37,14 @@ inline constexpr uint32_t kPrereleaseType = COOPNET_VERSION_PRERELEASE_TYPE;
 inline constexpr uint32_t kPrereleaseNumber = COOPNET_VERSION_PRERELEASE_NUMBER;
 inline constexpr std::string_view kSemVer = COOPNET_SEMVER_STRING;
 
-// What Net_Version() returns: "CP2077CoopNet <semver> proto <wire protocol version>", e.g.
-// "CP2077CoopNet 0.2.0-alpha.1 proto 1".
-inline constexpr std::string_view kVersionString =
-    "CP2077CoopNet " COOPNET_SEMVER_STRING " proto " COOPNET_STRINGIFY(COOPNET_PROTOCOL_VERSION);
+// What Net_Version() returns: "CP2077CoopNet <semver> proto <wire major>.<wire minor>", e.g.
+// "CP2077CoopNet 0.2.0-alpha.3 proto 2.1". Builds up to 0.2.0-alpha.2 spoke the CPN2 framing and
+// said "proto 1".
+#define COOPNET_WIRE_STRING COOPNET_STRINGIFY(COOPNET_WIRE_MAJOR) "." COOPNET_STRINGIFY(COOPNET_WIRE_MINOR)
+inline constexpr std::string_view kWireProtocol = COOPNET_WIRE_STRING;
+inline constexpr std::string_view kVersionString = "CP2077CoopNet " COOPNET_SEMVER_STRING " proto " COOPNET_WIRE_STRING;
 
-static_assert(COOPNET_PROTOCOL_VERSION == kProtocolVersion, "protocol macro and constant must agree");
+static_assert(COOPNET_WIRE_MAJOR == coopv2::kProtoMajor && COOPNET_WIRE_MINOR == coopv2::kProtoMinor,
+              "the version string must name the protocol coop_proto_v2.h defines");
 static_assert(kPrereleaseType <= 3, "RED4ext knows alpha (1), beta (2) and rc (3)");
 } // namespace coopnet

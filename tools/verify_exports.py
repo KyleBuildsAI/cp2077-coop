@@ -3,7 +3,7 @@
 Checks: x64 image, DLL flag, the three RED4ext exports with undecorated names, what Supports()
 returns (decoded from its machine code), no dependency on the VC++ redistributable (static CRT),
 that every Net_* native name is present in the image, and that the Net_Version() string in the
-image carries the version from CMakeLists.txt.
+image carries the version from CMakeLists.txt and the wire protocol from src/core/Version.hpp.
 
 The native list is read from src/core/LoadReport.hpp (kNativeNames), and the same names must be
 registered in src/plugin/Main.cpp and declared in scripts/CP2077CoopNet/Natives.reds, so the C++
@@ -47,6 +47,16 @@ def cmake_version():
     if match is None or kind is None or number is None:
         raise SystemExit("project(CP2077CoopNet VERSION x.y.z) or COOPNET_PRERELEASE_* not found in CMakeLists.txt")
     return match.group(1) + (f"-{kind.group(1)}.{number.group(1)}" if kind.group(1) else "")
+
+
+def wire_protocol():
+    """COOPNET_WIRE_MAJOR.COOPNET_WIRE_MINOR from src/core/Version.hpp, e.g. "2.1"."""
+    header = read_text(os.path.join("src", "core", "Version.hpp"))
+    major = re.search(r"#define COOPNET_WIRE_MAJOR (\d+)", header)
+    minor = re.search(r"#define COOPNET_WIRE_MINOR (\d+)", header)
+    if major is None or minor is None:
+        raise SystemExit("COOPNET_WIRE_MAJOR/MINOR not found in src/core/Version.hpp")
+    return f"{major.group(1)}.{minor.group(1)}"
 
 
 def source_consistency(names):
@@ -118,14 +128,17 @@ def main(path):
     print(f"native names present ({len(names)}): {all((n.encode() + b'\x00') in image for n in names)}")
 
     expected_version = cmake_version()
-    found = re.findall(rb"CP2077CoopNet (\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?) proto (\d+)\x00", image)
+    expected_wire = wire_protocol()
+    found = re.findall(rb"CP2077CoopNet (\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?) proto (\d+\.\d+)\x00", image)
     shown = [f"CP2077CoopNet {semver.decode()} proto {proto.decode()}" for semver, proto in found]
     print(f"Net_Version strings in image: {shown}"
           f" (CMakeLists.txt VERSION {expected_version})")
     if not found:
-        failures.append("no 'CP2077CoopNet <semver> proto <n>' string in the image")
+        failures.append("no 'CP2077CoopNet <semver> proto <major>.<minor>' string in the image")
     elif any(version.decode() != expected_version for version, _ in found):
         failures.append(f"Net_Version string does not match CMakeLists.txt VERSION {expected_version}")
+    elif any(proto.decode() != expected_wire for _, proto in found):
+        failures.append(f"Net_Version string does not name wire protocol {expected_wire} (src/core/Version.hpp)")
 
     # The Phase 1 log grep must only ever match the summary line (kRegisteredMarker), never another string.
     marker_count = image.count(REGISTERED_MARKER)
