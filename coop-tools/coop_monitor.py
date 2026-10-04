@@ -242,6 +242,9 @@ def grade_stats(stats):
     err = as_float(stats.get("avatar_err_m"))
     pps = as_float(stats.get("pps_in"))
     state = stats.get("state", "?")
+    if stats.get("sync", "on") == "off" or state == "PAUSED":
+        # older builds have no sync= key: they always reported as if in gameplay
+        return [(INFO, "connection", f"PAUSED  role={stats.get('role')} - you are in a menu / loading, network not graded")]
     checks.append((GOOD if state == "OK" else (WARN if state in ("WAITING", "STALE") else BAD), "connection", f"{state}  role={stats.get('role')}"))
     checks.append((GOOD if state == "OK" else WARN, "players", "2 / 2" if state == "OK" else "1 / 2 (no live partner)"))
     checks.append((grade(rtt, EXPECT["rtt_ms"]), "player round trip", f"{stats.get('rtt_ms')} ms  (min {stats.get('rtt_min')} / max {stats.get('rtt_max')}, {stats.get('rtt_n')} samples)"))
@@ -300,7 +303,7 @@ def run(args):
             append_history(history_path, {
                 "time": datetime.datetime.now().isoformat(timespec="seconds"),
                 "server_ping_ms": f"{server_ping:.0f}" if server_ping is not None else "",
-                **{key: stats.get(key, "") for key in ("state", "role", "rtt_ms", "rtt_min", "rtt_max", "pps_in", "pps_out", "missed_pct", "ignored", "age_ms", "avatar_err_m", "conflict", "peer_old")},
+                **{key: stats.get(key, "") for key in ("state", "sync", "role", "rtt_ms", "rtt_min", "rtt_max", "pps_in", "pps_out", "missed_pct", "ignored", "age_ms", "avatar_err_m", "conflict", "peer_old")},
             })
 
         render(checks, events)

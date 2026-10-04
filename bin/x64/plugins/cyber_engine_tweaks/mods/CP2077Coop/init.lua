@@ -3028,6 +3028,27 @@ function Diag.onPacket(sequence, previousSequence)
 end
 
 
+-- Nowa sesja (sync ON/OFF, wczytanie gry, zmiana roli): liczniki
+-- i okna od zera, żeby dane sprzed menu nie udawały bieżących.
+function Diag.resetSession()
+
+    Diag.packetsReceived = 0
+    Diag.missed = 0
+    Diag.ignored = 0
+
+    Diag.lastPacketClock = nil
+    Diag.windowReceived = 0
+    Diag.ppsIn = 0.0
+
+    Diag.avatarError = nil
+    Diag.driftSum = 0.0
+    Diag.driftCount = 0
+    Diag.driftMax = 0.0
+    Diag.driftAvgLast = nil
+    Diag.driftMaxLast = nil
+end
+
+
 function Diag.onIgnored()
 
     Diag.ignored =
@@ -3058,6 +3079,11 @@ end
 
 
 function Diag.connectionState()
+
+    -- lokalny gracz w menu / przy ładowaniu: nie odbieramy, to nie sieć
+    if not S.syncActive then
+        return "PAUSED"
+    end
 
     local age =
         Diag.packetAge()
@@ -3116,11 +3142,14 @@ function Diag.roleConflict()
 end
 
 
--- Druga strona bez ping/pong = starsza wersja moda.
+-- Druga strona bez ping/pong = starsza wersja moda. Liczą się pakiety
+-- tej sesji (Sync.reset czyści RTT przy każdym wczytaniu); w menu
+-- i przy ładowaniu nie oceniamy.
 function Diag.peerLooksOutdated()
 
     return
-        Diag.packetsReceived > 150
+        S.syncActive
+        and Diag.packetsReceived > 150
         and Sync.rttMs == nil
 end
 
@@ -3159,8 +3188,9 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d",
+            "[CP2077Coop] [STATS] state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d",
             Diag.connectionState(),
+            S.syncActive and "on" or "off",
             IS_HOST and "host" or "joiner",
             Diag.formatMs(Sync.rttMs),
             Diag.formatMs(Sync.rttMinMs),
@@ -3427,6 +3457,9 @@ function Diag.draw()
         stateLevel = "good"
     elseif state == "STALE" or state == "WAITING" then
         stateLevel = "warn"
+    elseif state == "PAUSED" then
+        state = "PAUSED (you are in a menu / loading)"
+        stateLevel = "neutral"
     end
 
     local hasRemote =
@@ -4366,6 +4399,7 @@ local function resetRemote()
     Bot.anchor = nil
 
     Sync.reset()
+    Diag.resetSession()
     Steer.reset()
     Steer.resetHardCorrect()
     Steer.resetSettle()
