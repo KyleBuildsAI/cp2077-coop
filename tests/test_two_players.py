@@ -195,11 +195,12 @@ def test_role_conflict_detected():
 
 
 def test_join_gives_up():
-    host, joiner = run_session(16.0, joiner_teleport_works=False)
+    # 4 s settle, then 3 attempts of 2.5 s with 2 s and 4 s pauses: done by ~17.5 s
+    host, joiner = run_session(22.0, joiner_teleport_works=False)
     failed = [l for l in logs(joiner) if "WORLD SYNC FAILED" in l]
     gave_up = [l for l in logs(joiner) if "GAVE UP" in l]
     print(f"failed attempts logged: {len(failed)}, gave up: {bool(gave_up)}")
-    return len(failed) == 3 and bool(gave_up)
+    return len(failed) == 3 and len(gave_up) == 1
 
 
 def test_connection_lost_event():
@@ -235,7 +236,7 @@ if __name__ == "__main__":
     tests = {
         "normal session (RTT, rates, join, panel)": test_normal_session,
         "role conflict detected": test_role_conflict_detected,
-        "join teleport gives up after 3": test_join_gives_up,
+        "join teleport gives up after 3 attempts": test_join_gives_up,
         "connection STALE/LOST events": test_connection_lost_event,
         "panel buttons and hotkey": test_panel_buttons,
     }

@@ -134,6 +134,20 @@ public func CP2077Coop_GetStateFlags() -> Int32 {
     return flags;
 }
 
+// Scene tier of the local player: 0-1 free gameplay, 2 staged gameplay,
+// 3 limited gameplay (scene holds the player), 4-5 cinematic. The joiner's
+// teleport to the host waits while a scene holds the player (init.lua).
+@addMethod(PlayerPuppet)
+public func CP2077Coop_GetSceneTier() -> Int32 {
+    let stateMachine = this.GetPlayerStateMachineBlackboard();
+
+    if !IsDefined(stateMachine) {
+        return 0;
+    }
+
+    return stateMachine.GetInt(GetAllBlackboardDefs().PlayerStateMachine.SceneTier);
+}
+
 @addMethod(PlayerPuppet)
 public func CP2077Coop_GetTimeOfDayMinutes() -> Int32 {
     let gameTime = GameInstance.GetTimeSystem(this.GetGame()).GetGameTime();

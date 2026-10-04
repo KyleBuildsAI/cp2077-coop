@@ -91,12 +91,13 @@ def test_joiner_behaviour():
     host_minutes = 22 * 60 + 15  # 22:15
     host_weather = 5             # pollution
 
+    # the joiner's avatar spawns after its join teleport (4 s in the game)
     def host_flags(t):
-        if t < 4:
+        if t < 8:
             return 0                                  # standing, unarmed
-        if t < 7:
+        if t < 11:
             return 1                                  # crouching
-        if t < 10:
+        if t < 14:
             return 2 + 2 * 32                         # rifle drawn
         return 2 + 4 + 1 * 32                         # pistol drawn + aiming
 
@@ -105,7 +106,7 @@ def test_joiner_behaviour():
     host_slot = 0
     frame_dt = 1 / 60
     t = 0.0
-    while t < 13.0:
+    while t < 17.0:
         g.simTime = t
         if t >= next_send:
             next_send += 1 / 30

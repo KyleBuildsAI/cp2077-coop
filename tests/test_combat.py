@@ -23,8 +23,9 @@ def main():
         g.net.seq = seq
         g.net.x, g.net.y, g.net.z, g.net.fx, g.net.fy = x, y, z, fx, fy
 
-    # host standing at (10, 0) sending flags=257 (host + crouch) for 3 s
-    while t < 3.0:
+    # host standing at (10, 0) sending flags=257 (host + crouch) for 6 s
+    # (the joiner's avatar spawns after the join teleport, which waits 4 s)
+    while t < 6.0:
         g.simTime = t
         deliver(10.0, 0.0, 0.0, 0.0, 1.0 * (1 + 257))
         g.tickSpawn()

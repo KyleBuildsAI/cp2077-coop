@@ -67,13 +67,8 @@ local MAX_SEND_BACKLOG = 30
 local ROTATE_INTERVAL = 0.10
 
 -- P2 pojawia się z boku hosta, nie w środku jego postaci.
+-- Czasy i próby teleportu do hosta: Sync.JOIN_* (Sync.updateJoin).
 local JOIN_OFFSET = 1.75
-
--- Przez krótki czas ponawiamy teleport prawdziwego P2,
--- gdyby pierwszy został odrzucony podczas streamingu świata.
-local JOIN_SYNC_INTERVAL = 0.25
-local JOIN_SYNC_DURATION = 2.00
-local JOIN_SYNC_TOLERANCE = 2.50
 
 -- Po przejęciu Judy również wymuszamy jej właściwy world position.
 local SPAWN_SNAP_INTERVAL = 0.10
@@ -97,10 +92,34 @@ S.spawnSnapPending = false
 S.spawnSnapElapsed = 0.0
 S.spawnSnapAccumulator = 0.0
 
-S.joinSyncPending = false
+-- teleport joinera do hosta (Sync.updateJoin). Faza:
+--   "settle"   czekamy, aż gracz stoi w grze Sync.JOIN_SETTLE_SECONDS,
+--   "teleport" wysłany JEDEN teleport, czekamy, aż gra go wykona,
+--   "retry"    próba nieudana, przerwa przed kolejną,
+--   "done" / "gave_up" koniec (S.worldJoinComplete = true).
+S.joinPhase = "settle"
 S.joinAttempts = 0
-S.joinSyncElapsed = 0.0
-S.joinSyncAccumulator = 0.0
+-- s w fazie "retry" (przerwa S.joinRetryDelay); Sync.clock przy teleporcie
+S.joinPhaseTime = 0.0
+S.joinRetryDelay = 0.0
+S.joinCalledAt = 0.0
+-- s stabilnej gry bez przerwy (bez auta, sceny, skoku pozycji)
+S.joinSettled = 0.0
+-- s od "sync ON" (wczytanie gry) - do logu
+S.joinSinceLoad = 0.0
+-- czemu licznik stoi: "in a vehicle" / "in a scene" (nil = nic)
+S.joinWaitReason = nil
+-- pozycja gracza z poprzedniej klatki (skok = gra jeszcze go ustawia)
+S.joinLastX = nil
+S.joinLastY = nil
+S.joinLastZ = nil
+-- pozycja gracza przed teleportem tej próby
+S.joinStartX = 0.0
+S.joinStartY = 0.0
+S.joinStartZ = 0.0
+-- wynik ostatniej próby (panel): błąd do punktu teleportu i opis porażki
+S.joinError = nil
+S.joinFailure = nil
 
 
 ------------------------------------------------------------
@@ -1053,7 +1072,28 @@ local Sync = {
     -- wygładzanie RTT (0..1, większe = szybsza reakcja)
     RTT_SMOOTHING = 0.25,
 
+    -- Teleport joinera do hosta (Sync.updateJoin). Test na żywo
+    -- 2026-10-04: teleport ~8 s po wczytaniu, 8 wywołań w 2 s, gracz
+    -- nie ruszył się ani o metr (WORLD SYNC FAILED 14.42 -> 12.31 ->
+    -- 9.44 m, bo host-bot szedł dalej). Teraz: start dopiero, gdy gracz
+    -- stoi w grze JOIN_SETTLE_SECONDS bez przerwy (nie w aucie, nie
+    -- w scenie, bez skoku pozycji), JEDEN teleport na próbę, do
+    -- JOIN_APPLY_TIMEOUT s czekania na zmianę pozycji, wynik mierzony
+    -- do punktu teleportu (nie do hosta, który się rusza), przerwa
+    -- JOIN_RETRY_DELAYS[n] s przed kolejną próbą.
     MAX_JOIN_ATTEMPTS = 3,
+    JOIN_SETTLE_SECONDS = 4.0,
+    JOIN_APPLY_TIMEOUT = 2.5,
+    JOIN_RETRY_DELAYS = { 2.0, 4.0 },
+    -- tak blisko punktu teleportu = na miejscu
+    JOIN_TOLERANCE = 2.5,
+    -- mniej = pozycja się nie zmieniła (teleport zignorowany)
+    JOIN_MOVED_EPSILON = 0.5,
+    -- skok o tyle w jednej klatce, nie przez nasz teleport = gra
+    -- jeszcze ustawia gracza (ładowanie, szybka podróż)
+    JOIN_JUMP_DISTANCE = 10.0,
+    -- scena trzyma gracza od tego tieru (CP2077Coop_GetSceneTier)
+    JOIN_SCENE_TIER = 3,
 
     clock = 0.0,
 
@@ -4560,22 +4600,178 @@ end
 
 
 ------------------------------------------------------------
--- BEGIN P2 -> HOST WORLD SYNC
+-- P2 -> HOST WORLD SYNC (teleport joinera do hosta)
+--
+-- Sync.updateJoin co klatkę: licznik spokojnej gry i postęp
+-- wysłanej próby. Sync.beginJoinAttempt przy nowym pakiecie
+-- hosta (świeża pozycja), gdy Sync.joinReady(). Przycisk
+-- "Teleport to host" = Sync.restartJoin, ta sama ścieżka.
 ------------------------------------------------------------
 
-local function beginJoinWorldSync(
+-- Co trzyma gracza w miejscu (nil = nic). Prawdziwe flagi:
+-- faza "vehicle" bota testowego nie blokuje.
+function Sync.joinBlocker(player)
+
+    if Sync.hasFlag(
+        Sync.realLocalFlags,
+        Sync.FLAG_IN_VEHICLE
+    ) then
+        return "in a vehicle"
+    end
+
+    -- bez redscriptu (albo stary state.reds) tieru nie znamy: jak bez sceny
+    if player.CP2077Coop_GetSceneTier ~= nil
+        and player:CP2077Coop_GetSceneTier() >=
+            Sync.JOIN_SCENE_TIER
+    then
+        return "in a scene"
+    end
+
+    return nil
+end
+
+
+-- Gracz stoi w grze dość długo: kolejna próba rusza z nowym pakietem.
+function Sync.joinReady()
+
+    return
+        not IS_HOST
+        and not S.worldJoinComplete
+        and S.joinPhase == "settle"
+        and S.joinSettled >=
+            Sync.JOIN_SETTLE_SECONDS
+end
+
+
+-- Avatar pojawia się przed lokalnym graczem, więc joiner prosi o spawn
+-- dopiero po teleporcie do hosta (albo po poddaniu się). W aucie lub
+-- scenie czekanie może trwać długo: wtedy spawn od razu, jak dawniej.
+function Sync.joinAllowsSpawn()
+
+    return
+        IS_HOST
+        or S.worldJoinComplete
+        or (
+            S.joinPhase == "settle"
+            and S.joinWaitReason ~= nil
+        )
+end
+
+
+-- Odległość gracza od miejsca, w którym stał przed teleportem tej próby.
+function Sync.joinMoved(position)
+
+    return
+        distance3(
+            position.x,
+            position.y,
+            position.z,
+            S.joinStartX,
+            S.joinStartY,
+            S.joinStartZ
+        )
+end
+
+
+function Sync.finishJoin(position, miss, note)
+
+    S.worldJoinComplete = true
+    S.joinPhase = "done"
+    S.joinError = miss
+    S.joinFailure = nil
+
+    Diag.log(
+        string.format(
+            "[CP2077Coop] WORLD SYNC OK error=%.2f attempt=%d/%d moved=%.2f after=%.1fs%s",
+            miss,
+            S.joinAttempts,
+            Sync.MAX_JOIN_ATTEMPTS,
+            Sync.joinMoved(position),
+            Sync.clock - S.joinCalledAt,
+            note
+        )
+    )
+end
+
+
+-- Próba nieudana: zmierzony wynik do logu, potem przerwa albo koniec.
+function Sync.failJoinAttempt(position, miss, reason)
+
+    local moved =
+        Sync.joinMoved(position)
+
+    if reason == nil then
+
+        if moved < Sync.JOIN_MOVED_EPSILON then
+            reason = "position did not change"
+        else
+            reason = string.format(
+                "landed %.2f m from the teleport point",
+                miss
+            )
+        end
+    end
+
+    S.joinError = miss
+    S.joinFailure = reason
+    S.joinPhaseTime = 0.0
+
+    local delays =
+        Sync.JOIN_RETRY_DELAYS
+
+    S.joinRetryDelay =
+        delays[math.min(S.joinAttempts, #delays)]
+
+    local giveUp =
+        S.joinAttempts >=
+        Sync.MAX_JOIN_ATTEMPTS
+
+    Diag.log(
+        string.format(
+            "[CP2077Coop] WORLD SYNC FAILED error=%.2f attempt=%d/%d moved=%.2f waited=%.1fs: %s%s",
+            miss,
+            S.joinAttempts,
+            Sync.MAX_JOIN_ATTEMPTS,
+            moved,
+            Sync.clock - S.joinCalledAt,
+            reason,
+            giveUp and ""
+                or string.format(", next attempt in %.1f s", S.joinRetryDelay)
+        )
+    )
+
+    if giveUp then
+
+        -- Wcześniej: ponawianie w nieskończoność, co 2 s szarpało
+        -- gracza i zamrażało avatar. Ręcznie: "Teleport to host".
+        S.worldJoinComplete = true
+        S.joinPhase = "gave_up"
+
+        Diag.log(
+            string.format(
+                "[CP2077Coop] WORLD SYNC GAVE UP after %d attempts - use 'Teleport to host' in the coop panel",
+                S.joinAttempts
+            )
+        )
+
+        return
+    end
+
+    S.joinPhase = "retry"
+end
+
+
+-- Jedna próba: punkt obok hosta z TEGO pakietu i jeden teleport.
+-- Wynik mierzy Sync.updateJoin w kolejnych klatkach (teleport
+-- wykonuje się w grze z opóźnieniem).
+function Sync.beginJoinAttempt(
+    player,
     hostX,
     hostY,
     hostZ,
     hostForwardX,
     hostForwardY
 )
-
-    if S.worldJoinComplete
-        or S.joinSyncPending
-    then
-        return
-    end
 
     --------------------------------------------------------
     -- Perpendicular to host forward vector.
@@ -4588,13 +4784,11 @@ local function beginJoinWorldSync(
     local sideY =
         hostForwardX
 
-
     local sideLength =
         math.sqrt(
             sideX * sideX +
             sideY * sideY
         )
-
 
     if sideLength < 0.001 then
 
@@ -4611,7 +4805,6 @@ local function beginJoinWorldSync(
             sideY /
             sideLength
     end
-
 
     S.joinTargetX =
         hostX +
@@ -4630,23 +4823,239 @@ local function beginJoinWorldSync(
     S.joinForwardX = hostForwardX
     S.joinForwardY = hostForwardY
 
+    local position =
+        player:GetWorldPosition()
 
-    S.joinSyncPending = true
-    S.joinSyncElapsed = 0.0
+    S.joinStartX = position.x
+    S.joinStartY = position.y
+    S.joinStartZ = position.z
 
-    -- Pierwsza próba od razu.
-    S.joinSyncAccumulator =
-        JOIN_SYNC_INTERVAL
+    S.joinAttempts =
+        S.joinAttempts + 1
 
+    S.joinPhase = "teleport"
+    S.joinPhaseTime = 0.0
+    S.joinCalledAt = Sync.clock
 
-    Diag.log(
-        string.format(
-            "[CP2077Coop] P2 WORLD SYNC -> %.2f %.2f %.2f",
+    local away =
+        distance3(
+            position.x,
+            position.y,
+            position.z,
             S.joinTargetX,
             S.joinTargetY,
             S.joinTargetZ
         )
+
+    Diag.log(
+        string.format(
+            "[CP2077Coop] P2 WORLD SYNC -> %.2f %.2f %.2f attempt=%d/%d distance=%.2f settled=%.1fs since_load=%.1fs",
+            S.joinTargetX,
+            S.joinTargetY,
+            S.joinTargetZ,
+            S.joinAttempts,
+            Sync.MAX_JOIN_ATTEMPTS,
+            away,
+            S.joinSettled,
+            S.joinSinceLoad
+        )
     )
+
+    -- już na miejscu (np. zapis tuż obok hosta): bez teleportu
+    if away <= Sync.JOIN_TOLERANCE then
+
+        Sync.finishJoin(
+            position,
+            away,
+            " (already there, no teleport)"
+        )
+
+        return
+    end
+
+    -- JEDEN teleport na próbę: kolejne wywołania przed wykonaniem
+    -- pierwszego mogły go kasować (8 w 2 s na żywo, zero ruchu)
+    if not teleportLocalPlayer(
+        player,
+        S.joinTargetX,
+        S.joinTargetY,
+        S.joinTargetZ,
+        S.joinForwardX,
+        S.joinForwardY
+    ) then
+
+        Sync.failJoinAttempt(
+            position,
+            away,
+            "teleport call failed"
+        )
+    end
+end
+
+
+-- Co klatkę (joiner, gra wczytana): postęp próby, potem licznik
+-- spokojnej gry. Licznik działa też po zakończeniu, żeby przycisk
+-- "Teleport to host" ruszał od razu u gracza, który stoi w grze.
+function Sync.updateJoin(player, delta)
+
+    if IS_HOST then
+        return
+    end
+
+    S.joinSinceLoad =
+        S.joinSinceLoad +
+        delta
+
+    local position =
+        player:GetWorldPosition()
+
+    -- nasz teleport może właśnie lądować (także spóźniony, w przerwie)
+    local phase = S.joinPhase
+
+    local ownTeleport =
+        not S.worldJoinComplete
+        and (
+            phase == "teleport"
+            or phase == "retry"
+        )
+
+    if ownTeleport then
+
+        -- wynik mierzony do punktu teleportu, nie do hosta, który
+        -- w tym czasie idzie dalej
+        local miss =
+            distance3(
+                position.x,
+                position.y,
+                position.z,
+                S.joinTargetX,
+                S.joinTargetY,
+                S.joinTargetZ
+            )
+
+        if phase == "retry" then
+            S.joinPhaseTime =
+                S.joinPhaseTime +
+                delta
+        end
+
+        if miss <= Sync.JOIN_TOLERANCE then
+
+            Sync.finishJoin(
+                position,
+                miss,
+                phase == "retry"
+                    and " (previous teleport applied late)"
+                    or ""
+            )
+
+        elseif phase == "teleport"
+            and Sync.clock - S.joinCalledAt >=
+                Sync.JOIN_APPLY_TIMEOUT
+        then
+
+            Sync.failJoinAttempt(
+                position,
+                miss,
+                nil
+            )
+
+        elseif phase == "retry"
+            and S.joinPhaseTime >=
+                S.joinRetryDelay
+        then
+
+            S.joinPhase = "settle"
+        end
+    end
+
+
+    -- auto / scena: licznik od zera
+    local reason =
+        Sync.joinBlocker(player)
+
+    if reason ~= S.joinWaitReason then
+
+        S.joinWaitReason = reason
+
+        if reason ~= nil
+            and not S.worldJoinComplete
+        then
+            Diag.log("[CP2077Coop] WORLD SYNC waiting: you are " .. reason)
+        end
+    end
+
+    -- skok pozycji nie przez nasz teleport: gra jeszcze ustawia
+    -- gracza (ładowanie, szybka podróż), licznik od zera
+    local jump = 0.0
+
+    if S.joinLastX ~= nil
+        and not ownTeleport
+    then
+
+        jump =
+            distance3(
+                position.x,
+                position.y,
+                position.z,
+                S.joinLastX,
+                S.joinLastY,
+                S.joinLastZ
+            )
+    end
+
+    S.joinLastX = position.x
+    S.joinLastY = position.y
+    S.joinLastZ = position.z
+
+    if reason ~= nil then
+
+        S.joinSettled = 0.0
+
+    elseif jump > Sync.JOIN_JUMP_DISTANCE then
+
+        S.joinSettled = 0.0
+
+        if not S.worldJoinComplete then
+
+            Diag.log(
+                string.format(
+                    "[CP2077Coop] WORLD SYNC waiting: position jumped %.1f m (game still placing you), settling again",
+                    jump
+                )
+            )
+        end
+
+    else
+
+        S.joinSettled =
+            S.joinSettled +
+            delta
+    end
+end
+
+
+-- Przycisk "Teleport to host": ta sama ścieżka od nowa (pełne próby).
+function Sync.restartJoin()
+
+    if IS_HOST then
+        return
+    end
+
+    if not S.worldJoinComplete
+        and S.joinPhase == "teleport"
+    then
+
+        Diag.log("[CP2077Coop] EVENT manual teleport to host requested - a teleport is already running")
+        return
+    end
+
+    S.worldJoinComplete = false
+    S.joinAttempts = 0
+    S.joinPhase = "settle"
+    S.joinPhaseTime = 0.0
+
+    Diag.log("[CP2077Coop] EVENT manual teleport to host requested")
 end
 
 
@@ -4739,10 +5148,21 @@ local function resetRemote()
     S.spawnSnapElapsed = 0.0
     S.spawnSnapAccumulator = 0.0
 
-    S.joinSyncPending = false
+    -- wczytanie gry / zmiana roli: teleport do hosta od nowa, licznik
+    -- spokojnej gry od zera
+    S.joinPhase = "settle"
     S.joinAttempts = 0
-    S.joinSyncElapsed = 0.0
-    S.joinSyncAccumulator = 0.0
+    S.joinPhaseTime = 0.0
+    S.joinRetryDelay = 0.0
+    S.joinCalledAt = 0.0
+    S.joinSettled = 0.0
+    S.joinSinceLoad = 0.0
+    S.joinWaitReason = nil
+    S.joinLastX = nil
+    S.joinLastY = nil
+    S.joinLastZ = nil
+    S.joinError = nil
+    S.joinFailure = nil
 
     S.worldJoinComplete = IS_HOST
 
@@ -4846,18 +5266,13 @@ registerForEvent(
         end
 
 
-        -- przycisk "Teleport to host" w panelu
+        -- przycisk "Teleport to host" w panelu: ta sama ścieżka co
+        -- teleport po wczytaniu (Sync.updateJoin)
         if Diag.teleportRequested then
 
             Diag.teleportRequested = false
 
-            if not IS_HOST then
-
-                S.worldJoinComplete = false
-                S.joinAttempts = 0
-
-                Diag.log("[CP2077Coop] EVENT manual teleport to host requested")
-            end
+            Sync.restartJoin()
         end
 
 
@@ -5021,6 +5436,17 @@ registerForEvent(
         Sync.applyWorldState(
             player,
             IS_HOST,
+            delta
+        )
+
+
+        ----------------------------------------------------
+        -- JOINER -> HOST: licznik spokojnej gry i postęp
+        -- teleportu co klatkę, też bez nowego pakietu
+        ----------------------------------------------------
+
+        Sync.updateJoin(
+            player,
             delta
         )
 
@@ -5241,23 +5667,16 @@ registerForEvent(
 
             ------------------------------------------------
             -- P2 JOINS P1 WORLD
+            --
+            -- próba dopiero, gdy gracz stoi w grze dość długo
+            -- (nie w aucie, nie w scenie: Sync.updateJoin),
+            -- z pozycją hosta z tego pakietu
             ------------------------------------------------
 
-            -- nie teleportujemy gracza siedzącego w pojeździe
-            -- (prawdziwe flagi: faza "vehicle" bota go nie blokuje)
-            local localInVehicle =
-                Sync.hasFlag(
-                    Sync.realLocalFlags,
-                    Sync.FLAG_IN_VEHICLE
-                )
+            if Sync.joinReady() then
 
-            if not IS_HOST
-                and not S.worldJoinComplete
-                and not S.joinSyncPending
-                and not localInVehicle
-            then
-
-                beginJoinWorldSync(
+                Sync.beginJoinAttempt(
+                    player,
                     rx,
                     ry,
                     rz,
@@ -5463,11 +5882,11 @@ registerForEvent(
             -- SPAWN REMOTE AVATAR ON FIRST PACKET
             ------------------------------------------------
 
-            -- joiner w trakcie teleportu do hosta: spawn dopiero po nim
+            -- joiner przed teleportem do hosta: spawn dopiero po nim
             -- (avatar pojawia się przed lokalnym graczem, nie w miejscu,
-            -- które gracz właśnie opuszcza)
+            -- które gracz zaraz opuści; patrz Sync.joinAllowsSpawn)
             if not S.remoteInitialized
-                and not S.joinSyncPending
+                and Sync.joinAllowsSpawn()
             then
 
                 Sync.requestSpawn(
@@ -5479,101 +5898,14 @@ registerForEvent(
 
         ----------------------------------------------------
         -- P2 REAL PLAYER WORLD-SYNC TELEPORT
+        --
+        -- teleport w drodze (Sync.updateJoin mierzy wynik):
+        -- w tym ticku nie ruszamy jeszcze remote AI
         ----------------------------------------------------
 
-        if S.joinSyncPending then
-
-            S.joinSyncElapsed =
-                S.joinSyncElapsed +
-                delta
-
-            S.joinSyncAccumulator =
-                S.joinSyncAccumulator +
-                delta
-
-
-            if S.joinSyncAccumulator >=
-                JOIN_SYNC_INTERVAL
-            then
-
-                S.joinSyncAccumulator = 0.0
-
-                teleportLocalPlayer(
-                    player,
-                    S.joinTargetX,
-                    S.joinTargetY,
-                    S.joinTargetZ,
-                    S.joinForwardX,
-                    S.joinForwardY
-                )
-            end
-
-
-            local playerPos =
-                player:
-                    GetWorldPosition()
-
-
-            local joinError =
-                distance3(
-                    playerPos.x,
-                    playerPos.y,
-                    playerPos.z,
-
-                    S.joinTargetX,
-                    S.joinTargetY,
-                    S.joinTargetZ
-                )
-
-
-            if joinError <=
-                JOIN_SYNC_TOLERANCE
-            then
-
-                S.joinSyncPending = false
-                S.worldJoinComplete = true
-
-                Diag.log(
-                    string.format(
-                        "[CP2077Coop] WORLD SYNC OK error=%.2f",
-                        joinError
-                    )
-                )
-
-            elseif S.joinSyncElapsed >=
-                JOIN_SYNC_DURATION
-            then
-
-                S.joinSyncPending = false
-
-                S.joinAttempts =
-                    S.joinAttempts + 1
-
-                Diag.log(
-                    string.format(
-                        "[CP2077Coop] WORLD SYNC FAILED error=%.2f attempt=%d/%d",
-                        joinError,
-                        S.joinAttempts,
-                        Sync.MAX_JOIN_ATTEMPTS
-                    )
-                )
-
-                -- Wcześniej: ponawianie w nieskończoność, co 2 s
-                -- szarpało gracza i zamrażało avatar. Teraz limit;
-                -- ręcznie: przycisk "Teleport to host" w panelu.
-                if S.joinAttempts >=
-                    Sync.MAX_JOIN_ATTEMPTS
-                then
-
-                    S.worldJoinComplete = true
-
-                    Diag.log(
-                        "[CP2077Coop] WORLD SYNC GAVE UP - use 'Teleport to host' in the coop panel"
-                    )
-                end
-            end
-
-            -- W tym ticku nie ruszamy jeszcze remote AI.
+        if not S.worldJoinComplete
+            and S.joinPhase == "teleport"
+        then
             return
         end
 

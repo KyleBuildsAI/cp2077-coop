@@ -227,7 +227,8 @@ def test_join_teleport_uses_euler_angles():
     instances = {"host": host, "joiner": joiner}
     peers = {"host": "joiner", "joiner": "host"}
     in_flight, sequence, t = [], {"host": 0, "joiner": 0}, 0.0
-    while t < 4.0:
+    # the join waits until the joiner has been in the game for 4 s
+    while t < 6.0:
         for name, lua in instances.items():
             g = lua.globals()
             g.simTime = t

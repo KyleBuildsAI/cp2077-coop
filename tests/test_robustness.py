@@ -97,10 +97,13 @@ function player:CP2077Coop_SpawnRemoteTest()
 end
 """
 
-# R2: entity system not ready for the first 4 s
+# R2: entity system not ready for 4 s from the first request (the joiner's
+# first request comes after its join teleport, ~4 s into the session)
 SPAWN_DEFERRED = r"""
+notReadyUntil = nil
 function spawnBehaviour(call)
-    if simTime < 4.0 then return false end
+    notReadyUntil = notReadyUntil or simTime + 4.0
+    if simTime < notReadyUntil then return false end
     spawnEntity()
     return true
 end
@@ -295,16 +298,17 @@ def describe(label, run):
 
 
 def test_spawn_deferred():
-    run = spawn_run(SPAWN_DEFERRED, 8.0)
-    describe("not ready until 4 s", run)
+    run = spawn_run(SPAWN_DEFERRED, 12.0)
+    describe("not ready for 4 s after the first request", run)
     calls = run["calls"]
-    early = [t for t in calls if t < 4.0]
+    ready_at = run["g"].notReadyUntil or 0.0
+    early = [t for t in calls if t < ready_at]
     spaced = all(b - a >= 0.99 for a, b in zip(calls, calls[1:]))
     return (
         run["errors"] == 0
         and early and len(early) <= 5 and spaced
         and len(run["deferred"]) == 1
-        and run["acquired"] is not None and run["acquired"] < 5.5
+        and run["acquired"] is not None and run["acquired"] < ready_at + 1.5
     )
 
 
@@ -548,7 +552,7 @@ def test_fists_and_cyberware():
     # Lua side: fists drawn (class 0 + drawn bit) reaches ApplyRemoteWeapon(0, true)
     lua = make("joiner", extra="weaponCalls = {}\nfunction player:CP2077Coop_ApplyRemoteWeapon(c, d) weaponCalls[#weaponCalls + 1] = { c, d } end")
     feed = Feed(lua)
-    feed.run(2.0)
+    feed.run(6.0)  # join teleport after 4 s in the game, then the avatar spawns
     feed.flags = 2  # weapon drawn, class None (fists)
     feed.run(1.0)
     weapon = [tuple(v.values()) for v in lua.globals().weaponCalls.values()]
