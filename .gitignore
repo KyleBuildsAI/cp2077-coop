@@ -24,3 +24,8 @@ bin/x64/global.ini
 
 # Local environment
 .env
+
+# Runtime files written by the mod and monitor
+role.txt
+monitor_status.txt
+coop-tools/coop_monitor_history.csv
