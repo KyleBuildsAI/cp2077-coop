@@ -239,6 +239,10 @@ local Diag = {
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
+    -- monitor_status.txt zostaje na dysku po zamknięciu monitora: starszy
+    -- wpis "updated" = monitor nie działa (pisze co 5 s), stary ping nie
+    -- jest już pokazywany jako aktualny
+    MONITOR_STALE_AFTER = 30.0,
 
     -- progi ocen w panelu: { ostrzeżenie od, źle od }. Te same liczby co
     -- EXPECT w coop-tools/coop_monitor.py - zmieniać razem. RTT gracz ->
@@ -3459,6 +3463,25 @@ function Diag.readMonitorStatus()
 
     file:close()
 
+    -- wiek wpisu: monitor pisze "updated=<sekundy epoki>" co 5 s. Brak
+    -- albo stary znacznik = monitor zamknięty / padł; ujemny wiek ponad
+    -- minutę = zegar się nie zgadza, też nie ufamy wartościom
+    local updated =
+        tonumber(values.updated)
+
+    if updated == nil then
+
+        values.stale = true
+    else
+
+        values.ageSeconds =
+            os.time() - updated
+
+        values.stale =
+            values.ageSeconds > Diag.MONITOR_STALE_AFTER
+            or values.ageSeconds < -60
+    end
+
     Diag.monitor = values
 end
 
@@ -3793,25 +3816,45 @@ function Diag.draw()
     ImGui.Separator()
 
     -- SERWER (z coop_monitor.py)
-    local server =
-        Diag.monitor.server or "run: python coop-tools/coop_monitor.py"
+    local monitor = Diag.monitor
 
-    Diag.row("Relay server", server, Diag.monitor.server and "neutral" or "warn")
+    if monitor.server == nil then
 
-    if Diag.monitor.server_ping_ms ~= nil then
+        Diag.row("Relay server", "run: python coop-tools/coop_monitor.py", "warn")
+
+    elseif monitor.stale then
+
+        -- stary plik po zamkniętym monitorze: adres zostaje, ping nie
+        Diag.row(
+            "Relay server",
+            monitor.server .. (
+                monitor.ageSeconds ~= nil
+                    and string.format(" (monitor stopped %.0f s ago)", monitor.ageSeconds)
+                    or " (monitor not running)"
+            ),
+            "warn"
+        )
+    else
+
+        Diag.row("Relay server", monitor.server, "neutral")
+    end
+
+    if monitor.server_ping_ms ~= nil
+        and not monitor.stale
+    then
 
         local serverPing =
-            tonumber(Diag.monitor.server_ping_ms)
+            tonumber(monitor.server_ping_ms)
 
         Diag.row(
             "Your ping to relay",
-            Diag.monitor.server_ping_ms .. " ms",
+            monitor.server_ping_ms .. " ms",
             Diag.levelFor(serverPing, Diag.LIMITS.server_ping_ms)
         )
     end
 
-    if Diag.monitor.server_location ~= nil then
-        Diag.row("Relay location", Diag.monitor.server_location, "neutral")
+    if monitor.server_location ~= nil then
+        Diag.row("Relay location", monitor.server_location, "neutral")
     end
 
 

@@ -15,6 +15,8 @@ D6  the panel and the monitor grade with the same limits (RTT ~330 ms is
     normal on the LA - Warsaw - Russia route)
 D7  avatar drift is measured from where the partner really is
 D8  without the monitor, the panel names the real path coop-tools/coop_monitor.py
+D9  monitor_status.txt left behind by a stopped monitor is shown as stale, not
+    as a live ping; the monitor swaps the file in whole and removes it on Ctrl+C
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
@@ -408,6 +410,98 @@ def test_panel_names_monitor_path():
     return relay_rows == ["run: python coop-tools/coop_monitor.py"] and not wrong and script_exists
 
 
+# ------------------------------------------------------------------ D9
+
+LEVEL_COLORS = {(0.4, 0.9, 0.45): "good", (1.0, 0.8, 0.25): "warn", (1.0, 0.35, 0.35): "bad", (0.8, 0.8, 0.8): "neutral"}
+
+
+def panel_rows(lua):
+    """{label: (value, level)} of the panel; Diag.row draws ImGui.Text(label), then TextColored(value)."""
+    lua.execute("""
+        panelRows = {}
+        local lastLabel = ""
+        ImGui.Text = function(s) lastLabel = s end
+        ImGui.TextColored = function(r, g, b, a, s) panelRows[#panelRows + 1] = { lastLabel, s, r, g, b } end
+    """)
+    lua.globals().events["onDraw"]()
+    rows = lua.globals().panelRows
+    result = {}
+    for index in range(1, len(rows) + 1):
+        label, value, red, green, blue = (rows[index][key] for key in range(1, 6))
+        result[label] = (value, LEVEL_COLORS.get((round(red, 2), round(green, 2), round(blue, 2)), "?"))
+    return result
+
+
+def test_monitor_status_staleness():
+    lua = timing.make_peer("joiner", (0.0, 0.0))
+    diag = upvalue(lua, "Diag")
+    now = int(time.time())
+    status = "server=203.0.113.7:11778\nserver_ping_ms=186\nserver_location=Warsaw, Poland (OVH)\n"
+
+    def panel_with(text):
+        if text is None:
+            os.remove(diag.MONITOR_FILE)
+        else:
+            with open(diag.MONITOR_FILE, "w", encoding="utf-8") as handle:
+                handle.write(text)
+        diag.readMonitorStatus()
+        rows = panel_rows(lua)
+        return {label: rows[label] for label in ("Relay server", "Your ping to relay", "Relay location") if label in rows}
+
+    fresh = panel_with(status + f"updated={now - 3}\n")
+    old = panel_with(status + f"updated={now - 120}\n")
+    unstamped = panel_with(status)
+    gone = panel_with(None)
+    for name, rows in (("fresh", fresh), ("2 min old", old), ("no 'updated'", unstamped), ("no file", gone)):
+        print(f"  panel, monitor file {name}: {rows}")
+    lua_ok = (
+        fresh.get("Relay server") == ("203.0.113.7:11778", "neutral")
+        and fresh.get("Your ping to relay") == ("186 ms", "good")
+        and re.fullmatch(r"203\.0\.113\.7:11778 \(monitor stopped 12[01] s ago\)", old["Relay server"][0])
+        and old["Relay server"][1] == "warn" and "Your ping to relay" not in old and "Relay location" in old
+        and unstamped.get("Relay server") == ("203.0.113.7:11778 (monitor not running)", "warn")
+        and "Your ping to relay" not in unstamped
+        and gone == {"Relay server": ("run: python coop-tools/coop_monitor.py", "warn")}
+    )
+
+    # monitor side: swapped in whole; written in place while the game holds the file open
+    game, mod_dir = make_game_dir()
+    try:
+        monitor.write_panel_status(mod_dir, "203.0.113.7:11778", 186.0, None)
+        path = os.path.join(mod_dir, monitor.PANEL_STATUS_FILE)
+        written = read(path)
+        with open(path, encoding="utf-8") as held:  # like CET's io.open: shares read/write, not delete
+            monitor.write_panel_status(mod_dir, "203.0.113.7:11778", 190.0, None)
+            held_text = held.read()
+        while_held = read(path)
+        leftovers = [name for name in os.listdir(mod_dir) if name.endswith(".tmp")]
+        print(f"  monitor wrote {written.splitlines()}; while the game held the file: {while_held.splitlines()[-1]!r} "
+              f"(reader saw {len(held_text)} bytes), temp files left {leftovers}")
+        monitor_ok = ("updated=" in written and "server_ping_ms=186" in written and "server_ping_ms=190" in while_held
+                      and not leftovers)
+
+        # Ctrl+C: the status file goes, so the panel says at once that the monitor stopped
+        seen = {}
+
+        def interrupt(checks, events):
+            seen["status written"] = os.path.exists(path)
+            raise KeyboardInterrupt
+
+        saved = (monitor.render, monitor.ping_ms, monitor.append_history, sys.argv)
+        monitor.render, monitor.ping_ms = interrupt, lambda host: 41.0
+        monitor.append_history = lambda history_path, row: None
+        sys.argv = ["coop_monitor.py", "--game", game, "--no-geo"]
+        try:
+            code = monitor.run(monitor.parse_args())
+        finally:
+            monitor.render, monitor.ping_ms, monitor.append_history, sys.argv = saved
+        print(f"  Ctrl+C: exit {code}, status written before {seen.get('status written')}, left after {os.path.exists(path)}")
+        stop_ok = code == 0 and seen.get("status written") and not os.path.exists(path)
+    finally:
+        shutil.rmtree(game, ignore_errors=True)
+    return bool(lua_ok and monitor_ok and stop_ok)
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -418,6 +512,7 @@ if __name__ == "__main__":
         "D6 panel and monitor grade RTT, ping, missed, age, drift alike": test_panel_and_monitor_grade_alike,
         "D7 avatar drift is measured from where the partner really is": test_drift_against_real_position,
         "D8 panel names the real monitor path (coop-tools/)": test_panel_names_monitor_path,
+        "D9 panel drops relay values once the monitor stops; status file swapped in whole": test_monitor_status_staleness,
     }
     results = {}
     for name, test in tests.items():

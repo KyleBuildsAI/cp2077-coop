@@ -32,6 +32,8 @@ SERVER_INI = os.path.join("red4ext", "plugins", "CP2077Coop", "server.ini")
 REDSCRIPT_LOG = os.path.join("r6", "logs", "redscript_rCURRENT.log")
 STATS_FILE_PATTERN = "coop_stats_*.txt"
 EVENTS_FILE = "coop_events.log"
+# written by this monitor, read by the in-game panel
+PANEL_STATUS_FILE = "monitor_status.txt"
 # CET writes the mod's Lua runtime errors here
 LUA_ERROR_LOG = "CP2077Coop.log"
 LUA_ERROR_RECENT_SECONDS = 600.0
@@ -237,18 +239,55 @@ def check_startup_logs(game_dir):
     return checks
 
 
+def write_text_swapped(path, text):
+    """Write to a temporary file and swap it in, so a reader never sees half a file.
+
+    Windows refuses the swap while another program has the file open (the game reads
+    it every 2 s); then the file is written in place. Returns an error string or None.
+    """
+    temporary = path + ".tmp"
+    try:
+        with open(temporary, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(temporary, path)
+        return None
+    except OSError as swap_error:
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+        except OSError as error:
+            return f"{error} (swap failed too: {swap_error})"
+        return None
+    finally:
+        if os.path.exists(temporary):
+            try:
+                os.remove(temporary)
+            except OSError as error:
+                print(f"could not remove {temporary}: {error}")
+
+
 def write_panel_status(mod_dir, server, ping, location):
-    """Shared with the in-game panel (init.lua reads monitor_status.txt)."""
+    """Shared with the in-game panel: init.lua reads monitor_status.txt every 2 s and
+    treats an 'updated' time older than 30 s as a stopped monitor."""
     lines = [f"server={server}", f"updated={int(time.time())}"]
     if ping is not None:
         lines.append(f"server_ping_ms={ping:.0f}")
     if location:
         lines.append(f"server_location={location}")
+    error = write_text_swapped(os.path.join(mod_dir, PANEL_STATUS_FILE), "\n".join(lines) + "\n")
+    if error:
+        print(f"could not write {PANEL_STATUS_FILE}: {error}")
+
+
+def remove_panel_status(mod_dir):
+    """On exit, so the panel says at once that the monitor is not running."""
+    path = os.path.join(mod_dir, PANEL_STATUS_FILE)
+    if not os.path.exists(path):
+        return
     try:
-        with open(os.path.join(mod_dir, "monitor_status.txt"), "w", encoding="utf-8") as handle:
-            handle.write("\n".join(lines) + "\n")
+        os.remove(path)
     except OSError as error:
-        print(f"could not write monitor_status.txt: {error}")
+        print(f"could not remove {PANEL_STATUS_FILE} (the panel marks it stale after 30 s): {error}")
 
 
 def append_history(history_path, row):
@@ -333,6 +372,17 @@ def run(args):
     ip, port, ini_error = read_server_address(game_dir)
     location = None if args.no_geo or not ip else relay_location(ip)
 
+    try:
+        return monitor_loop(args, game_dir, mod_dir, history_path, (ip, port, ini_error, location))
+    except KeyboardInterrupt:
+        remove_panel_status(mod_dir)
+        print("\nmonitor stopped")
+        return 0
+
+
+def monitor_loop(args, game_dir, mod_dir, history_path, server):
+    """Check, render, write history and the panel status every REFRESH_SECONDS."""
+    ip, port, ini_error, location = server
     while True:
         checks = [(INFO, "game folder", game_dir)]
         if ini_error:
