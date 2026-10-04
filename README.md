@@ -18,14 +18,34 @@ same port, so the old DLL keeps working during migration.
 ## Run
 
 ```bash
-python -m unittest discover -s tests          # 78 unit tests (codecs, fuzzing, reliability, deltas, relay)
-python run_demo.py                            # 5 end-to-end scenarios over real UDP (about 2 minutes)
+python -m unittest discover -s tests          # 89 unit tests (codecs, fuzzing, reliability, deltas, relay, test world)
+python run_demo.py                            # 8 end-to-end scenarios over real UDP (about 5 minutes)
 python run_demo.py --only realistic --duration 40
+python run_demo.py --host-exe ../dllproto/build/Release/coopnet_v2_demo_client.exe   # C++ host, Python joiner
 python tools/check_c_header.py                # compile include/coop_proto_v2.h, compare layouts and constants
 python relay_v2.py                            # local relay on 127.0.0.1:11778 (v1 + v2)
 python relay_v2.py --host :: --port 11778     # public relay, IPv6 + IPv4
 python tools/relay_ping.py relay.example.net:11778   # RTT to a candidate v2 relay (no session created)
 ```
+
+Scenarios: `clean`, `realistic` (host Russia-Warsaw, joiner LA-Warsaw), `stress`, `brutal` (20 % loss
+and 5 % duplicates per leg), `bridge` (v2 host with a v1 client), and `course-clean`, `course-us`,
+`course-transatlantic`. The course scenarios run both players over a scripted on-foot loop (walk, run,
+sprint, turns, stops; `coopnet/testworld.py`) under end-to-end link profiles between the players:
+clean, US (30 ±10 ms one way, 1 % loss) and transatlantic (115 ±20 ms, 1 % loss), split over the four
+legs (uplink and downlink of each client). They report the interpolation error per kind of movement and
+hold the plugin's relay clock estimator (C++ `ClockSync`) within 5 ms of the truth and of the other
+client.
+
+Every run ends with a drain: events stop 4 s before the end, each reliable stream ends with a
+`"<name> done"` chat, and a client only quits once the relay acked all of its events and the other
+player's marker arrived (at most 20 s later). A reliable violation is then a real loss, duplicate or
+reordering, never a stream cut off while it was still being repaired. The relay exits one second after
+the last v2 client left (`--exit-when-idle`).
+
+`--host-exe` / `--joiner-exe` replace `client_v2.py` by any client that takes the same arguments and
+writes the same report. The plugin repo's `coopnet_v2_demo_client.exe` (C++ on the plugin's protocol
+modules) is driven through every scenario that way by its `tools/run_v2_demo.py`.
 
 Manual session against a running relay (each client simulates its own link):
 
@@ -43,7 +63,7 @@ python client_v2.py --role joiner --room demo --password pw --up-latency-ms 78 -
 | `coopnet/snapshot.py` | Entity state quantization, delta encoder/decoder, interest manager, priorities |
 | `coopnet/interp.py` | Clock sync with the relay, interpolation/extrapolation buffer, v1 behaviour model |
 | `coopnet/legacy.py` | v1 text protocol and the init.lua forward-vector payload (for the bridge) |
-| `coopnet/linksim.py`, `ratelimit.py`, `testworld.py` | Link impairment, token buckets, deterministic demo world |
+| `coopnet/linksim.py`, `ratelimit.py`, `testworld.py` | Link impairment, token buckets, deterministic demo world and scripted course |
 | `relay_v2.py` | The relay |
 | `client_v2.py`, `legacy_client.py` | v2 test client (host/joiner), v1 client emulator |
 | `run_demo.py` | Starts relay + clients as processes, checks the reports |
@@ -171,6 +191,9 @@ paths never fragment.
   Relay-only types from clients are violations. Spectators may only chat and ack.
 - Rate limits per connection: 120 packets/s, 64 KB/s, 60 reliable messages/s, chat 2/s, teleport 1/s;
   handshakes 4/s per IP. A client that lets its 256-message reliable window fill up is disconnected.
+  The reliable, chat and teleport limits are charged when a reliable message first arrives, not when it
+  is routed. Messages that arrived behind a lost packet are released together once the gap is repaired;
+  they were acked on arrival, and charging them on release dropped part of a correctly paced burst.
 - Anti-spoofing/amplification: stateless cookie, HELLO ≥ 240 bytes vs 40-byte CHALLENGE. Room passwords are
   never sent (16-byte salted hash). Session tokens are 64-bit random.
 - Not encrypted: an on-path attacker can read traffic and replay a token. That is acceptable for two friends.
