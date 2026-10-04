@@ -49,7 +49,7 @@ folder on its own when it is run without the runner.
 | `test_combat.py` | A hit packet does not move the avatar or reset its state |
 | `test_mods.py` | Mod list comparison is exact with packet loss |
 | `test_live_bugs.py` | Regressions from the live test: join teleport, fast follow, remote vehicle |
-| `test_join.py` | The joiner's teleport to the host against a mock game that drops teleports for the first 8 s after a load and applies them 0.6 s late: waits for 4 s of settled play (vehicle, scene and position jumps restart it), one Teleport per attempt, success measured at the teleport point, 3 logged attempts with growing pauses and a clean give-up, a late teleport still counts, "Teleport to host" takes the same path. Also runs the join loop from commit `30077d1` (read with `git show`) in the same game and checks that it gives up without moving the player |
+| `test_join.py` | The joiner's teleport to the host against a mock game that drops teleports for the first 8 s after a load and applies them 0.6 s late: waits for 4 s of settled play (vehicle, scene and position jumps restart it), one Teleport per attempt, success measured at the teleport point, 3 logged attempts with growing pauses and a clean give-up, a late teleport still counts, "Teleport to host" takes the same path, the panel's *Join* row in every phase. Also runs the join loop from commit `30077d1` (read with `git show`) in the same game and checks that it gives up without moving the player |
 | `test_timing.py` | Packet timing and ordering at different frame rates, stale and torn packets, no globals, upvalue limit |
 | `test_avatar.py` | How the avatar walks, turns, catches up and settles |
 | `test_robustness.py` | Missing redscript, failed spawns, stale time and weather |

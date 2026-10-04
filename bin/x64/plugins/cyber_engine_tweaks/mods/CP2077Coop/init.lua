@@ -3770,7 +3770,16 @@ function Diag.avatarState()
     if S.spawnAttempts == 0 then
 
         -- spawn odłożony: system encji jeszcze niegotowy
-        return S.spawnRequestedAt ~= nil and "waiting for world" or "none"
+        if S.spawnRequestedAt ~= nil then
+            return "waiting for world"
+        end
+
+        -- joiner: spawn dopiero po teleporcie do hosta
+        if not Sync.joinAllowsSpawn() then
+            return "after the join teleport"
+        end
+
+        return "none"
     end
 
     if S.spawnAttempts == 1 then
@@ -3778,6 +3787,81 @@ function Diag.avatarState()
     end
 
     return string.format("spawning (request %d)", S.spawnAttempts)
+end
+
+
+-- Wiersz "Join" (joiner): co robi teleport do hosta (Sync.updateJoin).
+function Diag.joinStatus()
+
+    local attempt =
+        string.format(
+            "%d/%d",
+            S.joinAttempts,
+            Sync.MAX_JOIN_ATTEMPTS
+        )
+
+    if S.joinPhase == "done" then
+
+        return
+            string.format(
+                "next to the host (attempt %s, %.1f m from the teleport point)",
+                attempt,
+                S.joinError or 0.0
+            ),
+            "good"
+    end
+
+    if S.joinPhase == "gave_up" then
+
+        return
+            string.format(
+                "gave up after %d attempts (%s) - press 'Teleport to host'",
+                S.joinAttempts,
+                S.joinFailure or "?"
+            ),
+            "bad"
+    end
+
+    if S.joinPhase == "teleport" then
+
+        return
+            string.format(
+                "attempt %s: waiting for the game to move you (%.1f / %.1f s)",
+                attempt,
+                math.max(0.0, Sync.clock - S.joinCalledAt),
+                Sync.JOIN_APPLY_TIMEOUT
+            ),
+            "warn"
+    end
+
+    if S.joinPhase == "retry" then
+
+        return
+            string.format(
+                "attempt %s failed (%s), next in %.1f s",
+                attempt,
+                S.joinFailure or "?",
+                math.max(0.0, S.joinRetryDelay - S.joinPhaseTime)
+            ),
+            "warn"
+    end
+
+    if S.joinWaitReason ~= nil then
+        return "waiting: you are " .. S.joinWaitReason, "warn"
+    end
+
+    if S.joinSettled < Sync.JOIN_SETTLE_SECONDS then
+
+        return
+            string.format(
+                "waiting for the game to settle (%.1f / %.0f s)",
+                S.joinSettled,
+                Sync.JOIN_SETTLE_SECONDS
+            ),
+            "warn"
+    end
+
+    return "waiting for the host's position", "warn"
 end
 
 
@@ -3966,6 +4050,14 @@ function Diag.draw()
     ImGui.Separator()
 
     -- AVATAR / STAN
+    if not IS_HOST then
+
+        local joinText, joinLevel =
+            Diag.joinStatus()
+
+        Diag.row("Join", joinText, joinLevel)
+    end
+
     Diag.row(
         "Avatar",
         Diag.avatarState(),

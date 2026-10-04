@@ -21,6 +21,8 @@ J3  settle gate: a vehicle, a scene and a position jump (game still placing the
     While the player sits in a car the avatar spawns at once, as before.
 J4  a teleport the game applies after the 2.5 s wait still counts: joined during
     the pause, no second call.
+J5  the panel's "Join" row says what the join is doing in every phase (and the
+    "Avatar" row that the spawn waits for it); the host's panel has no Join row.
 
 Usage: python test_join.py path/to/init.lua
 """
@@ -396,12 +398,80 @@ def test_late_apply_counts():
     )
 
 
+# ------------------------------------------------------------------ J5
+
+LEVEL_COLORS = {(0.4, 0.9, 0.45): "good", (1.0, 0.8, 0.25): "warn", (1.0, 0.35, 0.35): "bad", (0.8, 0.8, 0.8): "neutral"}
+
+PANEL_CAPTURE = r"""
+panelRows = {}
+local lastLabel = ""
+ImGui.Text = function(s) lastLabel = s end
+ImGui.TextColored = function(r, g, b, a, s) panelRows[#panelRows + 1] = { lastLabel, s, r, g, b } end
+"""
+
+
+def panel_rows(lua):
+    """{label: (value, level)}; Diag.row draws ImGui.Text(label), then TextColored(value)."""
+    lua.execute(PANEL_CAPTURE)
+    lua.globals().events["onDraw"]()
+    rows = lua.globals().panelRows
+    result = {}
+    for index in range(1, len(rows) + 1):
+        label, value, red, green, blue = (rows[index][key] for key in range(1, 6))
+        result[label] = (value, LEVEL_COLORS.get((round(red, 2), round(green, 2), round(blue, 2)), "?"))
+    return result
+
+
+def test_panel_rows():
+    seen = []
+
+    def sample(session, t, at, label):
+        if not any(name == label for name, _ in seen) and t >= at:
+            rows = panel_rows(session.lua)
+            seen.append((label, (rows.get("Join"), rows.get("Avatar"))))
+
+    # game ignores teleports for 7 s after the load: attempt 1 fails, attempt 2 joins
+    slow = Session(new_source(), standing_host, ignore_for=7.0)
+    plan = ((3.0, "settle"), (6.0, "teleport"), (8.0, "retry"), (11.5, "done"))
+    slow.run(12.0, lambda s, t: [sample(s, t, at, label) for at, label in plan])
+
+    # never applies; the player sits in a car for a moment first
+    def car(session, t):
+        session.g.localFlags = FLAG_IN_VEHICLE if 1.5 <= t < 2.0 else 0
+        sample(session, t, 1.8, "vehicle")
+        sample(session, t, 23.0, "gave_up")
+
+    stuck = Session(new_source(), standing_host, ignore_for=1e9)
+    stuck.run(23.5, car)
+
+    rows = dict(seen)
+    for label, (join, avatar) in seen:
+        print(f"  {label:9} Join: {join}   Avatar: {avatar}")
+    want = {
+        "settle": (r"^waiting for the game to settle \([0-9.]+ / 4 s\)$", "warn"),
+        "teleport": (r"^attempt 1/3: waiting for the game to move you \([0-9.]+ / 2\.5 s\)$", "warn"),
+        "retry": (r"^attempt 1/3 failed \(position did not change\), next in [0-9.]+ s$", "warn"),
+        "done": (r"^next to the host \(attempt 2/3, 0\.0 m from the teleport point\)$", "good"),
+        "vehicle": (r"^waiting: you are in a vehicle$", "warn"),
+        "gave_up": (r"^gave up after 3 attempts \(position did not change\) - press 'Teleport to host'$", "bad"),
+    }
+    join_ok = all(
+        rows.get(label) and rows[label][0] and re.match(pattern, rows[label][0][0]) and rows[label][0][1] == level
+        for label, (pattern, level) in want.items()
+    )
+    avatar_ok = rows["settle"][1][0] == "after the join teleport" and rows["done"][1][0] != "after the join teleport"
+    host_rows = panel_rows(harness.make_instance("host", HOST_START))
+    print(f"  host panel has a Join row: {'Join' in host_rows}")
+    return join_ok and avatar_ok and "Join" not in host_rows
+
+
 if __name__ == "__main__":
     tests = {
         "J1 slow game: settle, one Teleport per attempt, measured at the teleport point, joins; old logic gives up": test_slow_game_joins,
         "J2 teleports never apply: 3 logged attempts, growing pauses, clean give-up; 'Teleport to host' same path": test_never_applies_then_manual,
         "J3 car, scene and position jump restart the 4 s settle; avatar spawns while in the car": test_settle_gate,
         "J4 a teleport applied after the 2.5 s wait counts, no second call": test_late_apply_counts,
+        "J5 panel 'Join' row through settle, teleport, retry, done, vehicle, gave up; host has none": test_panel_rows,
     }
     results = {}
     for name, test in tests.items():
