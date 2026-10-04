@@ -78,11 +78,20 @@ private func CP2077Coop_ClassifyWeapon(itemID: ItemID) -> CP2077CoopWeaponClass 
         case gamedataItemType.Wea_Sword:
         case gamedataItemType.Wea_Chainsword:
         case gamedataItemType.Wea_Axe:
+        case gamedataItemType.Wea_Melee:
+        case gamedataItemType.Cyb_MantisBlades:
             return CP2077CoopWeaponClass.Blade;
         case gamedataItemType.Wea_Hammer:
         case gamedataItemType.Wea_OneHandedClub:
         case gamedataItemType.Wea_TwoHandedClub:
             return CP2077CoopWeaponClass.Blunt;
+        // fists and arm cyberware are "active weapons" too, but there is
+        // no avatar prop for them: empty hands, not a stand-in pistol
+        case gamedataItemType.Wea_Fists:
+        case gamedataItemType.Cyb_StrongArms:
+        case gamedataItemType.Cyb_NanoWires:
+        case gamedataItemType.Cyb_Launcher:
+            return CP2077CoopWeaponClass.None;
         default:
             return CP2077CoopWeaponClass.Other;
     }
@@ -262,7 +271,12 @@ public func CP2077Coop_ApplyRemoteWeapon(weaponClass: Int32, drawn: Bool) -> Voi
         return;
     }
 
-    if !drawn {
+    // None (fists, arm cyberware) and Other (unknown item type) have no
+    // matching avatar prop: empty hands instead of the default pistol
+    let hasProp = weaponClass != EnumInt(CP2077CoopWeaponClass.None)
+        && weaponClass != EnumInt(CP2077CoopWeaponClass.Other);
+
+    if !drawn || !hasProp {
         let holster = new AIUnequipCommand();
         holster.slotId = t"AttachmentSlots.WeaponRight";
         controller.SendCommand(holster);
