@@ -29,6 +29,18 @@ Start the game normally. The **CP2077 Coop** panel shows connection state, playe
 player-to-player round trip, packet rates, missed packets, avatar drift, both players' state
 and the relay server. Toggle it under CET *Bindings* → *Toggle coop panel*.
 
+The game reads the network plugin once per frame and the plugin keeps only the newest packet,
+so packet counts are split by cause:
+
+- **Missed**: packets that never arrived in the last 5 s: network loss, or the partner's plugin
+  sending several 30 Hz ticks of one long frame as a single packet (their side shows that as
+  *merged*). Two packets bunched into one of your frames by jitter also land here.
+- **Overwritten**: packets that arrived but were replaced before your game read them because
+  your frame rate is below the partner's 30 packets/s. This is local, not the network.
+
+With the local test relay (`coop-tools/coop_relay.py`), the monitor also shows the relay's own
+count of what each game skipped and what the simulated link dropped.
+
 ### Live monitor
 
 ```bash

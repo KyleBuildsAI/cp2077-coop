@@ -272,16 +272,44 @@ local Diag = {
 
     visible = true,
 
+    -- Luka w numerach pakietów drugiej strony to jedno z trzech:
+    --   overwritten: przyszły w jednej długiej klatce, DLL trzyma tylko
+    --     ostatni (lokalny fps < tempo nadawcy, nie sieć),
+    --   missed: nie doszły (zgubione w sieci albo pominięte przez DLL
+    --     nadawcy: kilka tyknięć w jednej jego klatce = jeden pakiet;
+    --     też dwa pakiety ściśnięte jitterem w jedną naszą klatkę).
+    -- Liczniki sesji (od Diag.resetSession) i okna STATS_INTERVAL (stat*).
     packetsReceived = 0,
     packetsSent = 0,
     missed = 0,
+    overwritten = 0,
     ignored = 0,
 
+    statReceived = 0,
+    statMissed = 0,
+    statOverwritten = 0,
+    -- nadawca: tyknięcia (numery) i ile z nich DLL scaliło (kilka w klatce)
+    statPushes = 0,
+    statMerged = 0,
+    missedPctLast = nil,
+    overwrittenPctLast = nil,
+    mergedPctLast = nil,
+
+    -- okno 1 s: odczytane pakiety, wysłane tyknięcia, klatki i przyrost
+    -- numeru drugiej strony (= jej tempo wysyłki, ~30/s)
     windowReceived = 0,
     windowSent = 0,
+    windowFrames = 0,
+    windowSeqAdvance = 0,
     windowTimer = 0.0,
     ppsIn = 0.0,
     ppsOut = 0.0,
+    fps = 0.0,
+    peerRate = 0.0,
+
+    -- czas między dwoma ostatnimi odczytami slotu DLL (Diag.onPoll)
+    lastPollClock = nil,
+    pollGap = 0.0,
 
     lastPacketClock = nil,
     -- stan i wiek pakietu z ostatniego odczytu DLL (Diag.updateConnectionState);
@@ -3008,23 +3036,64 @@ end
 
 
 -- Wywoływane dla każdego nowszego pakietu.
+-- Każdy odczyt slotu DLL (klatka z danymi drugiej strony).
+function Diag.onPoll()
+
+    if Diag.lastPollClock ~= nil then
+        Diag.pollGap = Sync.clock - Diag.lastPollClock
+    else
+        Diag.pollGap = 0.0
+    end
+
+    Diag.lastPollClock = Sync.clock
+end
+
+
 function Diag.onPacket(sequence, previousSequence)
 
     Diag.packetsReceived =
         Diag.packetsReceived + 1
 
+    Diag.statReceived =
+        Diag.statReceived + 1
+
     Diag.windowReceived =
         Diag.windowReceived + 1
 
-    -- luka w sekwencji = zgubione w sieci LUB nadpisane w DLL
-    -- (DLL trzyma tylko ostatni pakiet, a Lua czyta raz na klatkę)
+    if previousSequence >= 0 then
+
+        Diag.windowSeqAdvance =
+            Diag.windowSeqAdvance +
+            math.max(0, sequence - previousSequence)
+    else
+
+        Diag.windowSeqAdvance =
+            Diag.windowSeqAdvance + 1
+    end
+
     if previousSequence >= 0
         and sequence > previousSequence + 1
     then
 
-        Diag.missed =
-            Diag.missed +
-            (sequence - previousSequence - 1)
+        local gap =
+            sequence - previousSequence - 1
+
+        -- od poprzedniego odczytu minęło tyle tyknięć nadawcy: tyle
+        -- pakietów mogło przyjść naraz i nadpisać się w slocie DLL
+        local overwritten =
+            math.min(
+                gap,
+                math.max(
+                    0,
+                    math.ceil(Diag.pollGap / SEND_INTERVAL - 1e-6) - 1
+                )
+            )
+
+        Diag.overwritten = Diag.overwritten + overwritten
+        Diag.statOverwritten = Diag.statOverwritten + overwritten
+
+        Diag.missed = Diag.missed + (gap - overwritten)
+        Diag.statMissed = Diag.statMissed + (gap - overwritten)
     end
 
     Diag.lastPacketClock = Sync.clock
@@ -3037,11 +3106,21 @@ function Diag.resetSession()
 
     Diag.packetsReceived = 0
     Diag.missed = 0
+    Diag.overwritten = 0
     Diag.ignored = 0
 
+    Diag.statReceived = 0
+    Diag.statMissed = 0
+    Diag.statOverwritten = 0
+    Diag.missedPctLast = nil
+    Diag.overwrittenPctLast = nil
+
     Diag.lastPacketClock = nil
+    Diag.lastPollClock = nil
     Diag.windowReceived = 0
+    Diag.windowSeqAdvance = 0
     Diag.ppsIn = 0.0
+    Diag.peerRate = 0.0
 
     Diag.avatarError = nil
     Diag.driftSum = 0.0
@@ -3056,16 +3135,34 @@ function Diag.onIgnored()
 
     Diag.ignored =
         Diag.ignored + 1
+
+    -- spóźniony pakiet jednak doszedł: był policzony jako luka
+    if Diag.missed > 0 then
+        Diag.missed = Diag.missed - 1
+    end
+
+    if Diag.statMissed > 0 then
+        Diag.statMissed = Diag.statMissed - 1
+    end
 end
 
 
-function Diag.onSent()
+-- Tyknięcia 30 Hz wysłane w jednej klatce. Wątek DLL wysyła tylko
+-- najnowsze, więc kilka w klatce = jeden pakiet, a druga strona widzi
+-- lukę w numerach (u niej: missed).
+function Diag.onSent(ticks)
 
     Diag.packetsSent =
-        Diag.packetsSent + 1
+        Diag.packetsSent + ticks
 
     Diag.windowSent =
-        Diag.windowSent + 1
+        Diag.windowSent + ticks
+
+    Diag.statPushes =
+        Diag.statPushes + ticks
+
+    Diag.statMerged =
+        Diag.statMerged + (ticks - 1)
 end
 
 
@@ -3107,20 +3204,68 @@ function Diag.connectionState()
 end
 
 
-function Diag.missedPercent()
+-- 100 * part / total (nil = brak danych)
+function Diag.percentOf(part, total)
 
-    local expected =
-        Diag.packetsReceived +
-        Diag.missed
-
-    if expected == 0 then
-        return 0.0
+    if total <= 0 then
+        return nil
     end
 
     return
         100.0 *
-        Diag.missed /
-        expected
+        part /
+        total
+end
+
+
+-- missed w całej sesji (procent numerów drugiej strony)
+function Diag.missedPercent()
+
+    return
+        Diag.percentOf(
+            Diag.missed,
+            Diag.packetsReceived + Diag.missed + Diag.overwritten
+        ) or 0.0
+end
+
+
+-- Procenty z ostatniego okna STATS_INTERVAL. Licznik całej sesji
+-- tłumi bieżące straty: po godzinie gry minuty strat ledwo go ruszają.
+function Diag.closeLossWindow()
+
+    local expected =
+        Diag.statReceived +
+        Diag.statMissed +
+        Diag.statOverwritten
+
+    Diag.missedPctLast =
+        Diag.percentOf(Diag.statMissed, expected)
+
+    Diag.overwrittenPctLast =
+        Diag.percentOf(Diag.statOverwritten, expected)
+
+    Diag.mergedPctLast =
+        Diag.percentOf(Diag.statMerged, Diag.statPushes)
+
+    Diag.statReceived = 0
+    Diag.statMissed = 0
+    Diag.statOverwritten = 0
+    Diag.statPushes = 0
+    Diag.statMerged = 0
+end
+
+
+function Diag.formatPct(value)
+
+    if value == nil then
+        return "-"
+    end
+
+    return
+        string.format(
+            "%.1f",
+            value
+        )
 end
 
 
@@ -3191,7 +3336,7 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d",
+            "[CP2077Coop] [STATS] state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f fps=%.0f peer_rate=%.1f missed_pct=%s missed_total_pct=%.1f overwritten_pct=%s out_merged_pct=%s ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d",
             Diag.lastState,
             S.syncActive and "on" or "off",
             IS_HOST and "host" or "joiner",
@@ -3201,7 +3346,12 @@ function Diag.statsLine()
             Sync.rttSamples,
             Diag.ppsIn,
             Diag.ppsOut,
+            Diag.fps,
+            Diag.peerRate,
+            Diag.formatPct(Diag.missedPctLast),
             Diag.missedPercent(),
+            Diag.formatPct(Diag.overwrittenPctLast),
+            Diag.formatPct(Diag.mergedPctLast),
             Diag.ignored,
             age and string.format("%.0f", age * 1000.0) or "-",
             Diag.avatarError and string.format("%.2f", Diag.avatarError) or "-",
@@ -3303,6 +3453,9 @@ function Diag.tick(delta)
     Diag.windowTimer =
         Diag.windowTimer + delta
 
+    Diag.windowFrames =
+        Diag.windowFrames + 1
+
     if Diag.windowTimer >= 1.0 then
 
         Diag.ppsIn =
@@ -3313,8 +3466,18 @@ function Diag.tick(delta)
             Diag.windowSent /
             Diag.windowTimer
 
+        Diag.fps =
+            Diag.windowFrames /
+            Diag.windowTimer
+
+        Diag.peerRate =
+            Diag.windowSeqAdvance /
+            Diag.windowTimer
+
         Diag.windowReceived = 0
         Diag.windowSent = 0
+        Diag.windowFrames = 0
+        Diag.windowSeqAdvance = 0
         Diag.windowTimer = 0.0
     end
 
@@ -3326,6 +3489,7 @@ function Diag.tick(delta)
 
         Diag.statsTimer = 0.0
         Diag.closeDriftWindow()
+        Diag.closeLossWindow()
         Diag.writeStats(Diag.statsLine())
     end
 
@@ -3532,19 +3696,57 @@ function Diag.draw()
         ageLevel
     )
 
+    -- czytamy raz na klatkę: więcej niż min(tempo nadawcy, fps) się nie da
+    local readable =
+        math.min(
+            Diag.peerRate,
+            Diag.fps
+        )
+
     Diag.row(
-        "Packets in/out",
-        string.format("%.1f / %.1f per s", Diag.ppsIn, Diag.ppsOut),
-        Diag.ppsIn >= 20 and "good" or "warn"
+        "Packets in",
+        string.format(
+            "%.1f read/s (partner sends %.0f/s, your fps %.0f)",
+            Diag.ppsIn,
+            Diag.peerRate,
+            Diag.fps
+        ),
+        (readable > 0 and Diag.ppsIn >= 0.8 * readable) and "good" or "warn"
+    )
+
+    Diag.row(
+        "Packets out",
+        string.format(
+            "%.1f/s, %s %% merged in one frame (your fps)",
+            Diag.ppsOut,
+            Diag.formatPct(Diag.mergedPctLast)
+        ),
+        (Diag.mergedPctLast or 0.0) < 10 and "neutral" or "warn"
     )
 
     local missed =
-        Diag.missedPercent()
+        Diag.missedPctLast
 
     Diag.row(
         "Missed",
-        string.format("%.1f %%  (late/dup %d)", missed, Diag.ignored),
-        missed < 10 and "good" or (missed < 25 and "warn" or "bad")
+        string.format(
+            "%s %% last %.0f s (net loss / partner's DLL), session %.1f %%, late %d",
+            Diag.formatPct(missed),
+            Diag.STATS_INTERVAL,
+            Diag.missedPercent(),
+            Diag.ignored
+        ),
+        missed == nil and "neutral"
+            or (missed < 10 and "good" or (missed < 25 and "warn" or "bad"))
+    )
+
+    Diag.row(
+        "Overwritten",
+        string.format(
+            "%s %% (your fps below partner's rate - local, not the network)",
+            Diag.formatPct(Diag.overwrittenPctLast)
+        ),
+        (Diag.overwrittenPctLast or 0.0) < 10 and "neutral" or "warn"
     )
 
 
@@ -4081,9 +4283,9 @@ function Sync.sendLocalState(player, delta)
                 sendX,
                 sendY
             )
-
-            Diag.onSent()
         end
+
+        Diag.onSent(ticks)
     end
 
     S.sendPrevX = pos.x
@@ -4683,6 +4885,8 @@ registerForEvent(
         ----------------------------------------------------
         -- NEW REMOTE NETWORK STATE
         ----------------------------------------------------
+
+        Diag.onPoll()
 
         local sequence =
             Game.CP2077Coop_GetRemoteSequence()
