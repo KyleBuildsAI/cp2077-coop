@@ -1,20 +1,20 @@
 # Controlled test NPC harness
 
-This separate slice creates one temporary, tagged NPC in each game and mirrors the host actor's measured position/yaw at 10 Hz. It is **off by default**. Main source v0.0.35 now includes this harness behind `npc_test=false`; live deployment and verification belong to the main bench, not this standalone package. The existing `r6/scripts/CP2077Coop_npcsync` prototype is not required and must not be enabled for this test.
+This separate slice creates one temporary, tagged NPC in each game and mirrors the host actor's measured position/yaw at 10 Hz. It is **off by default**. Main source v0.0.36 now includes this harness behind `npc_test=false`; live deployment and verification belong to the main bench, not this standalone package. The existing `r6/scripts/CP2077Coop_npcsync` prototype is not required and must not be enabled for this test.
 
-The intended first live check is an inert transform demonstration: spawn a generic actor, move its target a few metres from the test panel, observe the peer copy, then remove it. This does not provide autonomous shared AI, navigation/animation, combat, health/deaths, traffic, vanilla/quest NPC mirroring, loot or quest synchronization. Ten-Hz direct transform updates may look choppy; visual behavior is still untested.
+The intended first live check is an inert transform demonstration: spawn a generic actor, move its target a few metres from the test panel, observe the peer copy, then remove it. This does not provide autonomous shared AI, navigation/animation, combat, health/deaths, traffic, vanilla/quest NPC mirroring, loot or quest synchronization. Ten-Hz direct transform updates may look choppy. The first v0.0.35 live attempt failed: the joiner had the correct record and one attached, alive actor at world origin, despite falsely acknowledging creation. Main v0.0.36 adds placement and engine-lifetime checks; its live retest is pending.
 
 ## Contents and boundaries
 
-- `scripts/CP2077Coop_testnpc/testnpc.reds` adds a private `CP2077Coop.TestNpc` actor tag and four PlayerPuppet methods. It spawns only the fixed generic record `Character.spr_animals_bouncer1_ranged1_omaha_mb`, checks that the record exists, uses `persistState=false` and `persistSpawn=false`, and deletes only its own tag. It never accepts an entity ID/record/tag from the network, scans nearby NPCs, alters population/prevention, or wraps damage.
-- `lua/testnpc.lua` owns the one-actor protocol and timeout state. It registers no CET handlers and never connects or polls a native socket. Caller callbacks own transport acceptance and entity operations. `cetEntity(Game.GetPlayer)` is an optional bridge to the four methods; no game-object reference is retained in Lua across frames.
+- `scripts/CP2077Coop_testnpc/testnpc.reds` adds a private `CP2077Coop.TestNpc` actor tag and five PlayerPuppet methods. It spawns only the fixed generic record `Character.spr_animals_bouncer1_ranged1_omaha_mb`, checks that the record exists, uses `persistState=false` and `persistSpawn=false`, and deletes only its own tag. It never accepts an entity ID/record/tag from the network, scans nearby NPCs, alters population/prevention, or wraps damage.
+- `lua/testnpc.lua` owns the one-actor protocol and timeout state. It registers no CET handlers and never connects or polls a native socket. Caller callbacks own transport acceptance and entity operations. `cetEntity(Game.GetPlayer)` is an optional bridge to the five methods; no game-object reference is retained in Lua across frames.
 - `requirements-test.txt` supplies pytest and LuaJIT via lupa. Tests exercise the actual Lua module against mocked entity/transport operations; they do not model game physics.
 
 The redscript attach callback disables perception for this tag; updates also set attitude toward the local player to neutral. That does not prove the NPC's entire AI is suspended. Inspect live for attacks, AI fighting transforms, animation or collision problems before expanding the slice. Stop/remove the test actor if any of those occur.
 
 ## Standalone integration contract and main adapter
 
-Main source v0.0.35 exposes an optional session-bound extension API and `npc_test.lua` coordinates its opt-in handshake. Do not add another `Net_Poll`, call the old broad `CP2077Coop_NpcSetRole`, or paste a second `registerForEvent` handler. The existing event and transport owner calls the module after authenticating the opposite role and exchanging fresh session metadata. Main uses enableExtensions/extensionContext/sendExtension/takeExtension; its coordinator adds both app sessions, a fresh joiner challenge and a fresh host epoch before activation.
+Main source v0.0.36 exposes an optional session-bound extension API and `npc_test.lua` coordinates its opt-in handshake. Do not add another `Net_Poll`, call the old broad `CP2077Coop_NpcSetRole`, or paste a second `registerForEvent` handler. The existing event and transport owner calls the module after authenticating the opposite role and exchanging fresh session metadata. Main uses enableExtensions/extensionContext/sendExtension/takeExtension; its coordinator adds both app sessions, a fresh joiner challenge and a fresh host epoch before activation.
 
 Create the module with `enabled=true` only after an explicit test feature flag is enabled in both games. Both sides must receive the **same freshly negotiated host harness epoch**; use a new epoch for every harness activation/reload/reconnect. Do not reuse an old epoch with a reset actor counter. `peer` is the native authenticated remote peer ID, not an ID parsed from an untrusted payload. Bind these values to the adapter's current connection generation and destroy the harness immediately when it changes.
 
@@ -40,7 +40,7 @@ Call `actor:update(deltaTime)` once each frame. From the single receive dispatch
 
 Use `actor:stop()` to remove the host actor and retry a reliable despawn until the joiner acknowledges removal. Call `actor:shutdown()` before disconnect/reload/session end on **both** sides; it clears the local tag immediately and offers one best-effort remote removal. The joiner also removes a stale actor after three seconds without valid host traffic. Codeware `Session/BeforeEnd` independently clears the tag when game objects are still available. A stopped/stale ID becomes a tombstone: late bind/state messages cannot resurrect it. After a stale timeout, explicitly stop and spawn a fresh host actor; silent recovery of the expired ID is intentionally unsupported.
 
-Creation requests are retried at most four times a second until accepted; attachment has a five-second deadline. Missing remote creation ACK causes the host to stop after ten seconds. Lifecycle messages retry at four Hz; pose sends are capped at ten Hz and are replaceable. No unbounded application outbox is created.
+Creation requests are retried at most four times a second until accepted. Both attachment and measured position within 2 m of the immutable initial spawn request are required before movement, first bind or creation ACK; this has a five-second deadline, even if fresh states continue. Optional log callbacks emit request/placed/first-bind role, epoch, actor ID and pose once each. Cleanup of a previous actor also has a five-second spawn deadline; failure preserves cleanup tracking and cannot allow overlapping actors. Missing remote creation ACK causes the host to stop after ten seconds. Lifecycle messages retry at four Hz; pose sends are capped at ten Hz and are replaceable. No unbounded application outbox is created.
 
 ## Wire format
 
@@ -49,7 +49,7 @@ Every message is ASCII, at most 256 bytes: `NT1|epoch|kind|actorId|...`. `actorI
 | Kind | Channel | Fields after actorId | Direction |
 |---|---|---|---|
 | B | Reliable | x, y, z, yaw | Host bind/create |
-| A | Reliable | none | Joiner confirms actor is attached |
+| A | Reliable | none | Joiner confirms attached actor at initial requested pose |
 | D | Reliable | none | Host remove |
 | X | Reliable | none | Joiner confirms removal |
 | S | Unreliable | sequence, x, y, z, yaw | Host actual sampled pose |
@@ -58,9 +58,9 @@ Wrong direction/channel/epoch/sender, malformed numeric fields, stale sequence n
 
 ## Validation and first live acceptance
 
-As of 2026-10-04: **39 tests pass** (27 LuaJIT harness cases, 12 existing codec/probe cases). Compile against Baseline + Codeware + the main mod succeeded. The main mod's source v0.0.35 now includes an opt-in coordinator and this harness; live deployment/verification is owned by the main bench. It must not load the broad prototype folder beside it.
+As of 2026-10-04: **44 tests pass** (32 LuaJIT harness cases, 12 existing codec/probe cases). Compile against Baseline + Codeware + the main mod succeeded. The main mod's source v0.0.36 now includes an opt-in coordinator and this harness; live deployment/verification is owned by the main bench. It must not load the broad prototype folder beside it.
 
-Engine tag deletion can be asynchronous. `entity.exists()` (optional for mocks; implemented by the CET bridge) checks tag presence including a dead actor. Removal ACK waits until the old tag disappears, and a new incarnation cannot reuse an actor pending deletion. The lifecycle system is explicitly instantiated before spawn so its session cleanup callback is registered.
+Codeware removes the tag registry before engine deletion completes. `entity.exists()` (optional for mocks; implemented by the CET bridge) therefore checks the private created EntityID, managed pending work, population spawning and retiring actor attachment. It does not equate an empty tag list with completed removal. Pending creation cancellation retains the ID and waits for an entity before deleting it. Removal ACK/new spawn wait for ownership cleanup; a cleanup timeout faults that attempted spawn but retains tracking. The lifecycle system is explicitly instantiated before spawn, and session teardown requests forced scoped cleanup. These source protections still need live removal verification.
 
 ```powershell
 python -m pip install -r harness/requirements-test.txt
@@ -75,3 +75,5 @@ Before calling this slice live-proven, record: exactly one actor per side; spawn
 ## Primary API evidence
 
 [Codeware documentation](https://github.com/psiberx/cp2077-codeware/wiki/) (version 1.18.0, checked 2026-10-04) documents record-based dynamic NPC spawning, tags, nonpersistent entity lifetime, and lifecycle callbacks. The harness uses those documented interfaces. `TeleportationFacility.Teleport` and the pose/perception/attitude methods also compile against the installed game scripts and are already used by the local prototype/main vehicle code; successful compilation is not live NPC movement evidence.
+
+Codeware 1.18.0 implementation reference (checked 2026-10-04): [DynamicEntitySystem.cpp](https://github.com/psiberx/cp2077-codeware/blob/b1b2770cdf6ad2631666fb6ef4ccda99d864298e/src/App/World/DynamicEntitySystem.cpp), especially asynchronous CreateStub, DeleteEntity, GetEntity/IsSpawning and DeleteTagged. Initial-origin bind and pre-placement teleport interference remain hypotheses until the new transition logs are compared live.

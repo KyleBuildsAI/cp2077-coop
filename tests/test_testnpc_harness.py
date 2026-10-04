@@ -237,9 +237,12 @@ def test_shutdown_clears_and_disables_inbound_processing(bench):
 def test_async_removal_ack_waits_for_entity_to_disappear(bench):
     lua, _, env = active(bench)
     env.j.holdDeletion = True
+    lua.execute('''local e=...; e.j.tagged=true; local clear=e.j.clear
+      e.j.clear=function() e.j.tagged=false; clear() end
+      e.j.exists=function() return e.j.pose~=nil end''', env)
     assert env.host.stop(env.host)
     ticks(env, 20)
-    assert env.j.pose is not None and env.host.actor.stopping
+    assert not env.j.tagged and env.j.pose is not None and env.host.actor.stopping
     assert env.joiner.pendingDeleteAck == 1
     env.j.holdDeletion = False
     ticks(env, 20)
@@ -268,3 +271,86 @@ def test_missing_epoch_and_peer_are_configuration_errors(bench):
         harness.new(lua.table_from(dict(enabled=True, role="host")))
     with pytest.raises(Exception, match="peer"):
         harness.new(lua.table_from(dict(enabled=True, role="host", epoch="123456")))
+
+
+def test_registered_origin_waits_for_initial_pose_before_move_and_ack(bench):
+    lua, _, env = bench
+    lua.execute('''local e = ...; e.j.spawn = function(p)
+      e.j.spawns=e.j.spawns+1; e.j.pose={x=0,y=0,z=0,yaw=0}; return true
+    end''', env)
+    env.host.spawn(env.host, pose(lua, x=100))
+    ticks(env, 20)
+    assert env.joiner.actor is not None and not env.joiner.actor.placed
+    assert not env.host.actor.ack and env.j.moves == 0
+    env.host.move(env.host, pose(lua, x=110))
+    ticks(env, 20)
+    assert env.joiner.actor.target.x == 110
+    assert env.joiner.actor.spawnPose.x == 100
+    assert env.j.moves == 0 and not env.host.actor.ack
+    env.j.pose = pose(lua, x=100)
+    ticks(env, 10)
+    assert env.joiner.actor.placed and env.host.actor.ack
+    assert env.j.pose.x == 110 and env.j.spawns == 1
+
+
+def test_finite_origin_ghost_expires_despite_fresh_network_states(bench):
+    lua, _, env = bench
+    lua.execute('''local e = ...; e.j.spawn = function(p)
+      e.j.spawns=e.j.spawns+1; e.j.pose={x=0,y=0,z=0,yaw=0}; return true
+    end''', env)
+    env.host.spawn(env.host, pose(lua, x=100))
+    ticks(env, 130)
+    assert env.joiner.actor is None and env.j.pose is None
+    assert env.joiner.spawnFailures == 1 and env.j.moves == 0
+    assert env.joiner.lastFailure == "initial attachment/placement timeout"
+    ticks(env, 120)
+    assert env.host.actor is None and env.h.pose is None
+    assert env.host.spawnFailures == 1
+
+
+def test_cet_entity_requires_attachment_but_cleanup_tracks_tag(bench):
+    lua, harness, _ = bench
+    lua.execute('''local H=...
+      local a={attached=false}
+      function a:IsAttached() return self.attached end
+      function a:IsDead() return false end
+      function a:GetWorldPosition() return {x=100,y=2,z=3} end
+      function a:GetWorldYaw() return 45 end
+      local player={CP2077Coop_TestNpcGet=function() return a end,
+        CP2077Coop_TestNpcExists=function() return true end}
+      local bridge=H.cetEntity(function() return player end)
+      assert(bridge.exists() and bridge.read()==nil)
+      a.attached=true
+      assert(bridge.read().x==100)
+      player.CP2077Coop_TestNpcGet=function() return nil end
+      assert(bridge.read()==nil and bridge.exists())
+    ''', harness)
+
+
+def test_cleanup_timeout_does_not_allow_overlapping_actor_or_false_ack(bench):
+    lua, _, env = bench
+    env.j.pose = pose(lua, x=99)
+    env.j.holdDeletion = True
+    env.host.spawn(env.host, pose(lua))
+    ticks(env, 130)
+    assert env.j.spawns == 0 and env.j.pose.x == 99
+    assert env.joiner.actor is None
+    assert env.joiner.lastFailure == "previous actor cleanup timeout"
+    ticks(env, 120)
+    assert env.host.actor.stopping and env.joiner.pendingDeleteAck == 1
+    env.j.holdDeletion = False
+    ticks(env, 20)
+    assert env.j.pose is None and env.host.actor is None
+
+
+def test_optional_spawn_audit_is_bounded_to_transition_events(bench):
+    lua, _, env = bench
+    lua.execute('''local e=...; e.audit={}
+      e.host.log=function(line) table.insert(e.audit,line) end''', env)
+    env.host.spawn(env.host, pose(lua, x=100))
+    ticks(env, 60)
+    assert len(env.audit) == 3
+    assert "spawn_requested role=host" in env.audit[1]
+    assert "spawn_placed role=host" in env.audit[2]
+    assert "first_bind_sent role=host" in env.audit[3]
+    assert all("x=100.000" in env.audit[i] for i in (1, 2, 3))
