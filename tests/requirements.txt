@@ -1,4 +1,3 @@
 # Offline test suite dependencies. run_all.ps1 installs them into tests/.deps
 # (pip --target, gitignored), so nothing goes into the system Python.
 lupa==2.8
-luaparser==4.2.0

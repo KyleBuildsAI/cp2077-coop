@@ -105,8 +105,8 @@ function Get-Verdict {
 }
 
 function Test-DependenciesReady {
-    # Prints nothing; true when lupa and luaparser import from tests\.deps.
-    return (Invoke-Python @("-c", "import lupa.luajit21, luaparser")).Code -eq 0
+    # Prints nothing; true when lupa (with LuaJIT 2.1) imports from tests\.deps.
+    return (Invoke-Python @("-c", "import lupa.luajit21")).Code -eq 0
 }
 
 function Install-Dependencies {
@@ -117,7 +117,7 @@ function Install-Dependencies {
             "--target", $DepsDir, "-r", (Join-Path $TestsDir "requirements.txt"))
         if ($install.Code -ne 0) { $install.Lines | Select-Object -Last 20 | ForEach-Object { Write-Output $_ } }
     }
-    $versions = Invoke-Python @("-c", "import sys, lupa, luaparser; print('python', sys.version.split()[0], '/ lupa', lupa.__version__)")
+    $versions = Invoke-Python @("-c", "import sys, lupa; print('python', sys.version.split()[0], '/ lupa', lupa.__version__)")
     $versions.Lines | ForEach-Object { Write-Output $_ }
 }
 
