@@ -1277,6 +1277,9 @@ local Sync = {
     -- Terminy (Sync.clock) i ostatnio wysłane wartości (nil = jeszcze
     -- nie, czyli wysłać od razu).
     WORLD_INTERVAL = 1.0,
+    -- nowy model pojazdu idzie drugi raz po tylu sekundach: zgubiony
+    -- albo nadpisany pierwszy pakiet kosztuje 0.2 s, nie WORLD_INTERVAL
+    VEHICLE_RESEND = 0.2,
     nextTimeAt = 0.0,
     nextWeatherAt = 0.0,
     nextVehicleAt = 0.0,
@@ -1524,8 +1527,13 @@ function Sync.nextVehiclePayload(index, changedOnly)
         return nil
     end
 
+    if index ~= Sync.sentVehicle then
+        Sync.nextVehicleAt = Sync.clock + Sync.VEHICLE_RESEND
+    else
+        Sync.nextVehicleAt = Sync.nextSendAt(Sync.nextVehicleAt, Sync.WORLD_INTERVAL)
+    end
+
     Sync.sentVehicle = index
-    Sync.nextVehicleAt = Sync.nextSendAt(Sync.nextVehicleAt, Sync.WORLD_INTERVAL)
 
     return
         Sync.TYPE_VEHICLE * Sync.TYPE_STRIDE +

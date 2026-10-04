@@ -16,14 +16,16 @@ P3  long mod lists (30 / 28, as test_mods): the burst ends, flags >= 85% after i
     the panel's comparison exact (the share over the whole run is printed: the
     one-time burst counts against it)
 P4  vehicle index: only after a flags slot that says "in a vehicle", within
-    3 slots of it, then 1 +- 0.1 Hz while mounted, none after leaving
+    3 slots of it, once more 0.2 s later, then 1 +- 0.1 Hz while mounted, none
+    after leaving
 P5  partner reloads (6 s silent) and resets without a pause: the other side sends
     its list again, the reloaded side compares again, the panel ends exact, and
     both go back to one pair every 10 s (no endless re-send)
 P6  car entry with no random loss: the joiner shows the host's car within 0.3 s,
     also when the first "in a vehicle" flags packet is lost, within 0.5 s when the
-    joiner runs at 24 / 27 fps (the DLL keeps only the newest packet), and never
-    hides it on the way
+    first vehicle index packet is lost (sent again after 0.2 s) or the joiner runs
+    at 24 / 27 fps (the DLL keeps only the newest packet), and never hides it on
+    the way
 
 "Mods compared" is logged after two received cycles from the union of both. A
 pair lost in both (about 1 run in 24 here, far more at the live 16% loss) makes
@@ -363,20 +365,23 @@ def test_vehicle_index():
     vehicle = [i for i, s in enumerate(slots) if kind(s[2]) == VEHICLE]
     mounted = [s for s in slots if mount + 0.1 <= s[1] < leave]
     times = [slots[i][1] for i in vehicle]
+    resend = times[1] - times[0] if len(times) > 1 else None
     late = [t for t in times if t >= leave + 0.1]
     wrong = {slots[i][2] % TYPE_STRIDE for i in vehicle} - {VEHICLE_INDEX}
     print(f"  mounted {mount:.0f}-{leave:.0f} s: first 'in a vehicle' flags slot #{first_flag} at "
-          f"{slots[first_flag][1]:.2f} s, first index slot #{vehicle[0] if vehicle else '-'}; index rate "
+          f"{slots[first_flag][1]:.2f} s, first index slot #{vehicle[0] if vehicle else '-'}, sent again after "
+          f"{'-' if resend is None else f'{resend:.2f} s'}; index rate "
           f"{rate(times):.3f} Hz, after leaving {len(late)}, wrong index {wrong}; flags while mounted "
           f"{share(mounted):.1f} %; joiner saw index {sorted(seen)}")
     return (bool(vehicle) and first_flag < vehicle[0] <= first_flag + 3
-            and abs(rate(times) - 1.0) <= 0.1 and not late and not wrong and seen == {VEHICLE_INDEX})
+            and resend is not None and 0.15 <= resend <= 0.35
+            and abs(rate(times[1:]) - 1.0) <= 0.1 and not late and not wrong and seen == {VEHICLE_INDEX})
 
 
 # ------------------------------------------------------------------ P6
 
 CAR_MOUNT = 12.0
-CAR_LIMITS = {"none": 0.3, "drop first 'in a vehicle' flags": 0.3}
+CAR_LIMITS = {"none": 0.3, "drop first 'in a vehicle' flags": 0.3, "drop first vehicle index": 0.5}
 
 
 def wire_payload(packet):
@@ -495,7 +500,7 @@ if __name__ == "__main__":
         "P3 long mod lists: burst ends, flags >= 85 % after it, exact comparison": test_long_lists,
         "P4 vehicle index after the 'in a vehicle' flags, 1 Hz while mounted": test_vehicle_index,
         "P5 partner reload / reset: lists sent again, compared exactly, back to one pair per 10 s": test_partner_reload,
-        "P6 car entry: a lost 'in a vehicle' flags packet or a 24/27 fps joiner still shows the car within 0.3-0.5 s": test_car_entry_under_loss,
+        "P6 car entry: one lost 'in a vehicle' flags or index packet, or a 24/27 fps joiner, shows the car within 0.3-0.5 s": test_car_entry_under_loss,
     }
     for name, test in tests.items():
         print(f"-- {name}")
