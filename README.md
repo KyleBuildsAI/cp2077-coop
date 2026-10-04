@@ -6,15 +6,20 @@ events (resent until acknowledged, delivered once and in order). It replaces the
 "latest position only, extra bits squeezed into the forward vector" limit of `CP2077Coop.dll`.
 
 Version 0.1.2 (protocol 1). Status: builds, unit and integration tests pass outside the game.
-**It has not been loaded in the game yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1
-install and in-game check: install steps, the bench relay on port 11779, CET console commands and
-the log lines that prove success.
+0.1.0 was loaded in both bench games on 2026-10-04 (Phase 1 go: `Game.Net_*` callable from CET,
+about 1 % unreliable loss at 1 % simulated, 0 reliable order errors, 0.03 ms per frame to drain
+`Net_Poll`, no crash on load, save load or quit). **0.1.1 and 0.1.2 have not been loaded in the game
+yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1 install and in-game check: install
+steps, the bench relay on port 11779, CET console commands and the log lines that prove success.
 
-0.1.2 fixes three review findings from before the first in-game run:
-- The startup line now checks each native's registration: the types resolved and the RTTI lookup
-  returns the function.
-- String results are copy-assigned, so a redscript polling loop cannot leak.
-- Stopping while the relay host name is still resolving no longer waits for DNS.
+0.1.2 fixes the five confirmed findings of the Phase 1 review:
+- The startup line now checks each native's registration: the parameter and return types resolved
+  in RTTI and looking the name up again returns the function. Failures are named with the step.
+- String results are copy-assigned, so a redscript polling loop cannot leak a buffer per call.
+- Stopping, reconnecting or unloading while the relay host name is still resolving no longer waits
+  for DNS: the lookup is an overlapped `GetAddrInfoExW` that is cancelled.
+- INSTALL_PHASE1.md: the reinstall and uninstall remove an `r6\scripts` fallback copy of the
+  declarations, and the expected plain `print` of `Net_NowMs` is corrected.
 
 ## Layout
 
@@ -198,17 +203,21 @@ port of it, on a host that both players can reach.
 
 ## Tests (latest run)
 
-* `coopnet_tests.exe`: 105 checks covering the codec, sequence wrap, RTT, SACK bits, backpressure,
+* `coopnet_tests.exe`: 148 checks covering the codec, sequence wrap, RTT, SACK bits, backpressure,
   fast retransmit, the horizon and simulated links. Game-like events at 20/s with 2% loss and
   320 ms RTT have one-way latency p50 169 ms, p99 539 ms, max 889 ms. A 70,000-message transfer
   wraps the 16-bit sequence. Since 0.1.1 the run also covers Net_NowMs: FILETIME conversion against
   known dates, agreement with `system_clock`, no backward step over 200,000 calls, sub-ms values,
   call cost and elapsed time against `steady_clock` across a sleep. It also covers the Net_Version
-  format and the startup summary line.
+  format and the startup summary line. Since 0.1.2 it also drives the registration checks with a
+  fake RTTI (unknown parameter type, unknown return type, lookup that finds nothing), checks with a
+  mock of the SDK's `CString` that 100 string results into one live slot leak nothing (the old move
+  assignment leaks 99), and times `Disconnect`, a second `Connect` and the destructor while a host
+  name is resolving: about 1 ms each against 1.2 s for a blocking lookup on the dev PC.
 * `run_loopback.py`: two real `Transport` instances through the relay.
   * Clean link: 1000 + 500 reliable messages pass.
   * Transatlantic (160 ms each way, 15 ms jitter, 2% loss): 400 + 200 reliable messages arrive in
-    order in 3.7 s, and RTT settles at 333 ms.
+    order in about 2-4 s, and RTT settles near 333 ms.
   * Hostile (20% loss with reordering): 300 + 150 in order.
 * `test_relay_protocol.py`: 10 relay checks; it waits for the relay to come up and prints the relay's
   log if a check fails. `test_lua_helper.py`: 22 checks under LuaJIT 2.1.
@@ -220,8 +229,9 @@ port of it, on a host that both players can reach.
 
 ## Known limits
 
-* Not yet loaded in the game, so the Net_* RTTI registration and CET `Game.Net_*` lookup are
-  unverified at runtime.
+* Only 0.1.0 has run in the game. The 0.1.1 natives (`Net_NowMs`, `Net_Version`), the startup line
+  and the 0.1.2 fixes are verified offline only. Calling the natives from redscript at runtime
+  (`CoopNet_SelfTest`) has not been tried yet.
 * No authentication or encryption. Anyone who knows the relay address and room can join.
 * IPv4 only. One reliable stream per peer, so a lost event delays later events on every reliable
   channel. No fragmentation above 1180 bytes.
