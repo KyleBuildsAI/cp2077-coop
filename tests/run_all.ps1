@@ -16,6 +16,10 @@
     A test that fails only on checks tagged [KNOWN ...] is reported as a known,
     tracked failure and not counted.
 
+    Every Python run has a time limit (COOP_TEST_TIMEOUT seconds, default 180; the
+    whole suite takes about 30 s). A run over the limit has its process tree
+    killed, prints "FAIL  timed out ..." and counts as a failed group.
+
 .PARAMETER Only
     Run just these tests, e.g. -Only test_bot.py,test_mods.py. test_relay.py and
     coop_sim30.py run as the relay and movement sim groups; any other name must be
@@ -48,7 +52,10 @@ $PythonTests = @(
     "test_payload_schedule.py"
 )
 $ResultPattern = "PASS|FAIL|EXC|Error"
-$ManagedVariables = @("PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "COOP_TEST_WORKDIR")
+$ManagedVariables = @("PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "PYTHONUNBUFFERED", "COOP_TEST_WORKDIR")
+$TimeoutWrapper = Join-Path $TestsDir "run_with_timeout.py"
+$TestTimeout = if ($env:COOP_TEST_TIMEOUT) { [int]$env:COOP_TEST_TIMEOUT } else { 180 }
+$TimeoutPattern = "^FAIL  timed out"
 
 # Functions print with Write-Output and report through these, never through return
 # values (a PowerShell function's return value would be mixed with its output).
@@ -61,9 +68,15 @@ function Complete-Group {
 }
 
 function Invoke-Python {
-    # Runs Python, returns its exit code and every output line (stdout + stderr). Prints nothing.
-    param([string[]]$Arguments)
-    $lines = @(& $Python @Arguments 2>&1 | ForEach-Object { "$_" })
+    # Runs Python with a time limit (0 = none), returns its exit code and every output
+    # line (stdout + stderr). Prints nothing. A timeout exits 124 with a FAIL line.
+    param([string[]]$Arguments, [int]$TimeoutSeconds = $TestTimeout)
+    if ($TimeoutSeconds -gt 0) {
+        $lines = @(& $Python $TimeoutWrapper $TimeoutSeconds @Arguments 2>&1 | ForEach-Object { "$_" })
+    }
+    else {
+        $lines = @(& $Python @Arguments 2>&1 | ForEach-Object { "$_" })
+    }
     return [pscustomobject]@{ Code = $LASTEXITCODE; Lines = $lines }
 }
 
@@ -88,7 +101,7 @@ function Invoke-InWorkFolder {
 function Show-Lines {
     # Prints the lines that match $Pattern; when none match, the tail (so a crash is visible).
     param($Result, [string]$Pattern, [int]$Tail = 25)
-    $shown = @($Result.Lines | Where-Object { $_ -match $Pattern })
+    $shown = @($Result.Lines | Where-Object { $_ -match $Pattern -or $_ -cmatch $TimeoutPattern })
     if ($shown.Count -eq 0) { $shown = @($Result.Lines | Select-Object -Last $Tail) }
     $shown | ForEach-Object { Write-Output $_ }
 }
@@ -97,6 +110,8 @@ function Get-Verdict {
     # PASS, KNOWN (only checks tagged [KNOWN ...] failed, no crash) or FAIL. Prints nothing.
     param($Result)
     if ($Result.Code -eq 0) { return "PASS" }
+    # a hang is never a known failure, whatever the test printed before it
+    if (@($Result.Lines | Where-Object { $_ -cmatch $TimeoutPattern }).Count -gt 0) { return "FAIL" }
     $failLines = @($Result.Lines | Where-Object { $_ -cmatch "^FAIL\b" })
     $untagged = @($failLines | Where-Object { $_ -cnotmatch "\[KNOWN" })
     $crashed = @($Result.Lines | Where-Object { $_ -cmatch "^Traceback" }).Count -gt 0
@@ -113,8 +128,9 @@ function Install-Dependencies {
     Write-Output "== dependencies"
     if (-not (Test-DependenciesReady)) {
         Write-Output "installing tests\requirements.txt into tests\.deps"
+        # a first-run download can be slow for good reasons
         $install = Invoke-Python @("-m", "pip", "install", "--disable-pip-version-check", "--quiet", "--upgrade",
-            "--target", $DepsDir, "-r", (Join-Path $TestsDir "requirements.txt"))
+            "--target", $DepsDir, "-r", (Join-Path $TestsDir "requirements.txt")) -TimeoutSeconds 900
         if ($install.Code -ne 0) { $install.Lines | Select-Object -Last 20 | ForEach-Object { Write-Output $_ } }
     }
     $versions = Invoke-Python @("-c", "import sys, lupa; print('python', sys.version.split()[0], '/ lupa', lupa.__version__)")
@@ -250,6 +266,8 @@ $clock = [Diagnostics.Stopwatch]::StartNew()
 try {
     $env:PYTHONPATH = $DepsDir
     $env:PYTHONDONTWRITEBYTECODE = "1"
+    # a killed test's log keeps the lines it printed before it hung
+    $env:PYTHONUNBUFFERED = "1"
     Install-Dependencies
     if (-not (Test-DependenciesReady)) {
         Write-Output "FAIL  could not install tests\requirements.txt into $DepsDir"

@@ -16,6 +16,8 @@ failed groups. Options:
 - `-Only test_bot.py,test_mods.py` runs just those tests; `test_relay.py` and
   `coop_sim30.py` run as the relay and movement sim groups; any other name fails with
   the list of valid names
+- `COOP_TEST_TIMEOUT` (seconds, default 180) limits every Python run; a run over it has
+  its process tree killed, prints `FAIL  timed out ...` and counts as a failed group
 - `-KeepWorkDir` keeps the per-run folder with each test's full log (it is always
   kept when something fails, and the path is printed)
 
@@ -47,6 +49,7 @@ folder on its own when it is run without the runner.
 |---|---|
 | `run_all.ps1` | Runs every group below: LuaJIT load (catches the 60-upvalue limit), redscript compile, the tests, the movement sim, the relay and the `coop-tools` syntax check |
 | `make_sandbox.py` | Builds and refreshes the redscript compile sandbox |
+| `run_with_timeout.py` | Runs one Python command with the runner's time limit and kills the whole process tree on timeout |
 | `test_state_sync.py` | State payload round trip through float32 and `%.6f`. Before the partner's first ping the host sends only flags; after it, world state, which the joiner applies |
 | `test_two_players.py` | Two instances through a simulated LA-Warsaw-Russia relay: RTT, rates, join, role conflict, join give-up, STALE/LOST, panel buttons. Shared harness for most tests |
 | `test_bot.py` | Test-pattern bot: the joiner sees every phase (walk, run, sprint, crouch, weapons, vehicle), car pose and drift bound |
