@@ -1746,14 +1746,38 @@ function Steer.shouldReissue(current, endX, endY, endZ, moveType, crouched, delt
         return true
     end
 
-    -- cel uciekł
+    -- cel uciekł w bok albo do tyłu. Cel przesuwa się do przodu
+    -- przy każdym ruchu na wprost (prędkość * czas) - to nie powód
+    -- do nowej komendy (sprint: anulowanie co 0.25 s = szarpanie);
+    -- avatar dostaje dalszy cel, gdy dojdzie (ARRIVE_DISTANCE).
     local driftX = endX - Steer.endX
     local driftY = endY - Steer.endY
 
-    if math.sqrt(driftX * driftX + driftY * driftY) >
-        Steer.ENDPOINT_DRIFT
-    then
-        return true
+    if Steer.dirX == 0.0 and Steer.dirY == 0.0 then
+
+        if math.sqrt(driftX * driftX + driftY * driftY) >
+            Steer.ENDPOINT_DRIFT
+        then
+            return true
+        end
+
+    else
+
+        local sideways =
+            math.abs(
+                driftY * Steer.dirX -
+                driftX * Steer.dirY
+            )
+
+        local along =
+            driftX * Steer.dirX +
+            driftY * Steer.dirY
+
+        if sideways > Steer.ENDPOINT_DRIFT
+            or along < -Steer.ENDPOINT_DRIFT
+        then
+            return true
+        end
     end
 
     -- zmiana kierunku ruchu gracza (liczona tak samo jak w remember)
