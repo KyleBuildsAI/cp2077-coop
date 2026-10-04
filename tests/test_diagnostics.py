@@ -17,6 +17,8 @@ D7  avatar drift is measured from where the partner really is
 D8  without the monitor, the panel names the real path coop-tools/coop_monitor.py
 D9  monitor_status.txt left behind by a stopped monitor is shown as stale, not
     as a live ping; the monitor swaps the file in whole and removes it on Ctrl+C
+D10 the history CSV locked by Excel gives a WARN, not a crash; a header change
+    starts a new file (the D1/D10 runs write their history to a temp folder)
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
@@ -62,6 +64,15 @@ def upvalue(lua, name):
 def read(path):
     with open(path, encoding="utf-8") as handle:
         return handle.read()
+
+
+def file_state(path):
+    """(size, mtime) or None: tells whether a run touched the file."""
+    try:
+        status = os.stat(path)
+    except FileNotFoundError:
+        return None
+    return status.st_size, status.st_mtime_ns
 
 
 # ------------------------------------------------------------------ D1
@@ -114,11 +125,19 @@ def test_stats_and_events_files():
         # end to end: the monitor script itself
         os.utime("coop_stats_joiner.txt", None)
         diag.log("[CP2077Coop] EVENT end-to-end marker")
-        run = subprocess.run([sys.executable, os.path.join(TOOLS, "coop_monitor.py"), "--once", "--no-geo", "--game", game],
+        repo_history = os.path.join(TOOLS, monitor.HISTORY_FILE)
+        repo_history_before = file_state(repo_history)
+        test_history = os.path.join(game, "history.csv")
+        run = subprocess.run([sys.executable, os.path.join(TOOLS, "coop_monitor.py"), "--once", "--no-geo", "--game", game,
+                              "--history", test_history],
                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         out = run.stdout
-        end_to_end_ok = "player round trip" in out and "in-game stats" in out and "end-to-end marker" in out and "none in the last" not in out
-        print(f"  monitor --once: exit {run.returncode}, rows shown: {'player round trip' in out}, events shown: {'recent events' in out}")
+        history_rows = read(test_history).splitlines() if os.path.exists(test_history) else []
+        repo_untouched = file_state(repo_history) == repo_history_before
+        end_to_end_ok = ("player round trip" in out and "in-game stats" in out and "end-to-end marker" in out and "none in the last" not in out
+                         and len(history_rows) == 3 and repo_untouched)
+        print(f"  monitor --once: exit {run.returncode}, rows shown: {'player round trip' in out}, events shown: {'recent events' in out}; "
+              f"--history file has {len(history_rows)} lines (header + host + joiner), repo history untouched {repo_untouched}")
         if not end_to_end_ok:
             print(out[-1500:], run.stderr[-800:])
         return files_ok and bounded_ok and monitor_ok and end_to_end_ok
@@ -502,6 +521,88 @@ def test_monitor_status_staleness():
     return bool(lua_ok and monitor_ok and stop_ok)
 
 
+# ------------------------------------------------------------------ D10
+
+class ExcelLock:
+    """Holds a file the way Excel holds an open .csv: others may read it, nobody may write it."""
+
+    def __init__(self, path):
+        self.path = path
+        self.handle = None
+        self.mode = None
+
+    def __enter__(self):
+        if os.name != "nt":
+            self.mode = os.stat(self.path).st_mode
+            os.chmod(self.path, 0o444)
+            return self
+        import ctypes
+        from ctypes import wintypes
+        self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel32.CreateFileW.restype = wintypes.HANDLE
+        self.kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                              wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        generic_read, file_share_read, open_existing = 0x80000000, 0x1, 3
+        handle = self.kernel32.CreateFileW(self.path, generic_read, file_share_read, None, open_existing, 0, None)
+        if handle in (None, ctypes.c_void_p(-1).value):
+            raise ctypes.WinError(ctypes.get_last_error())
+        self.handle = handle
+        return self
+
+    def __exit__(self, *exc_info):
+        if self.handle is not None:
+            self.kernel32.CloseHandle(self.handle)
+        else:
+            os.chmod(self.path, self.mode)
+
+
+STATS_LINE = ("[CP2077Coop] [STATS] state=OK sync=on role=host rtt_ms=330 rtt_min=310 rtt_max=350 rtt_n=12 pps_in=29.8 "
+              "pps_out=30.0 fps=60 peer_rate=30.0 missed_pct=1.0 missed_total_pct=1.0 overwritten_pct=0.0 out_merged_pct=0.0 "
+              "ignored=0 age_ms=40 avatar_err_m=0.30 drift_avg_m=0.30 drift_max_m=0.50 conflict=false peer_old=false\n")
+
+
+def test_history_locked_by_excel():
+    game, mod_dir = make_game_dir()
+    try:
+        history = os.path.join(game, "history.csv")
+        row = {"time": "2026-10-04T12:00:00", "rtt_ms": "330"}
+        first = monitor.append_history(history, row)
+        with ExcelLock(history):
+            locked = monitor.append_history(history, row)
+            with open(os.path.join(mod_dir, "coop_stats_host.txt"), "w", encoding="utf-8") as handle:
+                handle.write(STATS_LINE)
+            run = subprocess.run([sys.executable, os.path.join(TOOLS, "coop_monitor.py"), "--once", "--no-geo", "--game", game,
+                                  "--history", history],
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        after = monitor.append_history(history, row)
+        lines = read(history).splitlines()
+        shown = [line.strip() for line in run.stdout.splitlines() if "history" in line]
+        print(f"  locked: append returned {locked!r}; monitor --once exit {run.returncode}, "
+              f"traceback {'Traceback' in run.stderr}, rows {shown}")
+        print(f"  unlocked again: append returned {after!r}, file has {len(lines)} lines {lines}")
+        locked_ok = (first is None and locked and "Excel" in locked and after is None
+                     and lines == ["time,rtt_ms", "2026-10-04T12:00:00,330", "2026-10-04T12:00:00,330"]
+                     and run.returncode in (0, 1) and "Traceback" not in run.stderr
+                     and any("WARN" in line and "close history.csv in Excel" in line for line in shown))
+
+        # columns changed (newer monitor): old rows kept in a dated file, never under the wrong header
+        with open(history, "w", encoding="utf-8") as handle:
+            handle.write("time,server_ping_ms\n2026-10-03T20:00:00,186\n")
+        with ExcelLock(history):
+            refused = monitor.append_history(history, row)
+        renamed = monitor.append_history(history, row)
+        kept = [name for name in os.listdir(game) if name.startswith("history-until-") and name.endswith(".csv")]
+        old_rows = read(os.path.join(game, kept[0])).splitlines() if kept else []
+        print(f"  new columns: while locked {refused!r}; then old file kept as {kept} {old_rows}, "
+              f"new file {read(history).splitlines()}")
+        header_ok = (refused and "Excel" in refused and renamed is None and len(kept) == 1
+                     and old_rows == ["time,server_ping_ms", "2026-10-03T20:00:00,186"]
+                     and read(history).splitlines() == ["time,rtt_ms", "2026-10-04T12:00:00,330"])
+        return bool(locked_ok and header_ok)
+    finally:
+        shutil.rmtree(game, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -513,6 +614,7 @@ if __name__ == "__main__":
         "D7 avatar drift is measured from where the partner really is": test_drift_against_real_position,
         "D8 panel names the real monitor path (coop-tools/)": test_panel_names_monitor_path,
         "D9 panel drops relay values once the monitor stops; status file swapped in whole": test_monitor_status_staleness,
+        "D10 history CSV open in Excel: monitor warns and keeps running; new columns start a new file": test_history_locked_by_excel,
     }
     results = {}
     for name, test in tests.items():

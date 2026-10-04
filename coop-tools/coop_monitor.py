@@ -13,6 +13,10 @@ Usage (from the game folder):
     python coop-tools/coop_monitor.py
     python coop-tools/coop_monitor.py --game "G:/SteamLibrary/steamapps/common/Cyberpunk 2077"
     python coop-tools/coop_monitor.py --once          # single check, then exit
+    python coop-tools/coop_monitor.py --history D:/coop/history.csv
+
+The history CSV can stay open in Excel: samples taken while Excel locks it are
+skipped (shown as a WARN) and writing resumes once it is closed.
 
 Only the Python standard library is used.
 """
@@ -34,6 +38,7 @@ STATS_FILE_PATTERN = "coop_stats_*.txt"
 EVENTS_FILE = "coop_events.log"
 # written by this monitor, read by the in-game panel
 PANEL_STATUS_FILE = "monitor_status.txt"
+HISTORY_FILE = "coop_monitor_history.csv"
 # CET writes the mod's Lua runtime errors here
 LUA_ERROR_LOG = "CP2077Coop.log"
 LUA_ERROR_RECENT_SECONDS = 600.0
@@ -73,6 +78,8 @@ def parse_args():
     parser.add_argument("--game", default=default_game, help="game folder (contains bin, r6, red4ext)")
     parser.add_argument("--once", action="store_true", help="run one check and exit")
     parser.add_argument("--no-geo", action="store_true", help="skip relay location lookup (ip-api.com)")
+    parser.add_argument("--history", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), HISTORY_FILE),
+                        help=f"CSV file the samples are appended to (default: {HISTORY_FILE} next to this script)")
     return parser.parse_args()
 
 
@@ -290,12 +297,37 @@ def remove_panel_status(mod_dir):
         print(f"could not remove {PANEL_STATUS_FILE} (the panel marks it stale after 30 s): {error}")
 
 
+def history_header(history_path):
+    """First line of an existing history file, or None when there is none yet."""
+    if not os.path.exists(history_path):
+        return None
+    with open(history_path, encoding="utf-8", errors="replace") as handle:
+        return handle.readline().rstrip("\r\n")
+
+
 def append_history(history_path, row):
-    new_file = not os.path.exists(history_path)
-    with open(history_path, "a", encoding="utf-8") as handle:
-        if new_file:
-            handle.write(",".join(row.keys()) + "\n")
-        handle.write(",".join(str(v) for v in row.values()) + "\n")
+    """Append one CSV row; returns an error string instead of raising.
+
+    Excel locks a .csv it has open, so the write fails until it is closed; the monitor
+    keeps running and only that sample is lost. When the columns changed (newer
+    monitor), the old file is kept under a dated name, so Excel never shows rows
+    under the wrong headers.
+    """
+    header = ",".join(row.keys())
+    name = os.path.basename(history_path)
+    try:
+        existing = history_header(history_path)
+        if existing and existing != header:
+            stem, extension = os.path.splitext(history_path)
+            os.replace(history_path, f"{stem}-until-{datetime.datetime.now():%Y%m%d-%H%M%S}{extension}")
+            existing = None
+        with open(history_path, "a", encoding="utf-8") as handle:
+            if not existing:
+                handle.write(header + "\n")
+            handle.write(",".join(str(value) for value in row.values()) + "\n")
+    except OSError as error:
+        return f"not written ({error.strerror or error}) - close {name} in Excel"
+    return None
 
 
 def render(checks, events):
@@ -357,7 +389,7 @@ def grade_stats(stats):
 def run(args):
     game_dir = os.path.abspath(args.game)
     mod_dir = os.path.join(game_dir, MOD_DIR)
-    history_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "coop_monitor_history.csv")
+    history_path = os.path.abspath(args.history)
 
     if not os.path.isdir(mod_dir):
         print(f"Coop mod not found in {game_dir}. Pass --game with the game folder.")
@@ -407,12 +439,14 @@ def monitor_loop(args, game_dir, mod_dir, history_path, server):
         for role, stats_age, stats in stats_blocks:
             checks.append((INFO, "in-game stats", f"{role}, written {stats_age:.0f} s ago"))
             checks.extend(grade_stats(stats))
-            append_history(history_path, {
+            history_error = append_history(history_path, {
                 "time": datetime.datetime.now().isoformat(timespec="seconds"),
                 "server_ping_ms": f"{server_ping:.0f}" if server_ping is not None else "",
                 **{key: stats.get(key, "") for key in ("state", "sync", "role", "rtt_ms", "rtt_min", "rtt_max", "pps_in", "pps_out", "fps", "peer_rate", "missed_pct",
                                                     "missed_total_pct", "overwritten_pct", "out_merged_pct", "ignored", "age_ms", "avatar_err_m", "drift_avg_m", "drift_max_m", "conflict", "peer_old")},
             })
+            if history_error:
+                checks.append((WARN, "history", history_error))
 
         render(checks, events)
         if args.once:
