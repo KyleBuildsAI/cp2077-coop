@@ -236,11 +236,20 @@ class Relay:
                       f"(v1 CP1/RP1 + v2 binary) link sim: {self.sim.describe()} "
                       f"legacy bridge room: {self.args.legacy_room!r}")
         deadline = self.start + self.args.duration if self.args.duration else None
+        idle_since = None
         while deadline is None or time.perf_counter() < deadline:
             readable, _, _ = select.select([self.sock], [], [], 0.002)
             if readable:
                 self._drain_socket()
             now = time.perf_counter()
+            if self.args.exit_when_idle is not None and self.counters["welcomes"]:
+                if self.peers_by_token:
+                    idle_since = None
+                elif idle_since is None:
+                    idle_since = now
+                elif now - idle_since >= self.args.exit_when_idle:
+                    self.log.line(f"every v2 peer left; exiting after {self.args.exit_when_idle:g} s idle")
+                    break
             for data, address in self.sim.pop_due(now):
                 self._sendto(data, address)
             if now - self.last_tick >= TICK_S:
@@ -881,6 +890,8 @@ def parse_args(argv=None):
     parser.add_argument("--dup-pct", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--duration", type=float, default=0.0, help="exit after N seconds (tests)")
+    parser.add_argument("--exit-when-idle", type=float, default=None, metavar="S",
+                        help="exit S seconds after the last v2 peer left, once one has joined (tests)")
     parser.add_argument("--stats-json", default=None, help="write machine-readable stats here")
     parser.add_argument("--log", default=None, help="append log lines to this file")
     parser.add_argument("--quiet", action="store_true", help="no console output")
