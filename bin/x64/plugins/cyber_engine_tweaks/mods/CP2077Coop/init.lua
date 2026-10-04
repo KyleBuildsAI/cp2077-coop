@@ -888,6 +888,11 @@ local Sync = {
     appliedFlags = -1,
 
     remoteTimeMinutes = -1,
+    -- Sync.clock przy ostatnim pakiecie z godziną hosta
+    remoteTimeClock = -100.0,
+    -- starsza godzina = host milczy (wyjście, crash, ładowanie):
+    -- nie cofamy zegara joinera do zamrożonej wartości
+    TIME_FRESH_SECONDS = 3.0,
     timeCooldown = 0.0,
 
     appliedWeather = -1,
@@ -1124,6 +1129,8 @@ function Sync.receivePayload(payload)
         Sync.remoteTimeMinutes =
             value *
             Sync.TIME_STEP_MINUTES
+
+        Sync.remoteTimeClock = Sync.clock
 
     elseif packetType == Sync.TYPE_WEATHER then
 
@@ -1538,7 +1545,69 @@ function Sync.applyRemoteFlags(player)
 end
 
 
--- Joiner przejmuje godzinę i pogodę hosta.
+-- Godzina hosta: co TIME_APPLY_COOLDOWN, gdy różnica > TIME_TOLERANCE_MINUTES.
+function Sync.applyRemoteTime(player, delta)
+
+    Sync.timeCooldown =
+        math.max(
+            0.0,
+            Sync.timeCooldown - delta
+        )
+
+    -- stara godzina (host milczy): HasRemotePlayer w DLL zostaje true,
+    -- więc bez tego joiner co ~55 s cofał zegar do zamrożonej wartości.
+    -- Cooldown zostaje, więc pierwszy świeży pakiet działa od razu.
+    local fresh =
+        Sync.clock - Sync.remoteTimeClock <
+        Sync.TIME_FRESH_SECONDS
+
+    if Sync.remoteTimeMinutes < 0
+        or not fresh
+        or Sync.timeCooldown > 0.0
+    then
+        return
+    end
+
+    Sync.timeCooldown =
+        Sync.TIME_APPLY_COOLDOWN
+
+    local localMinutes =
+        player:CP2077Coop_GetTimeOfDayMinutes()
+
+    -- różnica na zegarze 24h (23:59 vs 00:01 = 2 min)
+    local difference =
+        math.abs(
+            localMinutes -
+            Sync.remoteTimeMinutes
+        )
+
+    difference =
+        math.min(
+            difference,
+            1440 - difference
+        )
+
+    if difference <=
+        Sync.TIME_TOLERANCE_MINUTES
+    then
+        return
+    end
+
+    player:CP2077Coop_SetTimeOfDayMinutes(
+        Sync.remoteTimeMinutes
+    )
+
+    print(
+        string.format(
+            "[CP2077Coop] time synced to host %02d:%02d",
+            math.floor(Sync.remoteTimeMinutes / 60),
+            Sync.remoteTimeMinutes % 60
+        )
+    )
+end
+
+
+-- Joiner przejmuje godzinę i pogodę hosta (co klatkę z onUpdate).
 function Sync.applyWorldState(player, isHost, delta)
 
     if isHost
@@ -1547,52 +1616,10 @@ function Sync.applyWorldState(player, isHost, delta)
         return
     end
 
-    Sync.timeCooldown =
-        math.max(
-            0.0,
-            Sync.timeCooldown - delta
-        )
-
-    if Sync.remoteTimeMinutes >= 0
-        and Sync.timeCooldown <= 0.0
-    then
-
-        local localMinutes =
-            player:CP2077Coop_GetTimeOfDayMinutes()
-
-        -- różnica na zegarze 24h (23:59 vs 00:01 = 2 min)
-        local difference =
-            math.abs(
-                localMinutes -
-                Sync.remoteTimeMinutes
-            )
-
-        difference =
-            math.min(
-                difference,
-                1440 - difference
-            )
-
-        if difference >
-            Sync.TIME_TOLERANCE_MINUTES
-        then
-
-            player:CP2077Coop_SetTimeOfDayMinutes(
-                Sync.remoteTimeMinutes
-            )
-
-            print(
-                string.format(
-                    "[CP2077Coop] time synced to host %02d:%02d",
-                    math.floor(Sync.remoteTimeMinutes / 60),
-                    Sync.remoteTimeMinutes % 60
-                )
-            )
-        end
-
-        Sync.timeCooldown =
-            Sync.TIME_APPLY_COOLDOWN
-    end
+    Sync.applyRemoteTime(
+        player,
+        delta
+    )
 
 
     if Sync.remoteWeather ~= nil
@@ -1769,6 +1796,7 @@ function Sync.reset()
     Sync.remoteFlags = 0
     Sync.appliedFlags = -1
     Sync.remoteTimeMinutes = -1
+    Sync.remoteTimeClock = -100.0
     Sync.remoteWeather = nil
     Sync.timeCooldown = 0.0
     Sync.appliedWeather = -1
