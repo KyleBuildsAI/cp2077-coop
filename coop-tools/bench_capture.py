@@ -36,11 +36,13 @@ def read_text(path):
 
 
 def snapshot_sources(game):
-    sources = [MOD / "init.lua", MOD / "net_transport.lua", MOD / "transport.ini",
+    sources = [p.relative_to(game) for p in sorted((game / MOD).glob("*.lua"))]
+    sources += [MOD / "transport.ini",
                MOD / "role.txt", MOD / "testpattern.txt",
                MOD.parent / "CoopNetCheck/init.lua", MOD.parent / "CoopNetCheck/disabled.txt"]
     sources += [p.relative_to(game) for p in (game / "r6/scripts/CP2077Coop").glob("*.reds")]
     sources += [Path("red4ext/plugins/CP2077CoopNet/CP2077CoopNet.dll")]
+    sources += [p.relative_to(game) for p in sorted((game / "red4ext/plugins/CP2077CoopNet/Scripts").glob("*.reds"))]
     hashes = {}
     for relative in sources:
         path = game / relative
