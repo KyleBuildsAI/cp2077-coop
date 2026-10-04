@@ -758,6 +758,15 @@ end
 -- kanał stanu (typ 6 = starszy bajt, typ 7 = młodszy bajt).
 -- Panel pokazuje wspólne mody, mody tylko u nas (z nazwami)
 -- i liczbę modów tylko u partnera (nazwy nie mieszczą się w kanale).
+--
+-- Harmonogram (Mods.due, wołane z Sync.buildPayload): seria (każdy
+-- wolny slot dla danych innych niż flagi) aż do "mods compared" plus
+-- BURST_CYCLES pełnych cykli, potem jedna para HI+LO co
+-- TRICKLE_INTERVAL s. Wcześniej odciski brały 25% pakietów na zawsze.
+-- Seria od nowa (Mods.arm), gdy druga strona zaczyna swoją serię po
+-- ciszy: po wczytaniu gry, restarcie albo zmianie roli zaczyna od
+-- zera i potrzebuje naszej listy. Nasz reset (Mods.resetRemote) też
+-- startuje serię - po niej druga strona wysyła nam swoją.
 ------------------------------------------------------------
 
 local Mods = {
@@ -771,19 +780,36 @@ local Mods = {
     -- odcisk niemożliwy dla nazw (>= HASH_MODULO): pusta lista
     EMPTY_SENTINEL = 65535,
 
+    -- pełne cykle serii po porównaniu (i po każdym Mods.arm)
+    BURST_CYCLES = 2,
+    -- po serii: jedna para co tyle sekund (lista krąży dalej powoli)
+    TRICKLE_INTERVAL = 10.0,
+    -- odstęp między HI drugiej strony: >= QUIET_GAP = cisza / pary co
+    -- TRICKLE_INTERVAL, mniej po ciszy = zaczęła serię od nowa
+    QUIET_GAP = 5.0,
+
     names = {},
     hashes = {},
     localSet = {},
 
     sendIndex = 1,
     sendLow = false,
+    -- pełne cykle do wysłania w serii (start gry = seria)
+    burstCyclesLeft = 2,
+    nextTrickleAt = 0.0,
+    -- wysłane pełne cykle (statystyka, testy)
+    cyclesSent = 0,
 
     pendingHigh = nil,
     building = {},
     lastCycle = nil,
     previousCycle = nil,
     cyclesReceived = 0,
-    compared = false
+    compared = false,
+    -- druga strona wysyła odciski (v0.0.30 i starsze: nie)
+    peerSendsMods = false,
+    lastPeerHighClock = nil,
+    peerWasQuiet = true
 }
 
 
@@ -843,7 +869,68 @@ function Mods.load()
 end
 
 
--- Następny pakiet z odciskiem (wysyłane w pętli bez końca).
+-- Seria: co najmniej BURST_CYCLES pełnych cykli od teraz. Przerwany
+-- cykl się nie liczy (druga strona zbiera listę od flagi START), więc +1.
+function Mods.arm()
+
+    local midCycle =
+        Mods.sendLow
+        or Mods.sendIndex ~= 1
+
+    Mods.burstCyclesLeft =
+        math.max(
+            Mods.burstCyclesLeft,
+            Mods.BURST_CYCLES + (midCycle and 1 or 0)
+        )
+end
+
+
+-- Seria trwa, dopóki zostały cykle albo nie mamy jeszcze listy drugiej
+-- strony, która swoją wysyła (starsza wersja bez odcisków: tylko cykle).
+function Mods.bursting()
+
+    return
+        Mods.burstCyclesLeft > 0
+        or (
+            not Mods.compared
+            and Mods.peerSendsMods
+        )
+end
+
+
+-- Czy ten slot (wolny od pong/ping/godziny/pogody/pojazdu) niesie
+-- odcisk. clock = Sync.clock (Sync jest niżej w pliku).
+function Mods.due(clock)
+
+    -- druga połowa pary: LO zaraz po HI
+    if Mods.sendLow then
+        return true
+    end
+
+    if Mods.bursting() then
+
+        -- pierwsza para po serii dopiero za TRICKLE_INTERVAL
+        Mods.nextTrickleAt =
+            clock +
+            Mods.TRICKLE_INTERVAL
+
+        return true
+    end
+
+    if clock >= Mods.nextTrickleAt then
+
+        Mods.nextTrickleAt =
+            clock +
+            Mods.TRICKLE_INTERVAL
+
+        return true
+    end
+
+    return false
+end
+
+
+-- Następny pakiet z odciskiem (lista krąży w pętli; kiedy - Mods.due).
 function Mods.nextPayload()
 
     local count = #Mods.hashes
@@ -873,7 +960,13 @@ function Mods.nextPayload()
         isLast and Mods.END_FLAG or 0
 
     if isLast then
+
         Mods.sendIndex = 1
+        Mods.cyclesSent = Mods.cyclesSent + 1
+
+        if Mods.burstCyclesLeft > 0 then
+            Mods.burstCyclesLeft = Mods.burstCyclesLeft - 1
+        end
     else
         Mods.sendIndex = Mods.sendIndex + 1
     end
@@ -885,7 +978,34 @@ function Mods.nextPayload()
 end
 
 
-function Mods.receive(packetType, value)
+-- Druga strona zaczęła serię po ciszy: wysyłamy naszą listę od nowa.
+-- Liczą się tylko HI (para HI+LO z serii po ciszy wyglądałaby jak
+-- seria). Seria w toku nie jest "nowa", a nasza seria wywołana jej
+-- startem idzie bez przerwy: druga strona nie widzi nowego startu,
+-- więc nie ma ping-ponga.
+function Mods.notePeerHigh(clock)
+
+    local gap = math.huge
+
+    if Mods.lastPeerHighClock ~= nil then
+        gap = clock - Mods.lastPeerHighClock
+    end
+
+    if gap < Mods.QUIET_GAP
+        and Mods.peerWasQuiet
+    then
+        Mods.arm()
+    end
+
+    Mods.peerWasQuiet =
+        gap >= Mods.QUIET_GAP
+
+    Mods.lastPeerHighClock = clock
+end
+
+
+-- clock = Sync.clock (Sync jest niżej w pliku).
+function Mods.receive(packetType, value, clock)
 
     local flag =
         value >= 256
@@ -893,7 +1013,11 @@ function Mods.receive(packetType, value)
     local byte =
         value % 256
 
+    Mods.peerSendsMods = true
+
     if packetType == Mods.TYPE_HI then
+
+        Mods.notePeerHigh(clock)
 
         if flag then
             Mods.building = {}
@@ -929,6 +1053,10 @@ function Mods.receive(packetType, value)
 
             Mods.compared = true
             Mods.logComparison()
+
+            -- "mods compared" + BURST_CYCLES pełnych cykli: druga strona
+            -- też dostaje naszą listę dwa razy w całości
+            Mods.arm()
         end
     end
 end
@@ -1021,6 +1149,9 @@ function Mods.logComparison()
 end
 
 
+-- Wczytanie gry / zmiana roli: lista drugiej strony od nowa. Nasza
+-- seria startuje też: druga strona widzi jej start po ciszy i wysyła
+-- nam swoją listę (Mods.notePeerHigh), nawet bez przerwy w pakietach.
 function Mods.resetRemote()
 
     Mods.pendingHigh = nil
@@ -1029,6 +1160,11 @@ function Mods.resetRemote()
     Mods.previousCycle = nil
     Mods.cyclesReceived = 0
     Mods.compared = false
+    Mods.peerSendsMods = false
+    Mods.lastPeerHighClock = nil
+    Mods.peerWasQuiet = true
+
+    Mods.arm()
 end
 
 
@@ -1044,6 +1180,8 @@ end
 -- typ 0: flagi gracza (kucanie, broń, celowanie, strzał, pojazd)
 -- typ 1: godzina gry / 3 min (tylko host)
 -- typ 2: indeks pogody + 1 (tylko host, 0 = nieznana)
+-- typ 3 / 4: ping / pong, typ 5: model pojazdu, typ 6 / 7: mody
+-- Który typ w którym pakiecie: Sync.buildPayload.
 --
 -- Wszystko w tabeli Sync: LuaJIT pozwala max 60 upvalues.
 ------------------------------------------------------------
@@ -1116,7 +1254,22 @@ local Sync = {
     TIME_TOLERANCE_MINUTES = 6,
     TIME_APPLY_COOLDOWN = 5.0,
 
-    sendSlot = 0,
+    -- Harmonogram payloadu (Sync.buildPayload): godzina, pogoda (host)
+    -- i model pojazdu (w aucie) co WORLD_INTERVAL s i od razu po zmianie.
+    -- Terminy (Sync.clock) i ostatnio wysłane wartości (nil = jeszcze
+    -- nie, czyli wysłać od razu).
+    WORLD_INTERVAL = 1.0,
+    nextTimeAt = 0.0,
+    nextWeatherAt = 0.0,
+    nextVehicleAt = 0.0,
+    sentTime = nil,
+    sentWeather = nil,
+    sentVehicle = nil,
+    -- poprzedni slot niósł coś innego niż flagi: ten niesie flagi
+    lastSlotExtra = false,
+    -- flagi z ostatniego pakietu flag (model pojazdu dopiero po
+    -- fladze "w pojeździe", inaczej odbiorca go wyrzuca)
+    lastSentFlags = 0,
 
     remoteFlags = 0,
     appliedFlags = -1,
@@ -1208,44 +1361,32 @@ function Sync.forgetPeerVersion()
 end
 
 
--- Co wysłać w tym pakiecie. Host co drugi pakiet
--- wysyła stan świata, flagi gracza lecą zawsze co drugi.
-function Sync.buildPayload(player, isHost)
+-- Następny termin pakietu okresowego (godzina, pogoda, pojazd).
+-- Spóźnienie krótsze niż interwał (sloty co 33 ms, przerwa na flagi)
+-- nie przesuwa siatki, więc średnio dokładnie 1/interval Hz. Wysyłka
+-- przed terminem (zmiana wartości) albo długo po nim (menu): od teraz.
+function Sync.nextSendAt(dueAt, interval)
 
-    -- odpowiedź na ping drugiego gracza ma pierwszeństwo
-    if Sync.pendingPong ~= nil then
+    local late =
+        Sync.clock -
+        dueAt
 
-        local token = Sync.pendingPong
-        Sync.pendingPong = nil
-
-        return
-            Sync.TYPE_PONG * Sync.TYPE_STRIDE +
-            token
-    end
-
-    -- stara wersja nie odpowiada na ping, a każdy ping to dwie zmiany
-    -- długości wektora (obrót avatara u niej): rzadko, tylko żeby
-    -- wykryć pomyłkę (np. kilka zgubionych pingów nowej wersji)
-    local pingInterval =
-        Sync.peerIsLegacy()
-        and Sync.PING_INTERVAL_LEGACY
-        or Sync.PING_INTERVAL
-
-    if Sync.clock - Sync.lastPingClock >=
-        pingInterval
+    if late >= 0.0
+        and late < interval
     then
-
-        Sync.pingToken =
-            (Sync.pingToken + 1) %
-            Sync.TYPE_STRIDE
-
-        Sync.pingSentAt = Sync.clock
-        Sync.lastPingClock = Sync.clock
-
-        return
-            Sync.TYPE_PING * Sync.TYPE_STRIDE +
-            Sync.pingToken
+        return dueAt + interval
     end
+
+    return
+        Sync.clock +
+        interval
+end
+
+
+-- Flagi gracza (z bitem roli) do panelu, blokady teleportu w aucie
+-- i do pakietu. flagsOverride: bot testowy; blokada teleportu i poza
+-- auta patrzą na prawdziwe flagi (realLocalFlags).
+function Sync.readLocalFlags(player, isHost)
 
     local roleFlag = 0
 
@@ -1253,31 +1394,13 @@ function Sync.buildPayload(player, isHost)
         roleFlag = Sync.FLAG_HOST
     end
 
-    if not Sync.hasScripts(player) then
+    local realFlags = 0
 
+    if Sync.hasScripts(player) then
+        realFlags = player:CP2077Coop_GetStateFlags()
+    else
         Sync.reportMissingScripts()
-
-        Sync.realLocalFlags = roleFlag
-
-        Sync.localFlags =
-            (Sync.flagsOverride or 0) +
-            roleFlag
-
-        if Sync.peerIsLegacy() then
-            return 0
-        end
-
-        return
-            Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
-            Sync.localFlags
     end
-
-    -- flagi czytamy przy każdym pakiecie (panel + blokada teleportu w aucie)
-    -- (pojazd: patrz niżej)
-    -- flagsOverride: ustawiane przez bota testowego (Bot); blokada
-    -- teleportu i poza auta patrzą na prawdziwe flagi gracza
-    local realFlags =
-        player:CP2077Coop_GetStateFlags()
 
     Sync.realLocalFlags =
         realFlags +
@@ -1287,73 +1410,210 @@ function Sync.buildPayload(player, isHost)
         (Sync.flagsOverride or realFlags) +
         roleFlag
 
-    -- druga strona jeszcze nie pokazała, że dekoduje payload (patrz
-    -- peerDecodesPayload): stała długość wektora, flagi liczone wyżej
-    -- i tak służą panelowi i blokadzie teleportu w aucie
-    if not Sync.peerDecodesPayload then
-
-        if Sync.peerIsLegacy() then
-            return 0
-        end
-
-        return
-            Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
-            Sync.localFlags
-    end
-
-    Sync.sendSlot = Sync.sendSlot + 1
-
-    -- w pojeździe: co 6. pakiet (nieparzysty, nie koliduje z hostem) = model pojazdu
-    if Sync.hasFlag(Sync.localFlags, Sync.FLAG_IN_VEHICLE)
-        and Sync.sendSlot % 6 == 3
-    then
-
-        local index = Sync.vehicleIndexOverride
-
-        if index == nil
-            and player.CP2077Coop_GetMountedVehicleIndex ~= nil
-        then
-            index = player:CP2077Coop_GetMountedVehicleIndex()
-        end
-
-        if index ~= nil and index >= 0 then
-
-            return
-                Sync.TYPE_VEHICLE * Sync.TYPE_STRIDE +
-                index
-        end
-    end
-
-    -- lista modów: co 4. pakiet (nieparzysty)
-    if Sync.sendSlot % 4 == 1 then
-        return Mods.nextPayload()
-    end
-
-    if isHost
-        and Sync.sendSlot % 2 == 0
-    then
-
-        if Sync.sendSlot % 4 == 0 then
-
-            local minutes =
-                player:CP2077Coop_GetTimeOfDayMinutes()
-
-            return
-                Sync.TYPE_TIME * Sync.TYPE_STRIDE +
-                math.floor(minutes / Sync.TIME_STEP_MINUTES)
-        end
-
-        local weather =
-            player:CP2077Coop_GetWeatherIndex()
-
-        return
-            Sync.TYPE_WEATHER * Sync.TYPE_STRIDE +
-            (weather + 1)
+    -- v0.0.26 porównuje surowe wektory: stała długość
+    if Sync.peerIsLegacy() then
+        return 0
     end
 
     return
         Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
         Sync.localFlags
+end
+
+
+-- Godzina i pogoda hosta: co WORLD_INTERVAL i od razu po zmianie
+-- (nil = nic do wysłania).
+function Sync.nextWorldPayload(player)
+
+    local timeValue =
+        math.floor(
+            player:CP2077Coop_GetTimeOfDayMinutes() /
+            Sync.TIME_STEP_MINUTES
+        )
+
+    if timeValue ~= Sync.sentTime
+        or Sync.clock >= Sync.nextTimeAt
+    then
+
+        Sync.sentTime = timeValue
+        Sync.nextTimeAt = Sync.nextSendAt(Sync.nextTimeAt, Sync.WORLD_INTERVAL)
+
+        return
+            Sync.TYPE_TIME * Sync.TYPE_STRIDE +
+            timeValue
+    end
+
+    local weatherValue =
+        player:CP2077Coop_GetWeatherIndex() + 1
+
+    if weatherValue ~= Sync.sentWeather
+        or Sync.clock >= Sync.nextWeatherAt
+    then
+
+        Sync.sentWeather = weatherValue
+        Sync.nextWeatherAt = Sync.nextSendAt(Sync.nextWeatherAt, Sync.WORLD_INTERVAL)
+
+        return
+            Sync.TYPE_WEATHER * Sync.TYPE_STRIDE +
+            weatherValue
+    end
+
+    return nil
+end
+
+
+-- Model pojazdu: co WORLD_INTERVAL i od razu po zmianie, ale dopiero
+-- po pakiecie flag z "w pojeździe" - odbiorca bez tej flagi wyrzuca
+-- model (Sync.updateRemoteVehicle) i czekałby na następny.
+function Sync.nextVehiclePayload(player)
+
+    if not Sync.hasFlag(Sync.localFlags, Sync.FLAG_IN_VEHICLE) then
+
+        Sync.sentVehicle = nil
+        return nil
+    end
+
+    if not Sync.hasFlag(Sync.lastSentFlags, Sync.FLAG_IN_VEHICLE) then
+        return nil
+    end
+
+    local index = Sync.vehicleIndexOverride
+
+    if index == nil
+        and player.CP2077Coop_GetMountedVehicleIndex ~= nil
+    then
+        index = player:CP2077Coop_GetMountedVehicleIndex()
+    end
+
+    if index == nil
+        or index < 0
+    then
+        return nil
+    end
+
+    if index ~= Sync.sentVehicle
+        or Sync.clock >= Sync.nextVehicleAt
+    then
+
+        Sync.sentVehicle = index
+        Sync.nextVehicleAt = Sync.nextSendAt(Sync.nextVehicleAt, Sync.WORLD_INTERVAL)
+
+        return
+            Sync.TYPE_VEHICLE * Sync.TYPE_STRIDE +
+            index
+    end
+
+    return nil
+end
+
+
+-- Payload inny niż flagi, jeśli coś jest do wysłania (nil = flagi).
+function Sync.nextExtraPayload(player, isHost)
+
+    -- stara wersja nie odpowiada na ping, a każdy ping to dwie zmiany
+    -- długości wektora (obrót avatara u niej): rzadko, tylko żeby
+    -- wykryć pomyłkę (np. kilka zgubionych pingów nowej wersji)
+    local pingInterval =
+        Sync.peerIsLegacy()
+        and Sync.PING_INTERVAL_LEGACY
+        or Sync.PING_INTERVAL
+
+    -- ping idzie też, zanim druga strona pokaże, że dekoduje payload:
+    -- z niego druga strona wie, że my dekodujemy
+    if Sync.clock - Sync.lastPingClock >=
+        pingInterval
+    then
+
+        Sync.lastPingClock = Sync.clock
+
+        Sync.pingToken =
+            (Sync.pingToken + 1) %
+            Sync.TYPE_STRIDE
+
+        Sync.pingSentAt = Sync.clock
+
+        return
+            Sync.TYPE_PING * Sync.TYPE_STRIDE +
+            Sync.pingToken
+    end
+
+    -- druga strona jeszcze nie pokazała, że dekoduje payload (patrz
+    -- peerDecodesPayload), albo brak redscriptu: same flagi
+    if not Sync.peerDecodesPayload
+        or not Sync.hasScripts(player)
+    then
+        return nil
+    end
+
+    if isHost then
+
+        local world =
+            Sync.nextWorldPayload(player)
+
+        if world ~= nil then
+            return world
+        end
+    end
+
+    local vehicle =
+        Sync.nextVehiclePayload(player)
+
+    if vehicle ~= nil then
+        return vehicle
+    end
+
+    if Mods.due(Sync.clock) then
+        return Mods.nextPayload()
+    end
+
+    return nil
+end
+
+
+-- Co wysłać w tym pakiecie (jeden payload na klatkę z tyknięciem
+-- 30 Hz). Flagi gracza mają dojść w >= 85% pakietów u OBU ról (Total
+-- Sync Plan, faza 0; wcześniej host 23%, joiner 70%: mody 25% na
+-- zawsze, godzina i pogoda 50% pakietów hosta). Teraz:
+--   pong od razu (dokładny RTT), ping co PING_INTERVAL,
+--   godzina i pogoda (host), model pojazdu: co WORLD_INTERVAL i od
+--     razu po zmianie,
+--   mody: seria do porównania + 2 cykle, potem para co 10 s (Mods.due),
+--   reszta: flagi.
+-- Po pakiecie bez flag (poza pongiem) następny niesie flagi, więc
+-- zmiana flag czeka najwyżej jeden slot.
+function Sync.buildPayload(player, isHost)
+
+    -- odpowiedź na ping drugiego gracza ma pierwszeństwo
+    if Sync.pendingPong ~= nil then
+
+        local token = Sync.pendingPong
+        Sync.pendingPong = nil
+        Sync.lastSlotExtra = true
+
+        return
+            Sync.TYPE_PONG * Sync.TYPE_STRIDE +
+            token
+    end
+
+    local flagsPayload =
+        Sync.readLocalFlags(player, isHost)
+
+    if not Sync.lastSlotExtra then
+
+        local extra =
+            Sync.nextExtraPayload(player, isHost)
+
+        if extra ~= nil then
+
+            Sync.lastSlotExtra = true
+            return extra
+        end
+    end
+
+    Sync.lastSlotExtra = false
+    Sync.lastSentFlags = Sync.localFlags
+
+    return flagsPayload
 end
 
 
@@ -1480,7 +1740,7 @@ function Sync.receivePayload(payload)
         or packetType == Mods.TYPE_LO
     then
 
-        Mods.receive(packetType, value)
+        Mods.receive(packetType, value, Sync.clock)
     end
 end
 
@@ -2203,7 +2463,13 @@ function Sync.reset()
     Sync.rttMaxMs = nil
     Sync.rttSamples = 0
 
-    Sync.sendSlot = 0
+    -- nasza godzina, pogoda i auto od razu po wczytaniu (nie za sekundę)
+    Sync.sentTime = nil
+    Sync.sentWeather = nil
+    Sync.sentVehicle = nil
+    Sync.lastSlotExtra = false
+    Sync.lastSentFlags = 0
+
     Sync.remoteFlags = 0
     Sync.appliedFlags = -1
     Sync.remoteTimeMinutes = -1

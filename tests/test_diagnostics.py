@@ -794,13 +794,15 @@ def test_old_partner_sees_constant_vector():
             seen["weather"] = t
 
     timing.run_pair(host, joiner, 6.0, on_frame)
+    # after the mod list is through, the host sends time, weather, ping and pong once a
+    # second each between flags: about 8 length changes per second (flags-only mode: 0)
     changes = length_changes(host, 3.0, 6.0)
     print(f"  current host + joiner: joiner has the host's time at {seen.get('time', -1):.2f} s, weather at "
           f"{seen.get('weather', -1):.2f} s; role conflict on any frame {any(conflicts)}; host still sends the full "
           f"schedule ({changes} length changes in 3 s); both judged current: "
           f"{host_sync.peerDecodesPayload and joiner_sync.peerDecodesPayload}")
     return (ok and seen.get("time", 9.0) < 1.0 and seen.get("weather", 9.0) < 1.0 and not any(conflicts)
-            and changes > 30 and host_sync.peerDecodesPayload and joiner_sync.peerDecodesPayload)
+            and changes >= 16 and host_sync.peerDecodesPayload and joiner_sync.peerDecodesPayload)
 
 
 if __name__ == "__main__":
