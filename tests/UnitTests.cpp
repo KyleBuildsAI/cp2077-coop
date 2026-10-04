@@ -1346,6 +1346,7 @@ void TestSessionWithFakeRelay()
 
 int main()
 {
+    std::setvbuf(stdout, nullptr, _IONBF, 0); // keep the output of a crashing run
     TestClockConversion();
     TestClockNow();
     TestVersionString();
