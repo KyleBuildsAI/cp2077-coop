@@ -13,9 +13,21 @@ checks the JSON reports:
   relay      no protocol violations or kicks for well-behaved clients
   legacy     v1 CP1/RP1 clients keep working beside v2 and through the bridge
 
+The course-* scenarios run both players over the scripted on-foot course (walk, run, sprint,
+turns, stops; coopnet/testworld.py) under three link profiles given end to end between the
+players (one way): clean, us (30 +-10 ms, 1 % loss) and transatlantic (115 +-20 ms, 1 % loss).
+Each client impairs its uplink and its downlink, so a profile is split over four legs: per leg
+half the base latency, half the jitter spread (two uniform legs give the +-), and the loss that
+compounds to the profile's loss over two legs. They also report the interpolation error per kind
+of movement and require the relay clock estimates within 5 ms of the truth.
+
+Any client can be replaced by another implementation that takes client_v2.py's arguments and
+writes the same report (--host-exe / --joiner-exe, e.g. the C++ coopnet_v2_demo_client.exe).
+
 Usage:
     python run_demo.py                 # all scenarios
     python run_demo.py --only realistic --duration 30
+    python run_demo.py --host-exe path/to/coopnet_v2_demo_client.exe --out runs/cpp-host
 """
 from __future__ import annotations
 
@@ -40,17 +52,48 @@ LEGS = {
     "brutal": {"latency_ms": 90, "jitter_ms": 60, "loss_pct": 20.0, "dup_pct": 5.0},
 }
 
+# End-to-end link profiles (one way, player to player) for the course-* scenarios.
+PROFILES = {
+    "clean": {"latency_ms": 0.0, "spread_ms": 0.0, "loss_pct": 0.0},
+    "us": {"latency_ms": 30.0, "spread_ms": 10.0, "loss_pct": 1.0},
+    "transatlantic": {"latency_ms": 115.0, "spread_ms": 20.0, "loss_pct": 1.0},
+}
+
+
+def profile_leg(profile: dict) -> dict:
+    """The per-leg model that adds up to an end-to-end profile over uplink + relay + downlink.
+
+    Two legs of base L and uniform jitter [0, J] give 2L + [0, 2J]: mean 2L + J, spread +-J.
+    """
+    jitter = profile["spread_ms"]
+    base = (profile["latency_ms"] - jitter) / 2.0
+    keep = math.sqrt(1.0 - profile["loss_pct"] / 100.0)
+    return {"latency_ms": base, "jitter_ms": jitter, "loss_pct": round((1.0 - keep) * 100.0, 6), "dup_pct": 0}
+
+
+for _name, _profile in PROFILES.items():
+    if _name != "clean":
+        LEGS[_name] = profile_leg(_profile)
+
 SCENARIOS = {
     "clean": {"host_leg": "clean", "joiner_leg": "clean", "duration": 12, "legacy_pool": True},
     "realistic": {"host_leg": "ru_waw", "joiner_leg": "la_waw", "duration": 25, "legacy_pool": True},
     "stress": {"host_leg": "stress", "joiner_leg": "stress", "duration": 25},
     "brutal": {"host_leg": "brutal", "joiner_leg": "brutal", "duration": 25},
     "bridge": {"host_leg": "ru_waw", "joiner_leg": None, "duration": 12, "bridge": True},
+    "course-clean": {"host_leg": "clean", "joiner_leg": "clean", "duration": 45, "path": "course"},
+    "course-us": {"host_leg": "us", "joiner_leg": "us", "duration": 45, "path": "course"},
+    "course-transatlantic": {"host_leg": "transatlantic", "joiner_leg": "transatlantic", "duration": 45,
+                             "path": "course"},
 }
+DEFAULT_ORDER = ["clean", "realistic", "stress", "brutal", "bridge", "course-clean", "course-us",
+                 "course-transatlantic"]
+COURSE_CLOCK_LIMIT_MS = 5.0
 
 THRESHOLDS = {
     # p95 of interpolated remote-player error (m) and NPC alignment error (m)
     "clean": (0.10, 0.10), "realistic": (0.15, 0.15), "stress": (0.60, 0.60), "brutal": (1.50, 1.50),
+    "course-clean": (0.10, 0.10), "course-us": (0.15, 0.15), "course-transatlantic": (0.15, 0.15),
 }
 
 
@@ -70,7 +113,13 @@ def leg_args(leg: str, seed: int) -> list:
     return args
 
 
-def run_scenario(name: str, spec: dict, out_dir: str, duration_override: float | None) -> dict:
+def client_command(exe: str | None) -> list:
+    """client_v2.py, or another client implementation that takes the same arguments."""
+    return [PYTHON, "client_v2.py"] if not exe else [os.path.abspath(exe)]
+
+
+def run_scenario(name: str, spec: dict, out_dir: str, duration_override: float | None,
+                 host_exe: str | None = None, joiner_exe: str | None = None) -> dict:
     duration = duration_override or spec["duration"]
     os.makedirs(out_dir, exist_ok=True)
     port = free_port()
@@ -85,13 +134,15 @@ def run_scenario(name: str, spec: dict, out_dir: str, duration_override: float |
     procs = []
     room = "legacy" if spec.get("bridge") else f"room-{name}"
     common = ["--relay-port", str(port), "--duration", str(duration), "--room", room, "--password", "s3cret"]
+    if spec.get("path"):
+        common += ["--player-path", spec["path"]]
     host_flags = ["--join-flags", "3"] if spec.get("bridge") else ["--join-flags", "1"]
-    procs.append(subprocess.Popen([PYTHON, "client_v2.py", "--role", "host", "--report", files["host"],
+    procs.append(subprocess.Popen([*client_command(host_exe), "--role", "host", "--report", files["host"],
                                    *common, *host_flags, *leg_args(spec["host_leg"], 11)], cwd=HERE,
                                   stdout=subprocess.DEVNULL))
     if spec.get("joiner_leg"):
-        procs.append(subprocess.Popen([PYTHON, "client_v2.py", "--role", "joiner", "--report", files["joiner"],
-                                       *common, *leg_args(spec["joiner_leg"], 23)], cwd=HERE,
+        procs.append(subprocess.Popen([*client_command(joiner_exe), "--role", "joiner", "--report",
+                                       files["joiner"], *common, *leg_args(spec["joiner_leg"], 23)], cwd=HERE,
                                       stdout=subprocess.DEVNULL))
     if spec.get("legacy_pool") or spec.get("bridge"):
         v1_duration = str(max(4.0, duration - 2))
@@ -162,14 +213,20 @@ def evaluate(name: str, spec: dict, reports: dict) -> dict:
     return {"scenario": name, "ok": checks.ok, "checks": checks.items, "metrics": metrics}
 
 
+def reliable_violations(sent: list, got: list) -> int:
+    """Positions where the received stream differs from the sent one, plus missing or extra events."""
+    return sum(1 for a, b in zip(sent, got) if a != b) + abs(len(sent) - len(got))
+
+
 def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Checks, metrics: dict) -> None:
     for sender, receiver, label in ((host, joiner, "host->joiner"), (joiner, host, "joiner->host")):
         sent = routed_events(sender)
         got = received_from(receiver, sender["peer_id"])
         mismatch = next((i for i, (a, b) in enumerate(zip(sent, got)) if a != b), None)
+        violations = reliable_violations(sent, got)
         checks.add(f"reliable {label}", sent == got and len(sent) > 40,
-                   f"sent={len(sent)} received={len(got)} first_mismatch={mismatch}")
-        metrics[f"reliable_{label}"] = {"sent": len(sent), "received": len(got),
+                   f"sent={len(sent)} received={len(got)} first_mismatch={mismatch} violations={violations}")
+        metrics[f"reliable_{label}"] = {"sent": len(sent), "received": len(got), "violations": violations,
                                         "resent": sender["link"]["reliable_resent"]}
     expected = expected_delivery(spec["host_leg"], spec["joiner_leg"])
     for sender, receiver, label in ((host, joiner, "host->joiner"), (joiner, host, "joiner->host")):
@@ -178,9 +235,14 @@ def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Che
         checks.add(f"unreliable {label}", ratio >= expected - 0.05 and ratio <= 1.0,
                    f"delivered {ratio:.1%} (expected ~{expected:.1%}), dups dropped={remote.get('duplicates')} "
                    f"reordered={remote.get('reordered')}")
+        span = remote.get("seq_span") or 0
         metrics[f"snapshots_{label}"] = {"sent": sender["snapshots_sent"], "received": remote.get("received", 0),
-                                         "ratio": round(ratio, 4), "duplicates": remote.get("duplicates"),
-                                         "reordered": remote.get("reordered")}
+                                         "ratio": round(ratio, 4), "loss": round(1.0 - ratio, 4),
+                                         "expected_loss": round(1.0 - expected, 4), "seq_span": span,
+                                         # loss between the first and the last snapshot the receiver got: the
+                                         # network loss without the start (not yet in the room) and the end
+                                         "span_loss": None if not span else round(1.0 - remote["received"] / span, 4),
+                                         "duplicates": remote.get("duplicates"), "reordered": remote.get("reordered")}
     entity = joiner["entity"]
     host_hashes = host["entity"]["host_view_hashes"]
     joiner_hashes = entity["joiner_view_hashes"]
@@ -199,6 +261,7 @@ def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Che
         "deferred_records": encoder["deferred"], "full_snapshots": encoder["full_snapshots"],
         "spawns": encoder["spawns"], "removals": encoder["removals"],
         "view_size_end": entity["view_size_end"], "alignment_error_m": entity["alignment_error_m"]}
+    clock_errors = {}
     for client, label in ((host, "host"), (joiner, "joiner")):
         true_offset = (client["start_perf"] - relay["start_perf"]) * 1000.0
         estimate = client["clock"]["offset_ms"]
@@ -206,9 +269,19 @@ def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Che
         args = client["args"]
         asymmetry = abs(args["up_latency_ms"] - args["down_latency_ms"]) / 2.0
         bound = asymmetry + args["up_jitter_ms"] / 2.0 + args["down_jitter_ms"] / 2.0 + 5.0
-        checks.add(f"clock sync {label}", error is not None and abs(error) <= bound,
-                   f"offset error {error:+.2f} ms (bound {bound:.1f} ms), rtt to relay {client['clock']['rtt_ms']:.1f} ms")
-        metrics[f"clock_{label}"] = {"error_ms": round(error, 3), "rtt_ms": client["clock"]["rtt_ms"]}
+        if spec.get("path") == "course":
+            bound = COURSE_CLOCK_LIMIT_MS
+        detail = "no estimate" if error is None else (f"offset error {error:+.2f} ms (bound {bound:.1f} ms), "
+                                                      f"rtt to relay {client['clock']['rtt_ms']:.1f} ms")
+        checks.add(f"clock sync {label}", error is not None and abs(error) <= bound, detail)
+        metrics[f"clock_{label}"] = {"error_ms": None if error is None else round(error, 3),
+                                     "rtt_ms": client["clock"]["rtt_ms"]}
+        clock_errors[label] = error
+    if spec.get("path") == "course" and None not in clock_errors.values():
+        gap = abs(clock_errors["host"] - clock_errors["joiner"])
+        checks.add("clock instances agree", gap < COURSE_CLOCK_LIMIT_MS,
+                   f"|host - joiner| relay clock {gap:.2f} ms (limit {COURSE_CLOCK_LIMIT_MS} ms)")
+        metrics["clock_instances_ms"] = round(gap, 3)
     for client, label in ((joiner, "joiner sees host"), (host, "host sees joiner")):
         metrics[f"render_{label}"] = client["render"]
     player_limit, npc_limit = THRESHOLDS.get(spec["name"], (1.0, 1.0))
@@ -222,6 +295,13 @@ def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Che
         checks.add(f"smoother than v1 model ({label})", v2.get("p99", 1e9) < v1.get("p99", 0),
                    f"|accel| p99 v2 {v2.get('p99', 0):.1f} vs v1-model {v1.get('p99', 0):.1f} m/s^2 "
                    f"(truth {client['render']['accel_truth_mps2'].get('p99', 0):.1f})")
+    if spec.get("path") == "course":
+        from coopnet.testworld import COURSE_MOTIONS  # noqa: E402  (scenario-only import)
+        for client, label in ((joiner, "joiner sees host"), (host, "host sees joiner")):
+            by_motion = client["render"].get("by_motion", {})
+            counts = {motion: by_motion.get(motion, {}).get("error_m", {}).get("count", 0) for motion in COURSE_MOTIONS}
+            checks.add(f"course covered ({label})", all(count >= 30 for count in counts.values()),
+                       "frames per motion " + ", ".join(f"{m} {c}" for m, c in counts.items()))
     npc = entity["alignment_error_m"]
     checks.add("npc alignment", npc.get("count", 0) > 100 and npc["p95"] <= npc_limit,
                f"p50 {npc.get('p50', 0):.3f} m, p95 {npc.get('p95', 0):.3f} m, max {npc.get('max', 0):.3f} m "
@@ -301,18 +381,24 @@ def main(argv=None) -> int:
     parser.add_argument("--only", nargs="*", choices=sorted(SCENARIOS), default=None)
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--out", default=os.path.join(HERE, "runs"))
+    parser.add_argument("--host-exe", default=None, help="host client executable (default: python client_v2.py)")
+    parser.add_argument("--joiner-exe", default=None, help="joiner client executable (default: python client_v2.py)")
     args = parser.parse_args(argv)
-    names = args.only or ["clean", "realistic", "stress", "brutal", "bridge"]
+    names = args.only or DEFAULT_ORDER
     results = []
+    clients = (f"host {'python' if not args.host_exe else os.path.basename(args.host_exe)}, "
+               f"joiner {'python' if not args.joiner_exe else os.path.basename(args.joiner_exe)}")
     for name in names:
         spec = dict(SCENARIOS[name], name=name)
         legs = f"host leg {spec['host_leg']}, joiner leg {spec['joiner_leg']}"
-        print(f"running {name} ({legs}, {args.duration or spec['duration']} s) ...", flush=True)
-        result = run_scenario(name, spec, os.path.join(args.out, name), args.duration)
+        print(f"running {name} ({legs}, {args.duration or spec['duration']} s; {clients}) ...", flush=True)
+        result = run_scenario(name, spec, os.path.join(args.out, name), args.duration, args.host_exe,
+                              args.joiner_exe)
         print_result(result)
         results.append(result)
     with open(os.path.join(args.out, "summary.json"), "w", encoding="utf-8") as handle:
-        json.dump({"legs": LEGS, "results": results}, handle, indent=1, default=str)
+        json.dump({"legs": LEGS, "profiles": PROFILES, "host_exe": args.host_exe, "joiner_exe": args.joiner_exe,
+                   "results": results}, handle, indent=1, default=str)
     failed = [r["scenario"] for r in results if not r["ok"]]
     print(f"\n{len(results) - len(failed)}/{len(results)} scenarios passed" + (f"; failed: {failed}" if failed else ""))
     return 1 if failed else 0
