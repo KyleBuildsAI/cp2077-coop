@@ -31,3 +31,4 @@ monitor_status.txt
 coop_stats_*.txt
 coop-tools/coop_monitor_history.csv
 modlist.txt
+__pycache__/
