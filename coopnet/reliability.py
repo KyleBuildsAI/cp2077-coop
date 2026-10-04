@@ -289,6 +289,13 @@ class Connection:
         rto = self.srtt + max(4.0 * self.rttvar, 0.01) + ACK_DELAY_ALLOWANCE_S
         self.rto = min(MAX_RTO_S, max(MIN_RTO_S, rto))
 
+    def is_new_reliable(self, rel_seq: int) -> bool:
+        """Whether a reliable message with this sequence would be accepted now (not yet delivered,
+        not buffered, inside the window). Changes nothing; the relay uses it to charge rate limits
+        when a message first arrives instead of when a repaired gap releases it."""
+        distance = seq_diff(rel_seq, self.rel_expected)
+        return 0 <= distance < RELIABLE_WINDOW and rel_seq not in self.rel_buffer
+
     def _receive_reliable(self, rel_seq: int, item: tuple, delivered: list) -> None:
         distance = seq_diff(rel_seq, self.rel_expected)
         if distance < 0 or rel_seq in self.rel_buffer:

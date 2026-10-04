@@ -300,6 +300,40 @@ class RoutingTests(RelayTestCase):
         self.assertEqual(len([m for m in host.poll() if m[0] == M.CHAT]), 5)
         self.assertEqual(self.h.relay.counters["rate_dropped"], 15)
 
+    def test_burst_released_by_a_repaired_gap_is_not_rate_dropped(self):
+        """Chats paced at 1/s queue behind a lost one; when its resend closes the gap all nine are released
+        at once. Charging the chat bucket (burst 5) on release dropped four of them although every one had
+        been acked; charging on arrival keeps all of them."""
+        host, joiner = self.pair()
+
+        def chat(index):
+            return M.CHAT, 0xFF, proto.CHAT.encode({"channel": 0, "text": f"chat {index}"})
+
+        first = joiner.conn.rel_next
+        self.assertTrue(joiner.conn.queue_reliable(*chat(0), self.h.now))
+        joiner.conn.build_packets(self.h.now, [], force=True)  # never reaches the relay
+        for index in range(1, 9):
+            self.h.advance(1.0)
+            joiner.conn.rel_pending[first].last_sent = self.h.now  # hold back the resend of chat 0
+            joiner.send(reliable=[chat(index)])
+        self.assertEqual([m for m in host.poll() if m[0] == M.CHAT], [])
+        self.h.advance(1.0)
+        joiner.send()  # resends chat 0: the gap closes
+        self.assertEqual([m[3]["text"] for m in host.poll() if m[0] == M.CHAT], [f"chat {i}" for i in range(9)])
+        self.assertEqual(self.h.relay.counters["rate_dropped"], 0)
+        self.assertEqual(self.h.relay.peers_by_token[joiner.conn.token].rate_verdicts, {})
+
+    def test_rate_verdict_survives_a_duplicate_arrival(self):
+        host, joiner = self.pair()
+        chats = [(M.CHAT, 0xFF, proto.CHAT.encode({"channel": 0, "text": f"spam {i}"})) for i in range(8)]
+        for item in chats:
+            self.assertTrue(joiner.conn.queue_reliable(*item, self.h.now))
+        packets = joiner.conn.build_packets(self.h.now, [], force=True)
+        for packet in packets + packets:  # the same datagram twice: charged once
+            self.h.deliver(joiner.address, packet)
+        self.assertEqual(len([m for m in host.poll() if m[0] == M.CHAT]), 5)
+        self.assertEqual(self.h.relay.counters["rate_dropped"], 3)
+
     def test_unknown_token_ignored_and_rebind(self):
         host, joiner = self.pair()
         bogus = proto.encode_packet(proto.PacketType.DATA, 0xDEADBEEF, 1, 0, 0, b"")

@@ -30,7 +30,7 @@ import time
 from coopnet import legacy, proto
 from coopnet.linksim import LinkSim
 from coopnet.ratelimit import Limits, TokenBucket
-from coopnet.reliability import Connection, seq_diff
+from coopnet.reliability import SEQ_SPACE, Connection, seq_diff
 
 PEER_TIMEOUT_S = 10.0
 LEGACY_TIMEOUT_S = 10.0
@@ -90,6 +90,7 @@ class Peer:
         self.mod_list = {}
         self.violations = []
         self.dropped_rate = 0
+        self.rate_verdicts: dict[int, bool] = {}  # reliable sequence -> rate verdict at arrival
         self.legacy_seq = 0
         self.legacy_slot = 0
         self.last_player = None
@@ -465,17 +466,42 @@ class Relay:
             peer.dropped_rate += 1
             self.violation(peer, "packet/byte rate", now)
             return
+        expected = peer.conn.rel_expected
         try:
+            self.charge_arrivals(peer, proto.decode_messages(body), now)
             delivered = peer.conn.on_packet(now, seq, ack, ack_bits, body, size)
         except proto.ProtocolError as error:
             self.violation(peer, f"framing: {error}", now)
             return
         peer.last_seen = now
+        released = 0
         for mtype, dest, reliable, payload in delivered:
-            self.route(peer, mtype, dest, reliable, payload, now)
+            allowed = True
+            if reliable:
+                allowed = peer.rate_verdicts.pop((expected + released) % SEQ_SPACE, True)
+                released += 1
+            self.route(peer, mtype, dest, reliable, payload, now, allowed)
             if peer.token not in self.peers_by_token:
                 break  # kicked while routing; still flush the PEER_LEFT to the others
         self.flush_dirty(now)
+
+    def charge_arrivals(self, peer: Peer, messages: list, now: float) -> None:
+        """Charges the reliable, chat and teleport rate limits when a reliable message first arrives.
+
+        Reliable messages that arrive behind a lost packet wait in the connection until the gap is
+        repaired and are then released together. They were acked on arrival, so charging them on
+        release would drop a burst the sender paced correctly and break exactly-once delivery.
+        The verdict is kept by message sequence until route() releases the message.
+        """
+        for mtype, _, rel_seq, _ in messages:
+            if rel_seq is None or rel_seq in peer.rate_verdicts or not peer.conn.is_new_reliable(rel_seq):
+                continue
+            allowed = peer.buckets["reliable"].take(now)
+            if allowed and mtype == proto.MsgType.CHAT:
+                allowed = peer.buckets["chat"].take(now)
+            if allowed and mtype == proto.MsgType.TELEPORT_REQ:
+                allowed = peer.buckets["teleport"].take(now)
+            peer.rate_verdicts[rel_seq] = allowed
 
     def violation(self, peer: Peer, what: str, now: float) -> None:
         self.counters["violations"] += 1
@@ -488,7 +514,10 @@ class Relay:
             self.log.line(f"EVENT kick {peer.label()} after {len(peer.violations)} violations ({what})")
             self.remove_peer(peer, proto.DisconnectReason.KICKED, now)
 
-    def route(self, peer: Peer, mtype: int, dest: int, reliable: bool, body: bytes, now: float) -> None:
+    def route(self, peer: Peer, mtype: int, dest: int, reliable: bool, body: bytes, now: float,
+              allowed: bool = True) -> None:
+        """Validates and forwards one delivered message. ``allowed`` is the rate-limit verdict that
+        charge_arrivals() gave a reliable message when it first arrived."""
         spec = proto.SPECS.get(mtype)
         if spec is None or spec.sender == proto.Sender.RELAY or (spec.reliable is not None
                                                                  and spec.reliable != reliable):
@@ -515,13 +544,7 @@ class Relay:
         if needed > peer.minor:
             self.violation(peer, f"{proto.MsgType(mtype).name} content needs protocol minor {needed}", now)
             return
-        if reliable and not peer.buckets["reliable"].take(now):
-            self.counters["rate_dropped"] += 1
-            return
-        if mtype == proto.MsgType.CHAT and not peer.buckets["chat"].take(now):
-            self.counters["rate_dropped"] += 1
-            return
-        if mtype == proto.MsgType.TELEPORT_REQ and not peer.buckets["teleport"].take(now):
+        if not allowed:
             self.counters["rate_dropped"] += 1
             return
         if mtype == proto.MsgType.TIME_REQ:
