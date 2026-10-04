@@ -126,16 +126,19 @@ target_link_libraries(coopnet_plugin_probe PRIVATE RED4ext::SDK coopnet_version)
 target_compile_options(coopnet_plugin_probe PRIVATE ${COOPNET_WARNINGS})
 add_dependencies(coopnet_plugin_probe CP2077CoopNet)
 
-# v2 codec: unit tests, golden vectors against proto.py (tools/v2_golden.py) and the fuzzer.
+# v2: codec unit tests, golden vectors against proto.py (tools/v2_golden.py), the fuzzer, and the
+# Connection tests and reliability.py trace replay (tools/v2_link_trace.py).
 set(COOPNET_V2_TEST_SUPPORT tests/V2TestSupport.cpp tests/V2TestSupport.hpp)
-foreach(name IN ITEMS tests golden fuzz)
-  if(name STREQUAL "tests")
-    set(source tests/V2Tests.cpp)
-  elseif(name STREQUAL "golden")
-    set(source tests/V2Golden.cpp)
-  else()
-    set(source tests/V2Fuzz.cpp)
-  endif()
+set(COOPNET_V2_TEST_PROGRAMS
+  "tests=tests/V2Tests.cpp"
+  "golden=tests/V2Golden.cpp"
+  "fuzz=tests/V2Fuzz.cpp"
+  "reliability_tests=tests/V2ReliabilityTests.cpp"
+)
+foreach(program IN LISTS COOPNET_V2_TEST_PROGRAMS)
+  string(REPLACE "=" ";" parts "${program}")
+  list(GET parts 0 name)
+  list(GET parts 1 source)
   add_executable(coopnet_v2_${name} ${source} ${COOPNET_V2_TEST_SUPPORT})
   target_link_libraries(coopnet_v2_${name} PRIVATE coopnet_v2)
   target_compile_options(coopnet_v2_${name} PRIVATE ${COOPNET_WARNINGS} /WX)
