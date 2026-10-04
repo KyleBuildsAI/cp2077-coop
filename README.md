@@ -5,10 +5,16 @@ message transport: a FIFO inbox, an unreliable channel for snapshots, and a reli
 events (resent until acknowledged, delivered once and in order). It replaces the
 "latest position only, extra bits squeezed into the forward vector" limit of `CP2077Coop.dll`.
 
-Version 0.1.1 (protocol 1). Status: builds, unit and integration tests pass outside the game.
+Version 0.1.2 (protocol 1). Status: builds, unit and integration tests pass outside the game.
 **It has not been loaded in the game yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1
 install and in-game check: install steps, the bench relay on port 11779, CET console commands and
 the log lines that prove success.
+
+0.1.2 fixes three review findings from before the first in-game run:
+- The startup line now checks each native's registration: the types resolved and the RTTI lookup
+  returns the function.
+- String results are copy-assigned, so a redscript polling loop cannot leak.
+- Stopping while the relay host name is still resolving no longer waits for DNS.
 
 ## Layout
 
@@ -78,7 +84,7 @@ parameter type and the return type resolved in RTTI, and looking its name up aga
 `RegisterFunction` returned the function the plugin created (`src/core/NativeRegistration.hpp`):
 
 ```
-CP2077CoopNet 0.1.1 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
+CP2077CoopNet 0.1.2 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
 If a native or the Scripts folder failed, the same line is logged at error level with
@@ -102,7 +108,7 @@ buffer, so a redscript loop such as `let raw = Net_Poll();` would leak one buffe
 | `Net_Stats() -> String` | JSON | `CoopNet.stats()` decodes it |
 | `Net_LocalId() -> Int32` | 0 until welcomed | |
 | `Net_NowMs() -> Double` | ms since the Unix epoch (UTC), sub-ms fraction | `CoopNet.nowMs()` |
-| `Net_Version() -> String` | `"CP2077CoopNet 0.1.1 proto 1"` | `CoopNet.version()`, `CoopNet.parseVersion(s)` |
+| `Net_Version() -> String` | `"CP2077CoopNet 0.1.2 proto 1"` | `CoopNet.version()`, `CoopNet.parseVersion(s)` |
 
 * **Net_NowMs** reads `GetSystemTimePreciseAsFileTime` (100 ns ticks) and returns a Double, not an
   Int64: CET hands Int64 to Lua as LuaJIT cdata (`123LL`, built by compiling a chunk per call), while
@@ -210,7 +216,7 @@ port of it, on a host that both players can reach.
   imports. The native list in `LoadReport.hpp`, the registrations in `Main.cpp` and the
   declarations in `Natives.reds` agree, and every name is in the image. The Net_Version string
   matches `CMakeLists.txt`, and the log marker occurs exactly once. `coopnet_plugin_probe.exe`:
-  LoadLibrary + Query gives version 0.1.1, runtime 3.0.80.51928 and SDK 1.0.0.
+  LoadLibrary + Query gives version 0.1.2, runtime 3.0.80.51928 and SDK 1.0.0.
 
 ## Known limits
 

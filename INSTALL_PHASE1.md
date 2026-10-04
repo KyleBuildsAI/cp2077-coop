@@ -1,4 +1,4 @@
-# CP2077CoopNet 0.1.1: Phase 1 install and in-game check
+# CP2077CoopNet 0.1.2: Phase 1 install and in-game check
 
 Phase 1 answers one question: can our own RED4ext plugin register natives that CET and redscript
 can call, next to Jakub's `CP2077Coop.dll`? This guide installs the plugin into the two bench game
@@ -87,7 +87,7 @@ cd D:\Downloads\syncfix\coopnet\dllproto
 python tools\verify_exports.py 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Baseline\red4ext\plugins\CP2077CoopNet\CP2077CoopNet.dll'
 #   ... VERIFY PASS
 build\Release\coopnet_plugin_probe.exe 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Baseline\red4ext\plugins\CP2077CoopNet\CP2077CoopNet.dll'
-#   Query(): name=CP2077CoopNet ... version=0.1.1 sdk=1.0.0 runtime=3.0.80.51928 ... PROBE PASS
+#   Query(): name=CP2077CoopNet ... version=0.1.2 sdk=1.0.0 runtime=3.0.80.51928 ... PROBE PASS
 python 'D:\Downloads\syncfix\MP=Jakub\coop-tools\scc_check.py' 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Baseline'
 #   OK: compiled r6\scripts, ... (the list must include red4ext\plugins\CP2077CoopNet\Scripts)
 ```
@@ -136,7 +136,7 @@ Three logs prove that the plugin loaded. `<game>` is the game folder.
 **a) RED4ext loader log**: the newest `<game>\red4ext\logs\red4ext-*.log`
 
 ```
-... CP2077CoopNet (version: 0.1.1, author(s): CP2077 Coop) has been loaded
+... CP2077CoopNet (version: 0.1.2, author(s): CP2077 Coop) has been loaded
 ... Adding paths to redscript compilation:
 ... CP2077CoopNet: '<game>\red4ext\plugins\CP2077CoopNet\Scripts'
 ```
@@ -149,8 +149,8 @@ RED4ext 1.30 names the log after the DLL, lower case, plus a timestamp. Each lin
 ```
 game file version 3.0.80.51928 (2.31) ok
 added <game>\red4ext\plugins\CP2077CoopNet\Scripts to the redscript compilation
-CP2077CoopNet 0.1.1 proto 1 loaded; the Net_* natives are added at RTTI post-register
-CP2077CoopNet 0.1.1 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
+CP2077CoopNet 0.1.2 proto 1 loaded; the Net_* natives are added at RTTI post-register
+CP2077CoopNet 0.1.2 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
 The last line is **the** Phase 1 line. It is written once, at RTTI post-register. A native is
@@ -184,7 +184,7 @@ Open the CET overlay and type one line at a time into its console. The expected 
 ```lua
 print(Game.Net_Version())
 ```
-`CP2077CoopNet 0.1.1 proto 1`
+`CP2077CoopNet 0.1.2 proto 1`
 
 ```lua
 print(string.format("%.3f", Game.Net_NowMs()))
@@ -199,7 +199,7 @@ number. Both games read the same Windows clock, so their stamps compare directly
 ```lua
 print(Game.CoopNet_SelfTest())
 ```
-`redscript ok: CP2077CoopNet 0.1.1 proto 1, Net_NowMs=<number>, clock ok`. This is a redscript
+`redscript ok: CP2077CoopNet 0.1.2 proto 1, Net_NowMs=<number>, clock ok`. This is a redscript
 function from `Helpers.reds` that calls `Net_Version` and `Net_NowMs`, so it proves the natives also
 resolve **from redscript**.
 
@@ -226,7 +226,7 @@ In Test B, the same lines with `welcome 2` and `peer_join 1`.
 ```lua
 print(Game.Net_Stats())
 ```
-A JSON object with `"state":"connected"`, `"id":1` or `2`, `"version":"CP2077CoopNet 0.1.1 proto 1"`,
+A JSON object with `"state":"connected"`, `"id":1` or `2`, `"version":"CP2077CoopNet 0.1.2 proto 1"`,
 `"relay":"127.0.0.1:11779"` and a `"peers"` entry for the other game. That entry's `"rttMs"` should
 settle around 230-270 ms (115 ± 20 ms each way). `"relayRttMs"` stays near 0, because the relay
 answers pings without the simulated delay.
@@ -262,7 +262,7 @@ this check.
 
 ## 6. Success checklist
 
-- [ ] Both `red4ext-*.log` files: `CP2077CoopNet (version: 0.1.1, ...) has been loaded` and the
+- [ ] Both `red4ext-*.log` files: `CP2077CoopNet (version: 0.1.2, ...) has been loaded` and the
       `CP2077CoopNet: '...\CP2077CoopNet\Scripts'` path line.
 - [ ] Both `cp2077coopnet-*.log` files: `registered Net_* natives (10/10)` with `scripts added:`.
 - [ ] Both `redscript_rCURRENT.log` files: the two CP2077CoopNet `.reds` files compiled, with no error.
@@ -337,9 +337,9 @@ Offline checks in that run, all passing:
   Net_Version format and both forms of the startup summary line.
 - `verify_exports.py`: Main, Query and Supports exported, and `Supports()` returns 1. Imports are
   kernel32, user32, version and ws2_32 only. All 10 native names are in the image and agree with
-  `LoadReport.hpp`, `Main.cpp` and `Natives.reds`. The image holds `CP2077CoopNet 0.1.1 proto 1`,
+  `LoadReport.hpp`, `Main.cpp` and `Natives.reds`. The image holds `CP2077CoopNet 0.1.2 proto 1`,
   and the marker `registered Net_* natives` occurs exactly once.
-- `coopnet_plugin_probe.exe` (LoadLibrary + Query): `version=0.1.1 sdk=1.0.0 runtime=3.0.80.51928`, PROBE PASS.
+- `coopnet_plugin_probe.exe` (LoadLibrary + Query): `version=0.1.2 sdk=1.0.0 runtime=3.0.80.51928`, PROBE PASS.
 - `run_loopback.py`: the clean, transatlantic and hostile profiles all pass.
 - `test_relay_protocol.py`: 10/10. `test_lua_helper.py`: 22/22 under LuaJIT 2.1.
 - Redscript: the shipped `Natives.reds` and `Helpers.reds` compile with `scc_check.py` next to

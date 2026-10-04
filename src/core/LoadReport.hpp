@@ -3,7 +3,7 @@
 // The single startup line the plugin writes to its RED4ext log at RTTI post-register.
 // The Phase 1 bench check greps for "registered Net_* natives (N/N)".
 //
-//   CP2077CoopNet 0.1.1 proto 1: registered Net_* natives (10/10): Net_Connect, ..., Net_Version;
+//   CP2077CoopNet 0.1.2 proto 1: registered Net_* natives (10/10): Net_Connect, ..., Net_Version;
 //   scripts added: <plugin folder>\Scripts
 //
 // (one line in the log; wrapped here.) A native counts as registered only when its parameter and
