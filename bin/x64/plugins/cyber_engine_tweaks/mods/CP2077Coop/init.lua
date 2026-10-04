@@ -832,6 +832,8 @@ local Sync = {
     clock = 0.0,
 
     localFlags = 0,
+    -- flagi prawdziwego gracza, bez nakładki bota testowego
+    realLocalFlags = 0,
 
     pingToken = 0,
     pingSentAt = nil,
@@ -924,6 +926,8 @@ function Sync.buildPayload(player, isHost)
 
         Sync.reportMissingScripts()
 
+        Sync.realLocalFlags = roleFlag
+
         Sync.localFlags =
             (Sync.flagsOverride or 0) +
             roleFlag
@@ -935,9 +939,17 @@ function Sync.buildPayload(player, isHost)
 
     -- flagi czytamy przy każdym pakiecie (panel + blokada teleportu w aucie)
     -- (pojazd: patrz niżej)
-    -- flagsOverride: ustawiane przez bota testowego (Bot)
+    -- flagsOverride: ustawiane przez bota testowego (Bot); blokada
+    -- teleportu i poza auta patrzą na prawdziwe flagi gracza
+    local realFlags =
+        player:CP2077Coop_GetStateFlags()
+
+    Sync.realLocalFlags =
+        realFlags +
+        roleFlag
+
     Sync.localFlags =
-        (Sync.flagsOverride or player:CP2077Coop_GetStateFlags()) +
+        (Sync.flagsOverride or realFlags) +
         roleFlag
 
     Sync.sendSlot = Sync.sendSlot + 1
@@ -2148,17 +2160,11 @@ function Bot.phaseAt(time)
 end
 
 
-function Bot.start(player)
+-- Środek trasy ustala Bot.update przy pierwszej klatce, w której gracz
+-- jest już na miejscu (joiner: po teleporcie do hosta).
+function Bot.start()
 
-    local position =
-        player:GetWorldPosition()
-
-    Bot.anchor = {
-        x = position.x + Bot.CENTER_OFFSET,
-        y = position.y,
-        z = position.z
-    }
-
+    Bot.anchor = nil
     Bot.active = true
     Bot.time = 0.0
     Bot.distance = 0.0
@@ -2182,10 +2188,47 @@ function Bot.stop()
 end
 
 
-function Bot.update(delta)
+function Bot.update(delta, player)
 
     if not Bot.active then
         return
+    end
+
+    -- joiner przed teleportem do hosta (także po wczytaniu zapisu i po
+    -- "Teleport to host"): prawdziwa pozycja i flagi, trasa później
+    if not IS_HOST
+        and not S.worldJoinComplete
+    then
+
+        Bot.anchor = nil
+        Sync.flagsOverride = nil
+        Sync.vehicleIndexOverride = nil
+        return
+    end
+
+    if Bot.anchor == nil then
+
+        local position =
+            player:GetWorldPosition()
+
+        Bot.anchor = {
+            x = position.x + Bot.CENTER_OFFSET,
+            y = position.y,
+            z = position.z
+        }
+
+        Bot.time = 0.0
+        Bot.distance = 0.0
+        Bot.phaseIndex = 0
+
+        print(
+            string.format(
+                "[CP2077Coop] BOT anchored @ %.2f %.2f %.2f",
+                Bot.anchor.x,
+                Bot.anchor.y,
+                Bot.anchor.z
+            )
+        )
     end
 
     Bot.time =
@@ -2249,6 +2292,10 @@ end
 
 
 function Bot.phaseName()
+
+    if Bot.active and Bot.anchor == nil then
+        return "waiting-for-join"
+    end
 
     if not Bot.active or Bot.phaseIndex == 0 then
         return "off"
@@ -3246,7 +3293,9 @@ end
 function Sync.localPose(player)
 
     -- bot testowy podmienia pozycję i kierunek
-    if Bot.active then
+    if Bot.active
+        and Bot.anchor ~= nil
+    then
         return
             { x = Bot.x, y = Bot.y, z = Bot.z, w = 1.0 },
             { x = Bot.forwardX, y = Bot.forwardY, z = 0.0 },
@@ -3261,7 +3310,7 @@ function Sync.localPose(player)
 
     -- w aucie: środek i kierunek auta, nie fotel gracza
     if Sync.hasFlag(
-        Sync.localFlags,
+        Sync.realLocalFlags,
         Sync.FLAG_IN_VEHICLE
     ) then
 
@@ -3709,6 +3758,9 @@ local function resetRemote()
 
     S.rolePrinted = false
 
+    -- bot testowy: nowy środek trasy tam, gdzie gracz jest po wczytaniu
+    Bot.anchor = nil
+
     Sync.reset()
     Steer.reset()
     Steer.resetHardCorrect()
@@ -3881,7 +3933,7 @@ registerForEvent(
             if Bot.active then
                 Bot.stop()
             else
-                Bot.start(player)
+                Bot.start()
             end
         end
 
@@ -3893,7 +3945,19 @@ registerForEvent(
             local area = Diag.TEST_AREA
 
             if teleportLocalPlayer(player, area.x, area.y, area.z) then
+
                 print("[CP2077Coop] EVENT teleported to test area: " .. area.name)
+
+                -- trasa bota przy celu (teleport kończy się dopiero
+                -- w kolejnych klatkach, pozycja gracza jest jeszcze stara)
+                if Bot.anchor ~= nil then
+
+                    Bot.anchor = {
+                        x = area.x + Bot.CENTER_OFFSET,
+                        y = area.y,
+                        z = area.z
+                    }
+                end
             end
         end
 
@@ -3908,11 +3972,14 @@ registerForEvent(
             if botFile ~= nil then
 
                 botFile:close()
-                Bot.start(player)
+                Bot.start()
             end
         end
 
-        Bot.update(delta)
+        Bot.update(
+            delta,
+            player
+        )
 
 
         ----------------------------------------------------
@@ -4149,9 +4216,10 @@ registerForEvent(
             ------------------------------------------------
 
             -- nie teleportujemy gracza siedzącego w pojeździe
+            -- (prawdziwe flagi: faza "vehicle" bota go nie blokuje)
             local localInVehicle =
                 Sync.hasFlag(
-                    Sync.localFlags,
+                    Sync.realLocalFlags,
                     Sync.FLAG_IN_VEHICLE
                 )
 
@@ -4367,7 +4435,12 @@ registerForEvent(
             -- SPAWN REMOTE AVATAR ON FIRST PACKET
             ------------------------------------------------
 
-            if not S.remoteInitialized then
+            -- joiner w trakcie teleportu do hosta: spawn dopiero po nim
+            -- (avatar pojawia się przed lokalnym graczem, nie w miejscu,
+            -- które gracz właśnie opuszcza)
+            if not S.remoteInitialized
+                and not S.joinSyncPending
+            then
 
                 player:
                     CP2077Coop_SpawnRemoteTest()
