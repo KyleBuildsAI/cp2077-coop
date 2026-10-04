@@ -30,9 +30,13 @@ Requirements:
   `G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Test B`. Set `COOP_GAME_DIR`
   to use another one. `make_sandbox.py` reads only `engine\tools`,
   `r6\cache\final.redscripts` and `red4ext\plugins\Codeware\Scripts` from it, copies
-  them into `%TEMP%\cp2077coop_scc_sandbox`, mirrors this repo's `.reds` files in,
-  and `coop-tools\scc_check.py` compiles there without error popups. Never run
-  `scc.exe` directly.
+  them into a sandbox, mirrors this repo's `.reds` files in, and
+  `coop-tools\scc_check.py` compiles there without error popups. The runner builds a
+  fresh sandbox inside its per-run folder (so concurrent runs never compile each
+  other's scripts), keeps the compiler's `redscript_rCURRENT.log` next to the test
+  logs and deletes the sandbox afterwards (about 20 MB). Run by hand,
+  `make_sandbox.py` defaults to `%TEMP%\cp2077coop_scc_sandbox`. Never run `scc.exe`
+  directly.
 
 Each Python test runs in its own new folder under `%TEMP%`, because the mod's
 `role.txt`, `coop_stats_*.txt` and `coop_events.log` are relative to the working

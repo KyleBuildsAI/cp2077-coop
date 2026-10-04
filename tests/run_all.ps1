@@ -131,18 +131,40 @@ function Test-LuaLoad {
     Complete-Group ($result.Code -eq 0)
 }
 
+function Remove-RunSandbox {
+    # Keeps the compiler's log, then deletes the per-run sandbox (about 20 MB) even when the run failed.
+    param([string]$SandboxDir)
+    $compilerLog = Join-Path $SandboxDir "r6\logs\redscript_rCURRENT.log"
+    if (Test-Path -LiteralPath $compilerLog -PathType Leaf) {
+        Copy-Item -LiteralPath $compilerLog -Destination (Join-Path $WorkDir "redscript_rCURRENT.log")
+    }
+    try {
+        Remove-Item -LiteralPath $SandboxDir -Recurse -Force -ErrorAction Stop
+    }
+    catch {
+        Write-Output "  note: could not remove ${SandboxDir}: $($_.Exception.Message)"
+    }
+}
+
 function Test-RedscriptCompile {
     Write-Output "== redscript compile (sandbox, no popups)"
-    $sandbox = Invoke-Python @((Join-Path $TestsDir "make_sandbox.py"))
-    $sandbox.Lines | ForEach-Object { Write-Output "  $_" }
-    if ($sandbox.Code -ne 0) {
-        Complete-Group $false
-        return
+    # a sandbox per run: concurrent runs (other worktrees, parallel agents) never compile each other's .reds
+    $sandboxDir = Join-Path $WorkDir "scc_sandbox"
+    try {
+        $sandbox = Invoke-Python @((Join-Path $TestsDir "make_sandbox.py"), "--out", $sandboxDir)
+        $sandbox.Lines | ForEach-Object { Write-Output "  $_" }
+        if ($sandbox.Code -ne 0) {
+            Complete-Group $false
+            return
+        }
+        $compile = Invoke-Python @((Join-Path $ToolsDir "scc_check.py"), $sandbox.Lines[-1])
+        Set-Content -LiteralPath (Join-Path $WorkDir "redscript.log") -Value $compile.Lines -Encoding UTF8
+        if ($compile.Code -eq 0) { Show-Lines $compile "OK:|WARN" } else { $compile.Lines | ForEach-Object { Write-Output $_ } }
+        Complete-Group ($compile.Code -eq 0)
     }
-    $compile = Invoke-Python @((Join-Path $ToolsDir "scc_check.py"), $sandbox.Lines[-1])
-    Set-Content -LiteralPath (Join-Path $WorkDir "redscript.log") -Value $compile.Lines -Encoding UTF8
-    if ($compile.Code -eq 0) { Show-Lines $compile "OK:|WARN" } else { $compile.Lines | ForEach-Object { Write-Output $_ } }
-    Complete-Group ($compile.Code -eq 0)
+    finally {
+        if (Test-Path -LiteralPath $sandboxDir) { Remove-RunSandbox $sandboxDir }
+    }
 }
 
 function Test-PythonScript {
