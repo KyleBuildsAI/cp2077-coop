@@ -112,6 +112,10 @@ S.syncActive = false
 S.rolePrinted = false
 S.lastRemoteSequence = -1
 
+-- DLL nigdy nie czyści ostatniego pakietu: numer, który leżał w slocie
+-- przy resecie, ignorujemy, aż przyjdzie inny (nil = brak)
+S.staleSequence = nil
+
 -- numer i licznik tyknięć ostatniego pakietu RUCHU; pakiety bojowe
 -- zużywają numery, ale nie są upływem czasu
 S.lastMoveSequence = nil
@@ -1059,6 +1063,11 @@ function Sync.receivePayload(payload)
         Sync.remoteFlagsSeen = true
 
     elseif packetType == Sync.TYPE_TIME then
+
+        -- poza dobą = uszkodzony pakiet, nie godzina
+        if value * Sync.TIME_STEP_MINUTES >= 1440 then
+            return
+        end
 
         Sync.remoteTimeMinutes =
             value *
@@ -2265,6 +2274,9 @@ local Diag = {
     STALE_AFTER = 1.5,
     LOST_AFTER = 5.0,
 
+    -- odczyt slotu DLL przerwany nowym pakietem (pominięty, patrz onUpdate)
+    tornReads = 0,
+
     ROLE_FILE = "role.txt",
     MONITOR_FILE = "monitor_status.txt",
 
@@ -2547,7 +2559,7 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s",
+            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d",
             Diag.connectionState(),
             IS_HOST and "host" or "joiner",
             Diag.formatMs(Sync.rttMs),
@@ -2573,7 +2585,8 @@ function Diag.statsLine()
             Diag.modsField(4),
             Diag.modsField(1),
             tostring(Diag.roleConflict()),
-            tostring(Diag.peerLooksOutdated())
+            tostring(Diag.peerLooksOutdated()),
+            Diag.tornReads
         )
 end
 
@@ -3609,6 +3622,17 @@ local function resetRemote()
 
     S.lastRemoteSequence = -1
 
+    -- DLL nie czyści HasRemotePlayer i trzyma ostatni pakiet na zawsze:
+    -- to, co leży w slocie teraz (np. sprzed wyjścia drugiego gracza),
+    -- ignorujemy, aż przyjdzie pakiet z innym numerem
+    S.staleSequence = nil
+
+    if Game.CP2077Coop_HasRemotePlayer() then
+
+        S.staleSequence =
+            Game.CP2077Coop_GetRemoteSequence()
+    end
+
     S.lastMoveSequence = nil
     S.combatSinceMove = 0
     S.moveTicks = 0
@@ -3922,14 +3946,22 @@ registerForEvent(
         -- cofałby postać. Duży spadek = restart drugiego klienta.
         ----------------------------------------------------
 
+        -- pakiet sprzed resetu (wczytanie gry, zmiana roli): jak brak
+        -- danych, dopóki w slocie nie pojawi się inny numer
+        local isStale =
+            sequence == S.staleSequence
+
+        if not isStale then
+            S.staleSequence = nil
+        end
+
         local isNewer =
-            sequence >
-            S.lastRemoteSequence
+            not isStale
+            and sequence > S.lastRemoteSequence
 
         local isRestart =
-            sequence <
-            S.lastRemoteSequence -
-            SEQUENCE_RESET_GAP
+            not isStale
+            and sequence < S.lastRemoteSequence - SEQUENCE_RESET_GAP
 
         -- spóźniony pakiet: liczymy raz (DLL trzyma go aż do następnego)
         if not isNewer
@@ -3940,6 +3972,34 @@ registerForEvent(
 
             S.lastIgnoredSequence = sequence
             Diag.onIgnored()
+        end
+
+
+        -- cały pakiet ze slotu DLL. Wątek sieci zapisuje x..fy, potem
+        -- numer, bez blokady: inny numer po odczycie = pola mogą być
+        -- z dwóch pakietów (zły stan gry, skok prędkości). Taki odczyt
+        -- pomijamy, nowszy pakiet weźmiemy w całości w następnej klatce.
+        local rx, ry, rz, rawForwardX, rawForwardY
+
+        if isNewer
+            or isRestart
+        then
+
+            rx = Game.CP2077Coop_GetRemoteX()
+            ry = Game.CP2077Coop_GetRemoteY()
+            rz = Game.CP2077Coop_GetRemoteZ()
+
+            rawForwardX = Game.CP2077Coop_GetRemoteForwardX()
+            rawForwardY = Game.CP2077Coop_GetRemoteForwardY()
+
+            if Game.CP2077Coop_GetRemoteSequence() ~= sequence then
+
+                isNewer = false
+                isRestart = false
+
+                Diag.tornReads =
+                    Diag.tornReads + 1
+            end
         end
 
 
@@ -3958,23 +4018,6 @@ registerForEvent(
 
             S.lastRemoteSequence =
                 sequence
-
-
-            local rx =
-                Game.CP2077Coop_GetRemoteX()
-
-            local ry =
-                Game.CP2077Coop_GetRemoteY()
-
-            local rz =
-                Game.CP2077Coop_GetRemoteZ()
-
-
-            local rawForwardX =
-                Game.CP2077Coop_GetRemoteForwardX()
-
-            local rawForwardY =
-                Game.CP2077Coop_GetRemoteForwardY()
 
 
             -- pakiet bojowy (combat.reds): x/y/z to pozycja NPC, nie gracza.
