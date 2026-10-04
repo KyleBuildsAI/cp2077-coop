@@ -5,8 +5,10 @@ message transport: a FIFO inbox, an unreliable channel for snapshots, and a reli
 events (resent until acknowledged, delivered once and in order). It replaces the
 "latest position only, extra bits squeezed into the forward vector" limit of `CP2077Coop.dll`.
 
-Status: builds, unit and integration tests pass outside the game. **It has not been loaded in
-the game yet.**
+Version 0.1.1 (protocol 1). Status: builds, unit and integration tests pass outside the game.
+**It has not been loaded in the game yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1
+install and in-game check: install steps, the bench relay on port 11779, CET console commands and
+the log lines that prove success.
 
 ## Layout
 
@@ -14,8 +16,11 @@ the game yet.**
 src/core/Protocol.*     frame codec (20-byte header), sequence arithmetic, control payload helpers
 src/core/Reliability.*  per-peer reliable stream: send window, SACK acks, resend, reorder buffer
 src/core/Transport.*    Winsock UDP thread, peers, inbox/outbox queues, stats (no RED4ext dependency)
+src/core/Clock.*        Net_NowMs clock (GetSystemTimePreciseAsFileTime -> Unix epoch ms)
+src/core/Version.hpp    plugin version (from CMake project VERSION) and the Net_Version string
+src/core/LoadReport.*   the native list and the one-line startup summary
 src/plugin/Main.cpp     RED4ext exports (Query/Main/Supports), Net_* natives, runtime check
-scripts/CP2077CoopNet/  Natives.reds (declarations) + Helpers.reds (parsing, channel ids)
+scripts/CP2077CoopNet/  Natives.reds (declarations) + Helpers.reds (parsing, channel ids, self test)
 lua/coopnet.lua         CET helper module
 tools/coopnet_relay.py  relay for this protocol, with latency/jitter/loss/reorder simulation
 tools/*.ps1, *.py       build, dependency fetch, export verification, loopback runner
@@ -29,7 +34,13 @@ Requirements: VS 2022 (MSVC v143), CMake 3.21+, Python 3.11+ with `pefile`, git.
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\fetch_deps.ps1   # RED4ext.SDK pinned to tag 1.0.0
 powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Loopback
+powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Clean -All   # fresh build dir, every offline test
 ```
+
+`-Clean` deletes `build\` first. `-All` adds `tests\test_relay_protocol.py` and
+`tests\test_lua_helper.py` to the run; the Lua test needs `lupa` (`pip install lupa`, or `PYTHONPATH`
+pointing at a folder that has it). The version lives in one place, `project(CP2077CoopNet VERSION ...)`
+in `CMakeLists.txt`: `Query()`, `Net_Version()`, `Net_Stats` and the probe all read it.
 
 `build.ps1` runs these commands:
 
@@ -42,7 +53,7 @@ build\Release\coopnet_plugin_probe.exe build\Release\CP2077CoopNet.dll
 python tools\run_loopback.py
 ```
 
-It then stages `dist\red4ext\plugins\CP2077CoopNet\`. `CMAKE_GENERATOR_INSTANCE` pins the
+It then recreates `dist\red4ext\plugins\CP2077CoopNet\` and prints each staged file's SHA256. `CMAKE_GENERATOR_INSTANCE` pins the
 Community install. Without it, CMake may pick another VS 2022 instance, such as Preview. The CRT
 is linked statically, so the DLL imports only kernel32, user32, version and ws2_32.
 
@@ -61,6 +72,16 @@ the game executable is file version 3.0.80.51928 (2.31). `Query` reports runtime
 and `Supports` returns API v1. These are the same values as Jakub's `CP2077Coop.dll`, which RED4ext
 1.30 loads.
 
+Once RED4ext has accepted the natives, the plugin writes one line to its own log,
+`<game>\red4ext\logs\cp2077coopnet-<timestamp>.log`:
+
+```
+CP2077CoopNet 0.1.1 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
+```
+
+If a native or the Scripts folder failed, the same line is logged at error level with
+`MISSING: ...` or `scripts NOT added: <reason>`. See [INSTALL_PHASE1.md](INSTALL_PHASE1.md).
+
 ## API
 
 | native | redscript | CET |
@@ -73,6 +94,17 @@ and `Supports` returns API v1. These are the same values as Jakub's `CP2077Coop.
 | `Net_Poll() -> String` | `""` when empty | |
 | `Net_Stats() -> String` | JSON | `CoopNet.stats()` decodes it |
 | `Net_LocalId() -> Int32` | 0 until welcomed | |
+| `Net_NowMs() -> Double` | ms since the Unix epoch (UTC), sub-ms fraction | `CoopNet.nowMs()` |
+| `Net_Version() -> String` | `"CP2077CoopNet 0.1.1 proto 1"` | `CoopNet.version()`, `CoopNet.parseVersion(s)` |
+
+* **Net_NowMs** reads `GetSystemTimePreciseAsFileTime` (100 ns ticks) and returns a Double, not an
+  Int64: CET hands Int64 to Lua as LuaJIT cdata (`123LL`, built by compiling a chunk per call), while
+  a Double is a plain Lua number. A Double keeps every whole millisecond exact and resolves about
+  0.25 us at today's values. It is wall-clock time, so it follows Windows clock adjustments. Two
+  instances on one PC share it, which is what the scoreboard needs. In redscript, Double literals
+  need a `d` suffix (`1.0d`); `CoopNet_ElapsedMs(start)` gives a Float span.
+* **Net_Version** is `"CP2077CoopNet <major.minor.patch> proto <wire protocol>"`. `Net_Stats` JSON
+  carries the same string as `"version"`.
 
 * **Channels**: 1..15 are unreliable and sequenced. A snapshot older than one already delivered on
   the same channel is dropped. 16..31 are reliable and ordered, sharing one ordered stream per peer.
@@ -93,7 +125,7 @@ and `Supports` returns API v1. These are the same values as Jakub's `CP2077Coop.
 local CoopNet = require("coopnet")
 CoopNet.connect("203.0.113.7", 11779, "kyle-and-friend")
 registerForEvent("onUpdate", function()
-    CoopNet.poll(function(sender, channel, payload)
+    local handled, drainMs = CoopNet.pollTimed(function(sender, channel, payload)
         -- channel 0: transport events, 1..15 snapshots, 16..31 events
     end)
 end)
@@ -152,18 +184,25 @@ port of it, on a host that both players can reach.
 
 ## Tests (latest run)
 
-* `coopnet_tests.exe`: 67 checks covering the codec, sequence wrap, RTT, SACK bits, backpressure,
+* `coopnet_tests.exe`: 105 checks covering the codec, sequence wrap, RTT, SACK bits, backpressure,
   fast retransmit, the horizon and simulated links. Game-like events at 20/s with 2% loss and
   320 ms RTT have one-way latency p50 169 ms, p99 539 ms, max 889 ms. A 70,000-message transfer
-  wraps the 16-bit sequence.
+  wraps the 16-bit sequence. Since 0.1.1 the run also covers Net_NowMs: FILETIME conversion against
+  known dates, agreement with `system_clock`, no backward step over 200,000 calls, sub-ms values,
+  call cost and elapsed time against `steady_clock` across a sleep. It also covers the Net_Version
+  format and the startup summary line.
 * `run_loopback.py`: two real `Transport` instances through the relay.
   * Clean link: 1000 + 500 reliable messages pass.
   * Transatlantic (160 ms each way, 15 ms jitter, 2% loss): 400 + 200 reliable messages arrive in
     order in 3.7 s, and RTT settles at 333 ms.
   * Hostile (20% loss with reordering): 300 + 150 in order.
-* `test_relay_protocol.py`: 9 relay checks. `test_lua_helper.py`: 10 checks under LuaJIT 2.1.
+* `test_relay_protocol.py`: 10 relay checks; it waits for the relay to come up and prints the relay's
+  log if a check fails. `test_lua_helper.py`: 22 checks under LuaJIT 2.1.
 * `verify_exports.py`: Main/Query/Supports exported, `Supports()` returns 1, no VC++ redist
-  imports. `coopnet_plugin_probe.exe`: LoadLibrary + Query gives runtime 3.0.80.51928, SDK 1.0.0.
+  imports. The native list in `LoadReport.hpp`, the registrations in `Main.cpp` and the
+  declarations in `Natives.reds` agree, and every name is in the image. The Net_Version string
+  matches `CMakeLists.txt`, and the log marker occurs exactly once. `coopnet_plugin_probe.exe`:
+  LoadLibrary + Query gives version 0.1.1, runtime 3.0.80.51928 and SDK 1.0.0.
 
 ## Known limits
 
