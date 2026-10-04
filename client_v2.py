@@ -133,6 +133,7 @@ class RemotePlayer:
         self.buffer = InterpBuffer(**InterpBuffer.PLAYER)
         self.follower = LatestSlotFollower()
         self.latest_seq = None
+        self.first_seq = None
         self.received = 0
         self.duplicates = 0
         self.reordered = 0
@@ -195,6 +196,8 @@ class CoopClient:
         self.entity_spawns = 0
         self.entity_removals = 0
         self.player_errors = []
+        self.yaw_errors = []
+        self.motion_errors = {}
         self.render_delays = []
         self.render_modes = {}
         self.v2_track = []
@@ -370,7 +373,7 @@ class CoopClient:
         elif mtype == proto.MsgType.WORLD_FACT and values["fact_hash"] == testworld.EPOCH_FACT:
             self.epoch_ms = values["value"]
         elif mtype == proto.MsgType.TELEPORT_REQ and self.role == proto.Role.HOST:
-            truth = testworld.player_truth(proto.Role.HOST, self.relay_ms(now) / 1000.0)
+            truth = testworld.player_truth(proto.Role.HOST, self.relay_ms(now) / 1000.0, self.args.player_path)
             x, y, z = truth["pos"]
             self.send_event(now, proto.MsgType.TELEPORT_RESP, src, {
                 "req_id": values["req_id"], "accepted": 1, "reserved": 0, "x": x, "y": y, "z": z,
@@ -395,6 +398,8 @@ class CoopClient:
         if remote.latest_seq is None or ((seq - remote.latest_seq) % 65536) < 32768:
             remote.latest_seq = seq
             remote.last = values
+        if remote.first_seq is None or ((remote.first_seq - seq) % 65536) < 32768:
+            remote.first_seq = seq
         remote.received += 1
         remote.flags_seen |= values["flags"]
         if values["vehicle"] is not None:
@@ -446,10 +451,12 @@ class CoopClient:
             return  # sample_time would be meaningless before the relay clock is known
         self.player_ticks += 1
         relay_ms = self.relay_ms(now)
-        truth = testworld.player_truth(self.role, relay_ms / 1000.0)
+        truth = testworld.player_truth(self.role, relay_ms / 1000.0, self.args.player_path)
         x, y, z = truth["pos"]
         flags = int(proto.PlayerFlag.WEAPON_DRAWN) | (4 << proto.WEAPON_CLASS_SHIFT)
-        move = proto.MoveState.RUN
+        move = proto.MoveState(truth.get("move", proto.MoveState.RUN))
+        if move == proto.MoveState.SPRINT:
+            flags |= int(proto.PlayerFlag.SPRINTING)
         vehicle = None
         if truth["driving"]:
             flags = int(proto.PlayerFlag.IN_VEHICLE | proto.PlayerFlag.DRIVING)
@@ -561,7 +568,7 @@ class CoopClient:
                 "appearance": k, "ammo": k & 0xFFFF}
 
     def scripted_event(self, now: float, other_id: int, relay_ms: float) -> None:
-        truth = testworld.player_truth(self.role, relay_ms / 1000.0)
+        truth = testworld.player_truth(self.role, relay_ms / 1000.0, self.args.player_path)
         x, y, z = truth["pos"]
         step = self.event_counter % 6
         if step == 0:
@@ -610,9 +617,16 @@ class CoopClient:
         if remote is not None and remote.buffer.samples and self.events_started:
             self.rendered_peer = other_id
             render_t = remote.buffer.render_time(relay_ms, dt_ms)
-            pos, _, mode = remote.buffer.sample_at(render_t)
-            truth = testworld.player_truth(remote.role, render_t / 1000.0)["pos"]
-            self.player_errors.append(distance(pos, truth))
+            pos, yaw, mode = remote.buffer.sample_at(render_t)
+            truth_state = testworld.player_truth(remote.role, render_t / 1000.0, self.args.player_path)
+            truth = truth_state["pos"]
+            error = distance(pos, truth)
+            yaw_error = abs(((yaw - truth_state["yaw"] + 180.0) % 360.0) - 180.0)
+            self.player_errors.append(error)
+            self.yaw_errors.append(yaw_error)
+            by_motion = self.motion_errors.setdefault(truth_state["motion"], ([], []))
+            by_motion[0].append(error)
+            by_motion[1].append(yaw_error)
             self.render_delays.append(relay_ms - render_t)
             self.render_modes[mode] = self.render_modes.get(mode, 0) + 1
             self.v2_track.append((now, pos))
@@ -655,7 +669,8 @@ class CoopClient:
             return {}
         best = None
         for delay in range(0, 505, 5):
-            errors = [distance(pos, testworld.player_truth(remote.role, (relay_ms - delay) / 1000.0)["pos"])
+            errors = [distance(pos, testworld.player_truth(remote.role, (relay_ms - delay) / 1000.0,
+                                                           self.args.player_path)["pos"])
                       for _, pos, relay_ms in self.v1_track[::2]]
             rms = math.sqrt(sum(e * e for e in errors) / len(errors))
             if best is None or rms < best[1]:
@@ -672,8 +687,10 @@ class CoopClient:
             return report
         remotes = {}
         for src, remote in self.remote.items():
+            span = 0 if remote.first_seq is None else (remote.latest_seq - remote.first_seq) % 65536 + 1
             remotes[str(src)] = {"received": remote.received, "duplicates": remote.duplicates,
-                                 "reordered": remote.reordered, "flags_seen": remote.flags_seen,
+                                 "reordered": remote.reordered, "first_seq": remote.first_seq,
+                                 "latest_seq": remote.latest_seq, "seq_span": span, "flags_seen": remote.flags_seen,
                                  "driving_seen": remote.driving_seen, "buffer": remote.buffer.counts,
                                  "legacy_radius_error": summarize(remote.legacy_radius_error)}
         v2_accel = accelerations(self.v2_track)
@@ -704,6 +721,9 @@ class CoopClient:
             },
             "render": {
                 "player_error_m": summarize(self.player_errors),
+                "yaw_error_deg": summarize(self.yaw_errors),
+                "by_motion": {motion: {"error_m": summarize(errors), "yaw_error_deg": summarize(yaw_errors)}
+                              for motion, (errors, yaw_errors) in sorted(self.motion_errors.items())},
                 "render_delay_ms": summarize(self.render_delays),
                 "modes": self.render_modes,
                 "accel_v2_mps2": summarize(v2_accel),
@@ -730,6 +750,8 @@ def parse_args(argv=None):
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--legacy-center", type=float, nargs=2, default=(-1400.0, 200.0))
     parser.add_argument("--legacy-radius", type=float, default=5.0)
+    parser.add_argument("--player-path", choices=("demo", "course"), default="demo",
+                        help="demo: host runs a circle, joiner drives; course: both run the scripted course")
     for leg in ("up", "down"):
         parser.add_argument(f"--{leg}-latency-ms", type=float, default=0.0)
         parser.add_argument(f"--{leg}-jitter-ms", type=float, default=0.0)
