@@ -732,6 +732,16 @@ private:
             Fail(LastSocketError("WSAEventSelect"));
             return false;
         }
+        m_timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+        if (m_timer == nullptr)
+        {
+            m_timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+        }
+        if (m_timer == nullptr)
+        {
+            m_shared.Log(LogLevel::Warn, "no waitable timer (error " + std::to_string(GetLastError()) +
+                                             "); timers follow the system tick");
+        }
 
         char address[INET_ADDRSTRLEN] = {};
         inet_ntop(AF_INET, &m_relayAddress.sin_addr, address, sizeof(address));
@@ -839,6 +849,11 @@ private:
             WSACloseEvent(m_socketEvent);
             m_socketEvent = WSA_INVALID_EVENT;
         }
+        if (m_timer != nullptr)
+        {
+            CloseHandle(m_timer);
+            m_timer = nullptr;
+        }
     }
 
     void SayGoodbye()
@@ -857,16 +872,35 @@ private:
         }
     }
 
+    // Waits for the socket, a wake from the game thread or the next timer. The wait timeout of
+    // WaitForMultipleObjects follows the system timer (15.6 ms unless something raised it), so a
+    // high-resolution waitable timer carries the short waits that packet pacing needs.
+    DWORD Wait(double aNow, double aWake)
+    {
+        const HANDLE handles[3] = {m_socketEvent, m_shared.wakeEvent, m_timer};
+        if (aWake <= aNow)
+        {
+            return WaitForMultipleObjects(2, handles, FALSE, 0);
+        }
+        const double waitMs = std::min(aWake - aNow, static_cast<double>(kMaxWaitMillis));
+        if (m_timer != nullptr)
+        {
+            LARGE_INTEGER due{};
+            due.QuadPart = -static_cast<LONGLONG>(waitMs * 10'000.0); // relative, 100 ns units
+            if (SetWaitableTimer(m_timer, &due, 0, nullptr, nullptr, FALSE))
+            {
+                return WaitForMultipleObjects(3, handles, FALSE, kMaxWaitMillis * 2);
+            }
+        }
+        return WaitForMultipleObjects(2, handles, FALSE, static_cast<DWORD>(std::ceil(waitMs)));
+    }
+
     void Loop()
     {
-        const HANDLE handles[2] = {m_socketEvent, m_shared.wakeEvent};
         while (!m_shared.stopRequested.load())
         {
             double now = MonotonicMs();
-            const double wake = NextWakeMs(now);
-            const DWORD waitMillis =
-                wake <= now ? 0 : static_cast<DWORD>(std::min(std::ceil(wake - now), static_cast<double>(kMaxWaitMillis)));
-            const DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, waitMillis);
+            const DWORD waitResult = Wait(now, NextWakeMs(now));
             if (waitResult == WAIT_FAILED)
             {
                 Fail("WaitForMultipleObjects failed (error " + std::to_string(GetLastError()) + ")");
@@ -921,9 +955,11 @@ private:
             return std::min(wake, m_nextHandshakeMs);
         }
         const v2::Connection& link = *m_link;
+        // Payload waits for the packet pacing (Flush), so a due message must not spin the loop.
+        const double earliestSend = aNow + std::max(0.0, m_shared.config.minPacketIntervalMs - SinceSendMs(aNow));
         if (const auto due = link.NextReliableDue())
         {
-            wake = std::min(wake, *due * 1000.0);
+            wake = std::min(wake, std::max(*due * 1000.0, earliestSend));
         }
         if (const auto lastSend = link.LastSend())
         {
@@ -937,6 +973,10 @@ private:
         if (m_hasPendingPlayer)
         {
             wake = std::min(wake, m_lastPlayerSendMs + PlayerIntervalMs());
+        }
+        if (!m_pending.empty())
+        {
+            wake = std::min(wake, earliestSend);
         }
         if (!m_reliableBacklog.empty() && m_reliableTokens < 1.0)
         {
@@ -1416,10 +1456,6 @@ private:
     {
         DrainOutbox();
         TakePlayer(aNow);
-        if (m_clock.RequestDue(aNow))
-        {
-            QueueUnreliable(coopv2::kPeerRelay, v2::Body{m_clock.MakeRequest(aNow)});
-        }
         PumpReliable(aNow);
         Flush(aNow);
     }
@@ -1559,15 +1595,38 @@ private:
         return true;
     }
 
+    double SinceSendMs(double aNow) const
+    {
+        return m_link->LastSend() ? aNow - *m_link->LastSend() * 1000.0 : 1e18;
+    }
+
+    // Whether something other than an ack or a keepalive waits for the next DATA packet.
+    bool PayloadWaiting(double aNow) const
+    {
+        return !m_pending.empty() || m_link->ReliableDue(aNow / 1000.0) || m_clock.RequestDue(aNow);
+    }
+
+    // Sends what is waiting in as few DATA packets as possible, at most one burst every
+    // minPacketIntervalMs: relay_v2.py counts every packet against 120/s, and a client over the
+    // limit collects violations until it is kicked. The TIME_REQ is created here, right before the
+    // packet leaves, so its t0 does not include that wait.
     void Flush(double aNow)
     {
         v2::Connection& link = *m_link;
-        const double sinceSend = link.LastSend() ? aNow - *link.LastSend() * 1000.0 : 1e18;
+        const double sinceSend = SinceSendMs(aNow);
         const bool ackDue = link.AckPending() && sinceSend >= m_shared.config.ackDelayMs;
         const bool keepalive = sinceSend >= m_shared.config.keepaliveMs;
-        if (m_pending.empty() && !link.ReliableDue(aNow / 1000.0) && !ackDue && !keepalive)
+        if (!PayloadWaiting(aNow) && !ackDue && !keepalive)
         {
             return;
+        }
+        if (sinceSend < m_shared.config.minPacketIntervalMs)
+        {
+            return;
+        }
+        if (m_clock.RequestDue(aNow))
+        {
+            QueueUnreliable(coopv2::kPeerRelay, v2::Body{m_clock.MakeRequest(aNow)});
         }
         std::vector<v2::LinkMessage> messages;
         messages.reserve(m_pending.size());
@@ -1757,6 +1816,7 @@ private:
 
     SOCKET m_socket = INVALID_SOCKET;
     WSAEVENT m_socketEvent = WSA_INVALID_EVENT;
+    HANDLE m_timer = nullptr; // high-resolution waitable timer for the loop's short waits
     sockaddr_in m_relayAddress{};
 
     // handshake

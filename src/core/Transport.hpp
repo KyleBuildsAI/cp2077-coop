@@ -164,6 +164,7 @@ struct TransportConfig
     double relayTimeoutMs = 5000.0;   // no datagram from the relay: relay_lost, reconnect
     double ackDelayMs = 20.0;
     double keepaliveMs = 1000.0;
+    double minPacketIntervalMs = 10.0; // at most ~100 DATA packets/s, below relay_v2.py's 120/s
     double reliablePerSecond = 50.0; // below relay_v2.py's 60/s reliable bucket
     double reliableBurst = 100.0;    // below its burst of 120
     double statsIntervalMs = 200.0;
