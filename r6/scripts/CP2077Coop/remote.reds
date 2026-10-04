@@ -1,7 +1,14 @@
+// Spawn avatara w (x, y, z), patrzącego wzdłuż (forwardX, forwardY);
+// wektor zerowy = jak lokalny gracz. Lua podaje pozycję drugiego gracza
+// z pakietu (bez przewidywania), więc zaraz po spawnie nie trzeba
+// AITeleportCommand, który czeka, aż AI nowego NPC ruszy (test na żywo
+// 2026-10-04: REMOTE SNAP FAILED error=9.06 i NOT RESPONDING przy
+// spawnie 2.5 m przed lokalnym graczem). Daleko od lokalnego gracza Lua
+// podaje punkt 2.5 m przed nim, jak dawniej.
 // true = avatar istnieje albo spawn zlecony; false = nic nie zlecono
 // (system encji jeszcze niegotowy, świat się wczytuje): Lua ponowi
 @addMethod(PlayerPuppet)
-public func CP2077Coop_SpawnRemoteTest() -> Bool {
+public func CP2077Coop_SpawnRemoteTest(x: Float, y: Float, z: Float, forwardX: Float, forwardY: Float) -> Bool {
     let system = GameInstance.GetDynamicEntitySystem();
 
     if !IsDefined(system) || !system.IsReady() {
@@ -12,18 +19,18 @@ public func CP2077Coop_SpawnRemoteTest() -> Bool {
         return true;
     }
 
-    let position = this.GetWorldPosition();
-    let forward = this.GetWorldForward();
-
-    // 2.5 m przed lokalnym graczem
-    position.X += forward.X * 2.5;
-    position.Y += forward.Y * 2.5;
-
     let spec = new DynamicEntitySpec();
 
     spec.recordID = t"Character.Judy";
-    spec.position = position;
-    spec.orientation = this.GetWorldOrientation();
+    spec.position = new Vector4(x, y, z, 1.0);
+
+    let facing = new Vector4(forwardX, forwardY, 0.0, 0.0);
+
+    if Vector4.Length2D(facing) > 0.01 {
+        spec.orientation = EulerAngles.ToQuat(Vector4.ToRotation(facing));
+    } else {
+        spec.orientation = this.GetWorldOrientation();
+    }
 
     spec.persistState = false;
     spec.persistSpawn = false;

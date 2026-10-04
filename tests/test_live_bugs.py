@@ -544,6 +544,71 @@ def test_menu_holds_corrections():
             and len(frozen_logs) == 2)
 
 
+# A new NPC's AI is not running yet: for WARMUP s it reads (0, 0, 0) and every
+# AITeleportCommand is dropped (live test 2026-10-04: REMOTE SNAP FAILED at spawn)
+WARMUP_MOCK = r"""
+WARMUP = 1.0
+npcBornAt = nil
+teleportsInWarmup = 0
+local tickBase = tickSpawn
+function tickSpawn()
+    local before = npc
+    tickBase()
+    if before == nil and npc ~= nil then
+        npcBornAt = simTime
+        local position = npc.GetWorldPosition
+        function npc:GetWorldPosition()
+            if simTime - npcBornAt < WARMUP then return { x = 0, y = 0, z = 0, w = 1 } end
+            return position(self)
+        end
+    end
+    teleportsIgnored = npcBornAt ~= nil and simTime - npcBornAt < WARMUP
+end
+local move = player.CP2077Coop_MoveRemoteTest
+function player:CP2077Coop_MoveRemoteTest(...)
+    if teleportsIgnored then teleportsInWarmup = teleportsInWarmup + 1 end
+    return move(self, ...)
+end
+"""
+
+
+def run_partner(t):
+    """The joiner runs north at 4.5 m/s from (20, 0)."""
+    return 20.0, 4.5 * t, 0.0, 0.0, 1.0, 0
+
+
+def test_spawn_at_partner():
+    receiver = make_receiver(role="host", position=(0.0, 0.0), extra=WARMUP_MOCK + FIND_DIAG)
+    remote = ScriptedRemote(receiver, run_partner, loss=0.0)
+    g = receiver.globals()
+    diag = receiver.eval("findDiag")(g.events["onUpdate"])
+    spawned = {}
+
+    def watch(t):
+        if "t" not in spawned and g.spawnAt is not None:
+            spawned["t"] = t
+            spawned["at"] = (g.spawnAt.x, g.spawnAt.y)
+
+    run(receiver, remote, 12.0, 60, on_frame=watch)
+    lines = logs(receiver)
+    partner_then = run_partner(spawned.get("t", 0.0))[:2]
+    spawn_at = spawned.get("at")
+    from_partner = math.hypot(spawn_at[0] - partner_then[0], spawn_at[1] - partner_then[1]) if spawn_at else None
+    from_player = math.hypot(spawn_at[0], spawn_at[1]) if spawn_at else None
+    snaps = [l for l in lines if "SNAP" in l]
+    npc = g.npc
+    x, y = run_partner(12.0)[:2]
+    end_error = math.hypot(npc.x - x, npc.y - y) if npc is not None else None
+    print(f"  spawn at {spawn_at} ({from_partner if from_partner is None else round(from_partner, 2)} m from the partner, "
+          f"{from_player if from_player is None else round(from_player, 1)} m from us); teleports while the NPC was not placed "
+          f"{int(g.teleportsInWarmup)}; {snaps}; hard corrections {int(diag.hardTotal)}; avatar {end_error if end_error is None else round(end_error, 2)} m "
+          f"from the partner at 12 s")
+    return (spawn_at is not None and from_partner < 3.0 and from_player > 10.0
+            and int(g.teleportsInWarmup) == 0
+            and any("SNAP OK" in l for l in snaps) and not any("SNAP FAILED" in l for l in snaps)
+            and int(diag.hardTotal) == 0 and end_error is not None and end_error < 3.0)
+
+
 def test_car_kept_through_long_local_frame():
     # one 5.5 s local frame (window drag, autosave) while the remote drives:
     # packets kept arriving, so the car stays and the avatar stays parked
@@ -580,6 +645,7 @@ if __name__ == "__main__":
         "LIVE-3 car hidden on connection LOST and on reset": test_car_hidden_on_lost_and_reset,
         "LIVE-3 one 5.5 s local frame while the remote drives keeps the car (no false LOST)": test_car_kept_through_long_local_frame,
         "LIVE-4 a minute in the ESC menu: no teleports, hard corrections or NOT RESPONDING into the frozen world": test_menu_holds_corrections,
+        "LIVE-5 avatar spawned at the partner: no teleport before the game places it, no SNAP FAILED, no hard correction": test_spawn_at_partner,
     }
     results = {}
     for name, test in tests.items():

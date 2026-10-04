@@ -91,6 +91,13 @@ S.idleTimer = 0.0
 S.spawnSnapPending = false
 S.spawnSnapElapsed = 0.0
 S.spawnSnapAccumulator = 0.0
+-- snap nowego avatara (true) albo po wyjściu z auta (false, NPC już działa)
+S.spawnSnapFresh = false
+-- s czekania, aż gra ustawi nowy avatar (pozycja jeszcze 0, 0, 0)
+S.spawnPlaceWait = 0.0
+-- do tej chwili (Sync.clock) teleport avatara to ustawienie po spawnie
+-- albo po wyjściu z auta, nie korekta (hard_per_min)
+S.spawnGraceUntil = -100.0
 
 -- teleport joinera do hosta (Sync.updateJoin). Faza:
 --   "settle"   czekamy, aż gracz stoi w grze Sync.JOIN_SETTLE_SECONDS,
@@ -1293,6 +1300,15 @@ local Sync = {
     JOIN_JUMP_DISTANCE = 10.0,
     -- scena trzyma gracza od tego tieru (CP2077Coop_GetSceneTier)
     JOIN_SCENE_TIER = 3,
+
+    -- Spawn avatara w miejscu drugiego gracza (Sync.spawnPoint), gdy jest
+    -- najwyżej tyle metrów od nas (dalej świat może nie być wczytany:
+    -- wtedy jak dawniej 2.5 m przed lokalnym graczem)
+    SPAWN_AT_PARTNER_RANGE = 100.0,
+    -- najdłużej tyle s czekamy, aż gra ustawi nowy avatar (0, 0, 0)
+    SPAWN_PLACE_WAIT = 3.0,
+    -- tyle s po spawnie / wyjściu z auta teleport nie liczy się jako korekta
+    SPAWN_GRACE = 3.0,
 
     clock = 0.0,
 
@@ -2714,9 +2730,12 @@ function Sync.requestSpawn(player)
 
     S.spawnRequestedAt = Sync.clock
 
+    local x, y, z, forwardX, forwardY =
+        Sync.spawnPoint(player)
+
     -- false = nic nie zlecono, ponowimy z kolejnym pakietem;
     -- nil = stary remote.reds bez wyniku (Void): jak zlecony
-    if player:CP2077Coop_SpawnRemoteTest() == false then
+    if player:CP2077Coop_SpawnRemoteTest(x, y, z, forwardX, forwardY) == false then
 
         if not S.spawnDeferredLogged then
 
@@ -2736,12 +2755,46 @@ function Sync.requestSpawn(player)
 
     Diag.log(
         string.format(
-            "[CP2077Coop] remote spawn requested @ %.2f %.2f %.2f",
+            "[CP2077Coop] remote spawn requested @ %.2f %.2f %.2f (partner at %.2f %.2f %.2f)",
+            x,
+            y,
+            z,
             S.targetX,
             S.targetY,
             S.targetZ
         )
     )
+end
+
+
+-- Gdzie postawić nowy avatar: tam, gdzie drugi gracz był w ostatnim
+-- pakiecie (bez przewidywania) i patrzy tak jak on. Dalej niż
+-- SPAWN_AT_PARTNER_RANGE od nas: 2.5 m przed lokalnym graczem.
+function Sync.spawnPoint(player)
+
+    local own =
+        player:GetWorldPosition()
+
+    local x = S.previousRemoteX or S.targetX
+    local y = S.previousRemoteY or S.targetY
+    local z = S.previousRemoteZ or S.targetZ
+
+    if x ~= nil
+        and distance3(own.x, own.y, own.z, x, y, z) <=
+            Sync.SPAWN_AT_PARTNER_RANGE
+    then
+        return x, y, z, S.remoteForwardX or 0.0, S.remoteForwardY or 0.0
+    end
+
+    local forward =
+        player:GetWorldForward()
+
+    return
+        own.x + forward.x * 2.5,
+        own.y + forward.y * 2.5,
+        own.z,
+        forward.x,
+        forward.y
 end
 
 
@@ -5127,6 +5180,8 @@ function Sync.parkAvatar(player)
         S.spawnSnapPending = true
         S.spawnSnapElapsed = 0.0
         S.spawnSnapAccumulator = SPAWN_SNAP_INTERVAL
+        S.spawnSnapFresh = false
+        S.spawnGraceUntil = Sync.clock + Sync.SPAWN_GRACE
 
         return false
     end
@@ -6096,6 +6151,9 @@ local function resetRemote()
     S.spawnSnapPending = false
     S.spawnSnapElapsed = 0.0
     S.spawnSnapAccumulator = 0.0
+    S.spawnSnapFresh = false
+    S.spawnPlaceWait = 0.0
+    S.spawnGraceUntil = -100.0
 
     -- wczytanie gry / zmiana roli: teleport do hosta od nowa, licznik
     -- spokojnej gry od zera
@@ -6950,10 +7008,17 @@ registerForEvent(
                 )
 
 
+                -- nowy avatar stoi zwykle już przy drugim graczu
+                -- (Sync.spawnPoint): snap czeka, aż gra go ustawi, i
+                -- teleportuje dopiero od TELEPORT_DISTANCE
                 S.spawnSnapPending = true
                 S.spawnSnapElapsed = 0.0
                 S.spawnSnapAccumulator =
-                    SPAWN_SNAP_INTERVAL
+                    Steer.HARD_CORRECT_COOLDOWN
+                S.spawnSnapFresh = true
+                S.spawnPlaceWait = 0.0
+                S.spawnGraceUntil = Sync.clock + Sync.SPAWN_GRACE
+                Steer.resetHardCorrect()
 
 
                 S.lastCommandX = S.targetX
@@ -6984,6 +7049,25 @@ registerForEvent(
 
         if S.spawnSnapPending then
 
+            local snapPos =
+                S.remoteHandle:
+                    GetWorldPosition()
+
+            -- nowa encja, której gra jeszcze nie ustawiła (0, 0, 0):
+            -- AITeleportCommand czekałby na AI, kolejne by się
+            -- nadpisywały - nic nie wysyłamy i nie liczymy czasu snapu
+            if S.spawnSnapFresh
+                and math.abs(snapPos.x) + math.abs(snapPos.y) + math.abs(snapPos.z) < 0.01
+                and S.spawnPlaceWait < Sync.SPAWN_PLACE_WAIT
+            then
+
+                S.spawnPlaceWait =
+                    S.spawnPlaceWait +
+                    delta
+
+                return
+            end
+
             S.spawnSnapElapsed =
                 S.spawnSnapElapsed +
                 delta
@@ -6991,26 +7075,6 @@ registerForEvent(
             S.spawnSnapAccumulator =
                 S.spawnSnapAccumulator +
                 delta
-
-
-            if S.spawnSnapAccumulator >=
-                SPAWN_SNAP_INTERVAL
-            then
-
-                S.spawnSnapAccumulator = 0.0
-
-                hardCorrectRemote(
-                    player,
-                    S.targetX,
-                    S.targetY,
-                    S.targetZ
-                )
-            end
-
-
-            local snapPos =
-                S.remoteHandle:
-                    GetWorldPosition()
 
 
             local snapError =
@@ -7024,10 +7088,35 @@ registerForEvent(
                     S.targetZ
                 )
 
+            -- nowy avatar bliżej niż TELEPORT_DISTANCE: resztę dojdzie
+            -- AIMoveTo; teleport tylko z daleka, najwyżej co
+            -- HARD_CORRECT_COOLDOWN (po wyjściu z auta jak dawniej)
+            local placed =
+                snapError <= SPAWN_SNAP_TOLERANCE
+                or (S.spawnSnapFresh and snapError < TELEPORT_DISTANCE)
 
-            if snapError <=
-                SPAWN_SNAP_TOLERANCE
+            local snapInterval =
+                S.spawnSnapFresh
+                and Steer.HARD_CORRECT_COOLDOWN
+                or SPAWN_SNAP_INTERVAL
+
+            if not placed
+                and S.spawnSnapElapsed < SPAWN_SNAP_DURATION
+                and S.spawnSnapAccumulator >= snapInterval
             then
+
+                S.spawnSnapAccumulator = 0.0
+
+                hardCorrectRemote(
+                    player,
+                    S.targetX,
+                    S.targetY,
+                    S.targetZ
+                )
+            end
+
+
+            if placed then
 
                 S.spawnSnapPending = false
 
@@ -7147,6 +7236,7 @@ registerForEvent(
                 S.targetY,
                 S.targetZ,
                 not snapNow
+                    and Sync.clock >= S.spawnGraceUntil
             )
 
             S.lastCommandX = S.targetX
