@@ -440,61 +440,75 @@ python ..\relay\run_demo.py --host-exe build\Release\coopnet_v2_demo_client.exe 
   about 100 ms plus the latency floor is not an error), and the yaw difference; per kind of movement
   on the course.
 
-**Results** (`build.ps1 -Clean -All`, 2026-10-04, 0.2.0-alpha.4): 23 of 23 runs passed (the Python
-reference: 8 of 8). 9,923 reliable events, 0 order violations, 0 relay violations, 0 rate drops,
-every stream drained before the end. Loss = network loss over the received span (simulated in
-brackets); clock = final error of host / joiner, and for C++ clients the largest error over the
-run; pose = p95 error of the joiner's view of the host / the host's view of the joiner.
+**Results** (`build.ps1 -Clean -All`, 2026-10-04, 0.2.0-alpha.4 at dllproto `d096946`, relay
+`a41a95e`): 23 of 23 runs passed (the Python reference: 8 of 8). 9,922 reliable events, 0 order
+violations, 0 relay violations, 0 rate drops, every stream drained before the end. Loss = network
+loss over the received span (simulated in brackets); clock = final error of host / joiner, and for
+C++ clients the largest error over the run and the largest gap between two C++ instances; pose =
+p95 error of the joiner's view of the host / the host's view of the joiner.
 
 | pairing | scenario | loss h->j / j->h (sim.) | clock host / joiner (ms) | C++ max / pair (ms) | render delay | pose p95 (mm) | yaw p95 |
 |---|---|---|---|---|---|---|---|
-| cpp-host | clean | 0.0 / 0.0 % (0) | -0.37 / -0.48 | 0.65 / - | 100 ms | 6 / 14 | 0.03 |
-| cpp-host | realistic | 2.6 / 3.5 % (3.0) | -0.23 / -1.32 | 0.86 / - | 199 ms | 6 / 14 | 0.03 |
-| cpp-host | stress | 18.4 / 17.9 % (19.0) | -0.71 / +2.48 | 1.91 / - | 223 ms | 6 / 14 | 0.20 |
-| cpp-host | brutal | 36.5 / 36.1 % (36.0) | +1.75 / -0.06 | 2.21 / - | 315 ms | 6 / 15 | 1.21 |
-| cpp-host | course-clean | 0.0 / 0.0 % (0) | -0.40 / -0.60 | 0.68 / - | 100 ms | 5 / 6 | 0.10 |
-| cpp-host | course-us | 1.4 / 0.4 % (1.0) | +0.59 / -1.86 | 0.65 / - | 123 ms | 6 / 6 | 0.11 |
-| cpp-host | course-transatlantic | 1.4 / 0.7 % (1.0) | -0.51 / -1.96 | 1.32 / - | 199 ms | 6 / 5 | 0.10 |
-| cpp-joiner | clean | 0.0 / 0.0 % (0) | -0.47 / -0.16 | 0.63 / - | 101 ms | 6 / 14 | 0.03 |
-| cpp-joiner | realistic | 2.2 / 2.6 % (3.0) | -1.89 / -0.32 | 0.80 / - | 201 ms | 5 / 14 | 0.03 |
-| cpp-joiner | stress | 18.1 / 19.2 % (19.0) | -2.56 / -1.31 | 3.36 / - | 227 ms | 6 / 14 | 0.17 |
-| cpp-joiner | brutal | 37.6 / 37.4 % (36.0) | -6.08 / +1.41 | 1.81 / - | 314 ms | 6 / 14 | 1.53 |
-| cpp-joiner | course-clean | 0.0 / 0.0 % (0) | -0.49 / -0.39 | 0.69 / - | 101 ms | 6 / 6 | 0.09 |
-| cpp-joiner | course-us | 1.0 / 1.5 % (1.0) | -0.50 / -0.06 | 1.16 / - | 124 ms | 5 / 6 | 0.09 |
-| cpp-joiner | course-transatlantic | 1.1 / 1.4 % (1.0) | -3.52 / -0.11 | 1.60 / - | 200 ms | 5 / 6 | 0.12 |
-| cpp-both | clean | 0.0 / 0.0 % (0) | -0.14 / -0.30 | 0.63 / 0.45 | 101 ms | 6 / 14 | 0.03 |
-| cpp-both | realistic | 3.0 / 2.8 % (3.0) | -0.82 / +1.01 | 1.39 / 1.82 | 201 ms | 6 / 14 | 0.03 |
-| cpp-both | stress | 17.7 / 19.8 % (19.0) | +0.86 / -1.98 | 1.98 / 2.84 | 226 ms | 5 / 15 | 0.05 |
-| cpp-both | brutal | 35.5 / 35.8 % (36.0) | -3.53 / +3.23 | 6.67 / 6.75 | 307 ms | 6 / 14 | 1.07 |
-| cpp-both | course-clean | 0.0 / 0.0 % (0) | -0.32 / -0.41 | 0.76 / 0.54 | 101 ms | 5 / 6 | 0.10 |
-| cpp-both | course-us | 1.3 / 0.6 % (1.0) | +0.39 / -0.35 | 1.41 / 1.37 | 124 ms | 6 / 5 | 0.09 |
-| cpp-both | course-transatlantic | 0.8 / 0.5 % (1.0) | -0.03 / -0.51 | 1.81 / 2.11 | 200 ms | 5 / 5 | 0.09 |
+| cpp-host | clean | 0.0 / 0.0 % (0) | -0.47 / -0.56 | 0.47 / - | 100 ms | 5 / 15 | 0.03 |
+| cpp-host | realistic | 2.6 / 3.2 % (3.0) | -0.63 / -0.69 | 0.70 / - | 198 ms | 6 / 14 | 0.03 |
+| cpp-host | stress | 17.7 / 19.0 % (19.0) | +0.86 / -0.27 | 1.44 / - | 225 ms | 5 / 14 | 0.15 |
+| cpp-host | brutal | 35.8 / 36.7 % (36.0) | -0.76 / -2.05 | 2.10 / - | 314 ms | 6 / 15 | 1.32 |
+| cpp-host | course-clean | 0.0 / 0.0 % (0) | -0.33 / -1.02 | 0.67 / - | 100 ms | 5 / 6 | 0.09 |
+| cpp-host | course-us | 1.4 / 0.5 % (1.0) | -0.26 / -1.03 | 0.90 / - | 122 ms | 5 / 6 | 0.09 |
+| cpp-host | course-transatlantic | 1.4 / 0.6 % (1.0) | +0.48 / -2.73 | 1.16 / - | 200 ms | 6 / 6 | 0.10 |
+| cpp-joiner | clean | 0.0 / 0.0 % (0) | -0.77 / -0.58 | 0.58 / - | 101 ms | 5 / 14 | 0.03 |
+| cpp-joiner | realistic | 2.8 / 3.0 % (3.0) | -0.95 / +0.73 | 1.24 / - | 201 ms | 6 / 14 | 0.03 |
+| cpp-joiner | stress | 20.2 / 19.6 % (19.0) | -1.50 / +0.46 | 1.68 / - | 228 ms | 6 / 14 | 0.48 |
+| cpp-joiner | brutal | 36.6 / 35.9 % (36.0) | +0.07 / +0.78 | 1.16 / - | 317 ms | 6 / 15 | 1.04 |
+| cpp-joiner | course-clean | 0.0 / 0.0 % (0) | -0.30 / -0.38 | 0.74 / - | 100 ms | 5 / 6 | 0.10 |
+| cpp-joiner | course-us | 0.8 / 1.3 % (1.0) | -1.86 / +0.12 | 1.54 / - | 123 ms | 5 / 6 | 0.10 |
+| cpp-joiner | course-transatlantic | 1.0 / 1.4 % (1.0) | -1.22 / +0.77 | 1.01 / - | 200 ms | 6 / 6 | 0.08 |
+| cpp-both | clean | 0.0 / 0.0 % (0) | -0.46 / -0.18 | 0.60 / 0.28 | 101 ms | 6 / 16 | 0.03 |
+| cpp-both | realistic | 3.2 / 2.9 % (3.0) | -0.09 / +0.85 | 1.33 / 1.91 | 200 ms | 5 / 13 | 0.03 |
+| cpp-both | stress | 17.8 / 21.2 % (19.0) | -1.20 / +0.38 | 2.05 / 3.19 | 227 ms | 6 / 15 | 0.12 |
+| cpp-both | brutal | 37.9 / 33.3 % (36.0) | -1.21 / +0.89 | 4.58 / 2.56 | 311 ms | 6 / 14 | 1.28 |
+| cpp-both | course-clean | 0.0 / 0.0 % (0) | -0.19 / -0.35 | 0.66 / 0.53 | 101 ms | 5 / 6 | 0.09 |
+| cpp-both | course-us | 1.1 / 0.7 % (1.0) | -0.15 / -0.76 | 1.37 / 1.21 | 123 ms | 5 / 6 | 0.10 |
+| cpp-both | course-transatlantic | 1.1 / 0.5 % (1.0) | -0.53 / +0.62 | 1.90 / 1.96 | 200 ms | 6 / 6 | 0.09 |
 
 `bridge` passed for `cpp-host` and `cpp-both`: the v1 client got the C++ host's position (RP1,
 error under 1 mm), flags, time and weather through the relay, and the host rendered the v1 player.
-The NPC alignment (joiner's interpolated NPCs against the host's truth) stayed at 8-10 mm p95 in
-every other run (11-29 mm under brutal), and every delta entity snapshot the joiner decoded matched the
-host's view exactly. The "pose" column is p95 over all frames; 1.4 mm walking, 4 mm running and
-7 mm sprinting are the Hermite spline's error between 30 Hz samples:
+The NPC alignment (joiner's interpolated NPCs against the host's truth) stayed at 8-10 mm p95
+(12-27 mm under brutal), and every delta entity snapshot the joiner decoded matched the host's view
+exactly. The "pose" column is p95 over all frames; 1.4 mm walking, 4 mm running and 7 mm sprinting
+are the Hermite spline's error between 30 Hz samples:
 
 | course, p95 position error (mm) / p95 yaw error (deg) | walk | run | sprint | turn | stop |
 |---|---|---|---|---|---|
-| clean, all pairings and both views | 1.4-1.5 / 0 | 3.8-4.3 / 0 | 6.4-7.0 / 0 | 4.8-6.0 / 0.13-0.16 | 3.5-5.6 / 0 |
-| US, all pairings and both views | 1.4-1.5 / 0 | 3.8-4.1 / 0 | 6.6-7.1 / 0 | 4.7-5.4 / 0.15-0.16 | 3.4-5.7 / 0 |
-| transatlantic, all pairings and both views | 1.4-1.5 / 0 | 3.9-4.2 / 0 | 6.2-7.0 / 0 | 4.5-5.4 / 0.13-0.17 | 2.6-5.3 / 0 |
+| clean, all pairings and both views | 1.4-1.5 / 0 | 3.8-4.3 / 0 | 6.4-7.1 / 0 | 4.7-7.3 / 0.14-0.16 | 3.4-4.6 / 0 |
+| US, all pairings and both views | 1.3-1.5 / 0 | 3.8-4.3 / 0 | 6.4-6.8 / 0 | 4.6-5.0 / 0.14-0.17 | 3.5-4.8 / 0 |
+| transatlantic, all pairings and both views | 1.4-1.5 / 0 | 3.9-4.1 / 0 | 6.5-7.1 / 0 | 4.5-5.9 / 0.14-0.17 | 3.3-5.2 / 0 |
+
+**30-minute soak** (the Phase 2 criterion "zero reliable-order violations in 30 min"):
+`run_v2_demo.py --pairings cpp-both --only course-transatlantic --duration 1800`, C++ on both ends
+over the transatlantic profile, after the final `-All` run with the same binary. Passed: 26,997
+reliable events, 0 order violations, 0 relay violations, 0 rate drops; snapshot loss 1.0 % each way
+(1.0 % simulated) over about 54,000 snapshots each way; every C++ relay clock estimate within 3.62 ms of the truth
+over the whole run and the two instances within 3.79 ms of each other (0.67 ms at the end); pose
+p95 5-6 mm in both views and every kind of movement within 1.4-6.7 mm p95; 17,798 delta entity
+snapshots decoded with 0 mismatches and the NPCs within 9 mm p95 over 1.18 million entity frames.
+The first soak, run before the final build, found a reporting bug in both clients: the received
+sequence span flipped after 32,768 snapshots and reported -152 % loss. Its other results were the
+same (26,997 events, 0 violations, clock within 2.72 ms, instances within 3.50 ms).
 
 Reading the numbers:
-* The clock criterion (under 5 ms between the two instances) holds on every realistic link with C++
-  on both ends: at most 2.11 ms over a whole run (course-transatlantic) and 2.84 ms under the stress
-  profile. Only brutal (20 % loss per leg, 60 ms jitter) reaches 6.67 ms for one client and 6.75 ms
-  between the two; the Python client's lowest-RTT estimate reached 6.08 ms there (8.31 ms in the
-  Python reference run).
-* Loss matches the simulation: under 1 % (US, transatlantic) the received span lost 0.4-1.5 %. The
+* The clock criterion (under 5 ms between the two instances) holds in every scenario with C++ on
+  both ends: on the course profiles every C++ estimate stayed within 1.90 ms of the truth over the
+  whole run and two C++ instances within 1.96 ms of each other; 3.19 ms under stress and 4.58 ms
+  (one client) under brutal. An earlier run of the same scenarios (before the sequence-span fix,
+  same clock code) reached 6.67 ms under brutal, so brutal is near the limit. The Python client's
+  lowest-RTT estimate reached 8.45 ms under brutal in the reference run.
+* Loss matches the simulation: under 1 % (US, transatlantic) the received span lost 0.5-1.4 %. The
   `all` loss that `run_demo.py` checks is up to 2.5 % on clean links with a Python client, because a
   Python process starts about 0.3 s later and misses the first snapshots; with C++ on both ends it
   is 0.0 %.
 * The render delay is the latency floor plus the adaptive 100-150 ms interpolation delay: 100 ms on a
-  clean link, 124 ms on the US profile and 200 ms on the transatlantic one. A sprinting player is
+  clean link, 122-123 ms on the US profile and 200 ms on the transatlantic one. A sprinting player is
   therefore drawn about 1.5 m behind where they really are on the transatlantic link; the error
   columns measure how well the drawn path matches the real path once that delay is accounted for.
 
@@ -633,48 +647,52 @@ monotonic clock.
 ## Tests (latest run)
 
 `tools\build.ps1 -Clean -All` from a fresh build dir on 2026-10-04 for 0.2.0-alpha.4 (dllproto
-`feat/phase2-v2`, relay `feat/phase2-v2` at `ac4cfea`): exit 0, no compiler or MSBuild warnings.
+`feat/phase2-v2` at `d096946`, relay `feat/phase2-v2` at `a41a95e`): exit 0, no compiler or MSBuild
+warnings.
 Staged in `dist\red4ext\plugins\CP2077CoopNet\`:
 
 | file | bytes | SHA256 |
 |---|---|---|
-| `CP2077CoopNet.dll` | 509952 | `55042BDB77F3272B21059C820D092A99CFC3936F30E7E73DE535B5F9598D9CEA` |
+| `CP2077CoopNet.dll` | 509952 | `7ED5DB9B8DCB8A601AB9E669478C4ACCB3F273B935CFF70FA20D01E1B62B36D3` |
 | `Scripts\Helpers.reds` | 6931 | `C47CBF71EB26568C2E5F5714BC78B31FEA0F0DD057B7C7A238FCCED4E57AEB45` |
 | `Scripts\Natives.reds` | 3183 | `90AF4CFB3AE4A08BD2E644D607ECCBB143C18BFB36BD36A1C81BDBD7034F1201` |
 
 MSVC stamps each build, so a rebuild gives a different DLL hash.
 
 * **End to end** (new, see [End-to-end demo](#end-to-end-demo-c-client)): the relay's `run_demo.py`
-  with its Python clients 8/8 scenarios; `run_v2_demo.py` world check OK (entity table identical,
-  truth within 1e-9) and 23/23 runs with the C++ demo client as host, as joiner and on both ends:
-  9,923 reliable events, 0 order violations, 0 relay violations; on the course profiles every C++
-  relay clock estimate within 1.81 ms of the truth over the whole run and two C++ instances within
-  2.11 ms of each other.
+  with its Python clients 8/8 scenarios; `run_v2_demo.py` self test (`SELF TEST PASS`) and world
+  check OK (entity table identical, truth within 1e-9) and 23/23 runs with the C++ demo client as
+  host, as joiner and on both ends: 9,922 reliable events, 0 order violations, 0 relay violations;
+  on the course profiles every C++ relay clock estimate within 1.90 ms of the truth over the whole
+  run and two C++ instances within 1.96 ms of each other.
+* **30-minute soak** with the same binary (C++ on both ends, transatlantic profile): 26,997 reliable
+  events, 0 order violations, clock within 3.62 ms, instances within 3.79 ms (see
+  [End-to-end demo](#end-to-end-demo-c-client)).
 * `coopnet_tests.exe`: 200 checks, 0 failures. Net_NowMs (FILETIME conversion, agreement with
-  `system_clock`, no backward step over 200,000 calls at 36.5 ns per call), the Net_Version format
+  `system_clock`, no backward step over 200,000 calls at 36.4 ns per call), the Net_Version format
   (`proto 2.1`), the startup line with 13 natives, the registration checks with a fake RTTI, String
   results into a live slot (100 polls leak nothing; the old move assignment leaks 99), the Transport
   argument checks, stopping while the relay name resolves (0.1-0.2 ms against 1.24 s for a blocking
   lookup), and the v2 handshake and session against a scripted fake relay (8 HELLOs of 240 bytes in
-  1.8 s and `no_answer`; `rejected bad_key`; the relay clock synced after 3 TIME_REQ in 206 ms,
-  0.21 ms off; script messages; the `PLAYER_SNAPSHOT` fields; a rendered remote player; relay
-  shutdown, relay silence with `relay_lost` after 5.002 s and `resume_token`, and a kick).
+  1.8 s and `no_answer`; `rejected bad_key`; the relay clock synced after 3 TIME_REQ in 199 ms,
+  0.24 ms off; script messages; the `PLAYER_SNAPSHOT` fields; a rendered remote player; relay
+  shutdown, relay silence with `relay_lost` after 5.000 s and `resume_token`, and a kick).
 * `run_loopback.py`: two plugin Transports through `relay_v2.py` (rooms of 3), each profile also
   checking that a wrong key is rejected (`bad_key`) and a second host too (`role_taken`), and that the
   relay counted 0 violations, 0 malformed datagrams, 0 rate drops and 0 kicks:
 
   | relay link | reliable A->B / B->A | unreliable A->B (60 Hz) | B renders A (30 Hz, 6 m/s circle): error p95 / max, delay p50 | teleport |
   |---|---|---|---|---|
-  | clean | 400 / 200 in order | 526 of 527 | 5.5 / 8.6 mm, 100.3 ms, 98.9 % interpolated | 0 frames between |
-  | 115 ms + 20 ms jitter, 1 % loss (bench) | 400 / 200 in order | 495 of 530 (19 stale) | 5.4 / 10.1 mm, 218.7 ms, 98.7 % interpolated | 0 frames between |
-  | 60 ms + 40 ms jitter, 10 % loss, 2 % dup | 300 / 150 in order | 311 of 420 (65 stale) | 5.4 / 8.8 mm, 161.6 ms, 97.7 % interpolated | 0 frames between |
-  | relay restart (20 ms + 5 ms) | rejoined after 9.42 s with the same peer ids | | | |
+  | clean | 400 / 200 in order | 529 of 529 | 5.3 / 10.3 mm, 100.3 ms, 98.7 % interpolated | 0 frames between |
+  | 115 ms + 20 ms jitter, 1 % loss (bench) | 400 / 200 in order | 500 of 534 (20 stale) | 5.2 / 7.4 mm, 217.1 ms, 98.9 % interpolated | 0 frames between |
+  | 60 ms + 40 ms jitter, 10 % loss, 2 % dup | 300 / 150 in order | 310 of 415 (63 stale) | 5.2 / 6.7 mm, 163.0 ms, 97.7 % interpolated | 0 frames between |
+  | relay restart (20 ms + 5 ms) | rejoined after 9.39 s with the same peer ids | | | |
 
   The error is measured against the true path at the render time on B's relay clock, so it includes
   the two clients' clock disagreement. A 1000-byte reliable message arrived once in every profile, and
   B saw A leave with reason `quit` within 0.14 s.
-* `run_v2_loopback.py`: 3/3 profiles; relay clock error after warm-up at most 0.29, 0.97 and 1.32 ms,
-  the two clients within 0.34, 1.67 and 1.53 ms of each other.
+* `run_v2_loopback.py`: 3/3 profiles; relay clock error after warm-up at most 0.36, 1.01 and 2.47 ms,
+  the two clients within 0.36, 0.88 and 2.79 ms of each other.
 * `verify_exports.py`: Main/Query/Supports exported, `Supports()` returns 1, imports kernel32, user32,
   version and ws2_32 only, the 13 native names agree with `LoadReport.hpp`, `Main.cpp` and
   `Natives.reds`, the image holds `CP2077CoopNet 0.2.0-alpha.4 proto 2.1`.
@@ -690,7 +708,8 @@ MSVC stamps each build, so a rebuild gives a different DLL hash.
   `coopnet_v2_reliability_tests.exe` 38,493 checks; `v2_link_trace.py` 8 scenarios, 85,424 calls,
   0 mismatches; `coopnet_v2_clock_tests.exe` 9,501 checks; `coopnet_v2_interp_tests.exe` 42 checks;
   `v2_interp_trace.py` 95,279 values, 0 mismatches.
-* Relay repo: 89 unit tests OK (78 before; new: the test-world course and two rate-limit tests);
+* Relay repo: 94 unit tests OK (78 before; new: the test-world course, two rate-limit tests and the
+  received sequence span);
   `check_c_header.py`: 30 structs and 130 constants, 348 checks match.
 
 ## Known limits
@@ -705,7 +724,7 @@ MSVC stamps each build, so a rebuild gives a different DLL hash.
   (they are counted), and `Net_PushPlayer` has no vehicle block (`DRIVING` is refused; Phase 4).
   `Transport` is covered by `run_loopback.py` (two Transports through `relay_v2.py`).
 * The relay clock stays within 5 ms on the realistic profiles; under the brutal profile (20 % loss,
-  60 ms jitter per leg) a C++ client was 6.67 ms off and two C++ instances 6.75 ms apart.
+  60 ms jitter per leg) one run had a C++ client 6.67 ms off and two C++ instances 6.75 ms apart.
 * The rate-limit bug in `relay_v2.py` (limits charged when a repaired gap released a burst, so
   acked events could be dropped) is fixed in the relay at `38a59ac`. Relays older than that still
   have it; the transport keeps releasing reliable messages at 50/s (burst 100), below the relay's
@@ -715,6 +734,8 @@ MSVC stamps each build, so a rebuild gives a different DLL hash.
 * Unreliable script messages are newest-wins per channel: with jitter larger than the send interval
   the relay link reorders them and the late ones are dropped (counted as `unrelStale`): 19 of 530
   messages at 60 Hz over 115 ms + 20 ms jitter with 1 % loss.
+* `relay_v2.py` is single-threaded Python; a 30-minute run with two clients at 30 Hz was fine, more
+  players or a slower machine are untested.
 * No encryption. The room key only keeps strangers out of a room (its hash is checked by the relay,
   which must be trusted).
 * IPv4 only. One reliable stream per hop, so a lost event delays later events on every reliable
