@@ -303,6 +303,79 @@ def test_spawn_audit_records_requested_placed_and_first_bind_once():
     ''')
 
 
+def test_movement_is_paced_and_settled_actor_sends_no_idle_commands():
+    runtime().execute(r'''
+        active()
+        assert(eh.moves==0 and ej.moves==0)
+        local H=require('testnpc')
+        local e=entity(); local times={}; local h
+        e.move=function(p)
+            table.insert(times,h.now); e.pose={x=p.x,y=p.y,z=p.z,yaw=p.yaw}; return true
+        end
+        h=H.new({enabled=true,role='host',epoch='123',peer=2,entity=e,send=function() return true end})
+        h:spawn({x=10,y=20,z=3,yaw=179.9}); h:update(.01); h:update(.01); h.actor.ack=true
+        h:move({x=10,y=20,z=3,yaw=-179.9}); h:update(.01)
+        assert(#times==0) -- wrapped yaw is settled
+        for i=1,400 do
+            h:move({x=10+i*.02,y=20,z=3,yaw=0}); h:update(.005)
+        end
+        assert(#times>=18 and #times<=21)
+        for i=2,#times do assert(times[i]-times[i-1]>=.099999) end
+        local before=#times; for i=1,100 do h:update(.01) end
+        assert(#times==before or #times==before+1) -- last target settles, no continuous idle writes
+    ''')
+
+
+def test_pending_move_expiry_cancels_once_and_waits_for_terminal_before_latest_target():
+    runtime().execute(r'''
+        active()
+        local state=-1; local cancellations=0; local requests={}
+        eh.moveState=function() return state end
+        eh.cancelMove=function() cancellations=cancellations+1 end
+        eh.move=function(p) table.insert(requests,{x=p.x,y=p.y,z=p.z,yaw=p.yaw}); state=1; return true end
+        nh.actor:move({x=100,y=200,z=3,yaw=0}); run(10)
+        assert(#requests==1 and eh.pose.x==94) -- acceptance is not measured movement
+        nh.actor:move({x=110,y=200,z=3,yaw=0}); run(60)
+        assert(#requests==1 and cancellations==1 and nh.actor.moveExpiries==1)
+        assert(nh:status().text:find('move_waiting=cancel_completion',1,true))
+        run(60); assert(#requests==1 and cancellations==1) -- no overlap on stuck cancel
+        state=5; run(1)
+        assert(#requests==2 and requests[2].x==110)
+        eh.pose={x=110,y=200,z=3,yaw=0}; state=3; run(10)
+        assert(#requests==2) -- terminal success with actual pose already settled
+    ''')
+
+
+def test_refused_move_is_paced_and_cannot_publish_requested_pose_as_actual():
+    runtime().execute(r'''
+        active()
+        local attempts=0
+        eh.move=function() attempts=attempts+1; return false end
+        nh.actor:move({x=120,y=200,z=3,yaw=0})
+        run(20)
+        assert(attempts>=8 and attempts<=11 and nh.actor.moveRequests==0)
+        assert(eh.pose.x==94 and ej.pose.x==94 and nj.actor.actor.target.x==94)
+        assert(not nh.actor.actor.movePending)
+    ''')
+
+
+def test_pending_move_shutdown_and_new_actor_do_not_replay_old_target():
+    runtime().execute(r'''
+        active()
+        local pending=nil; local cleared=0
+        eh.moveState=function() return pending and 1 or -1 end
+        eh.move=function(p) pending={x=p.x,y=p.y,z=p.z,yaw=p.yaw}; return true end
+        local clear=eh.clear
+        eh.clear=function() pending=nil; cleared=cleared+1; clear() end -- native clear owns cancellation
+        nh.actor:move({x=110,y=200,z=3,yaw=0}); run(10); assert(pending)
+        nh:shutdown(); assert(pending==nil and eh.pose==nil and cleared>0)
+        run(10); assert(pending==nil)
+        nh=makeHost(true); run(50)
+        assert(nh:spawnNear({x=120,y=200,z=3})); run(40)
+        assert(eh.pose.x==114 and pending==nil)
+    ''')
+
+
 def test_real_init_default_off_and_primary_controls_precede_diagnostics():
     lua = integration.receiver(extra=r'''
         Game.Net_NowMs=function() error('NPC clock called while disabled') end
@@ -339,6 +412,8 @@ def opted_in_init(bridge=True):
             npcSpawns=npcSpawns+1; npcPose={x=x,y=y,z=z,yaw=yaw}; return true
         end
         function player:CP2077Coop_TestNpcMove(x,y,z,yaw) npcPose={x=x,y=y,z=z,yaw=yaw}; return true end
+        function player:CP2077Coop_TestNpcMoveState() return -1 end
+        function player:CP2077Coop_TestNpcCancelMove() end
         function player:CP2077Coop_TestNpcGet()
             if not npcPose then return nil end
             return {IsAttached=function() return true end, IsDead=function() return false end,

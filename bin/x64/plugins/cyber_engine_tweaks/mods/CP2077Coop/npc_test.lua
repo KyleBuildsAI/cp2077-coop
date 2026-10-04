@@ -218,8 +218,11 @@ function Npc:status()
         end
     end
     if self.actor then
-        text = text .. string.format(" | sent=%d rx=%d rejected=%d expired=%d spawn_failures=%d",
-            self.actor.sent, self.actor.received, self.actor.rejected, self.actor.expired, self.actor.spawnFailures)
+        text = text .. string.format(" | sent=%d rx=%d rejected=%d expired=%d spawn_failures=%d move_requests=%d move_expiries=%d",
+            self.actor.sent, self.actor.received, self.actor.rejected, self.actor.expired, self.actor.spawnFailures,
+            self.actor.moveRequests, self.actor.moveExpiries)
+        if a and a.moveCancelRequested then text = text .. " move_waiting=cancel_completion"
+        elseif a and a.movePending then text = text .. " move_waiting=command_completion" end
         if self.actor.lastFailure then text = text .. " last_failure=" .. self.actor.lastFailure end
     end
     return {state=self.state, ready=self.actor ~= nil, actor=a ~= nil, path=self.path == true, text=text}

@@ -24,7 +24,7 @@ All of these ship inside the release zip:
 3. Pick a role in the in-game **CP2077 Coop** panel (open the CET overlay, click *Switch to HOST/JOINER*).
    The choice is saved to `role.txt` in the mod folder. One player must be host, the other joiner.
 
-**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.36*), the
+**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.37*), the
 *Version* row at the top of the panel and `version=` at the start of every `[STATS]` line show it.
 The protocol changes between builds: a partner on an older build shows up as *Peer: no ping reply -
 other player on old version?* and *Role check: unknown*, not as a role problem. Update the older
@@ -113,7 +113,7 @@ following the sampled target, so pathfinding and animation still affect the visi
 result. Default v1 retains its existing proximity-based ranged-hit approximation.
 Neither transport constitutes full-world multiplayer synchronization yet.
 
-### Optional controlled test NPC (v0.0.36)
+### Optional controlled test NPC (v0.0.37)
 
 Set `npc_test=true` in both installations' `transport.ini` to opt into one temporary
 test actor. It requires v2 and the packaged `npc_test.lua`, `testnpc.lua` and
@@ -125,9 +125,17 @@ population suppression, prevention changes, vanilla/quest binding or damage hook
 After both sides show **NPC test: ready**, use the host's **Spawn test NPC** button.
 The fixed generic NPC appears six metres west of the host. **Toggle NPC path** moves
 the target north/south along a 12 m lane at 1.5 m/s; inspect clearance first. It is
-a transform demonstration, not autonomous synchronized AI. **Remove test NPC**
+a transform demonstration, not autonomous synchronized AI. The controlled NPC uses
+`AITeleportCommand` after a single live command moved the actor while the old
+`TeleportationFacility` path did not. Submissions are capped at 10 Hz, settled
+poses/yaws enqueue nothing, and only one command may be pending. After two seconds
+a pending command receives one cancellation request; replacement waits for a
+terminal state. Scoped removal/session cleanup cancels any retained command.
+The v0.0.37 movement change still needs live path validation. **Remove test NPC**
 retries removal until acknowledged. The panel reads the actor's actual position;
-`[NPC TEST]` events report state and message/expiry counters every five seconds.
+`[NPC TEST]` events report state, message/expiry counts and movement-request/timeout
+counters every five seconds. Accepted commands are not measured movement; the
+host continues sending only its actual actor pose.
 Primary actions are now at the top of the panel before diagnostics, so changing
 diagnostic rows cannot shift a teleport button into the role switch.
 
