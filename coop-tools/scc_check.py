@@ -89,7 +89,13 @@ def compile_into(library, game_dir, r6_dir, vanilla_cache, script_dirs, output):
     try:
         success = library.scc_get_success(result) != 0
         if success:
-            print(f"OK: compiled {', '.join(os.path.relpath(d, game_dir) for d in script_dirs)}")
+            display_paths = []
+            for directory in script_dirs:
+                try:
+                    display_paths.append(os.path.relpath(directory, game_dir))
+                except ValueError:  # Windows paths on different drives cannot be relative.
+                    display_paths.append(os.path.abspath(directory))
+            print(f"OK: compiled {', '.join(display_paths)}")
             return 0
         buffer = ctypes.create_string_buffer(ERROR_BUFFER_BYTES)
         library.scc_copy_error(result, buffer, ERROR_BUFFER_BYTES)
