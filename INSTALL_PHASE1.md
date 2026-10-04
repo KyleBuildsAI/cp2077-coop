@@ -1,5 +1,11 @@
 # CP2077CoopNet 0.1.2: Phase 1 install and in-game check
 
+> **Applies to 0.1.2 only** (tag `v0.1.2`, pushed as `plugin/v0.1.2`). That build speaks the CPN2
+> framing to `tools\coopnet_relay.py` on port 11779. From 0.2.0-alpha.3 the plugin speaks protocol
+> v2 to the relay repo's `relay_v2.py` (default port 11778, which also serves v1 CP1 clients), and
+> `coopnet_relay.py` is gone. To repeat this check exactly, check out `v0.1.2`. For the protocol v2
+> build, see README.md (Install, Relay and API).
+
 Phase 1 answers one question: can our own RED4ext plugin register natives that CET and redscript
 can call, next to Jakub's `CP2077Coop.dll`? This guide installs the plugin into the two bench game
 folders, starts the bench relay on port 11779, and lists the log lines and CET console output that
