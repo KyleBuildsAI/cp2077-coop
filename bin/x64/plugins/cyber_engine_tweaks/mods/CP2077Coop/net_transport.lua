@@ -18,6 +18,8 @@ local Net = {}
 Net.__index = Net
 Net.MOVEMENT_CHANNEL, Net.EXTRA_CHANNEL, Net.HELLO_CHANNEL = 1, 16, 30
 Net.INTERVAL, Net.STALE_AFTER, Net.MAX_QUEUE = 1 / 30, 1.5, 256
+-- Optional controlled-NPC extension. These are reserved and never polled by another module.
+Net.EXTENSION_RELIABLE, Net.EXTENSION_POSE, Net.MAX_EXTENSIONS = 20, 2, 64
 Net.serial = 0
 
 local function finite(n)
@@ -73,6 +75,8 @@ function Net.new(options)
     if self.selectedV2 then self.mode, self.reason = "probing", "v2 requested" end
     self.everReady, self.ready, self.stopped = false, false, false
     self.extraSequence = 0
+    self.extensionsEnabled = options.extensions == true
+    self.extensionGeneration, self.extensionInbox = 0, {}
     Net.serial = Net.serial + 1
     self.session = options.sessionEpoch
     if not epochValid(self.session) then
@@ -97,6 +101,7 @@ function Net:clearPeer(reason)
     self.packets, self.payloads = {}, {}
     self.ready, self.localReady, self.remoteHello = false, false, false
     self.generation = self.generation + 1
+    self:resetExtensionContext()
     if reason then self:note(reason) end
 end
 
@@ -161,7 +166,76 @@ end
 
 function Net:status()
     return { mode = self.mode, reason = self.reason, peer = self.peer, epoch = self.generation,
-             ready = self.ready, requested = self.requested, session = self.session }
+             ready = self.ready, requested = self.requested, session = self.session,
+             extensionsEnabled = self.extensionsEnabled, extensionFault = self.extensionFault }
+end
+
+-- Extensions have their own generation so disable/re-enable cannot reuse an old sender closure.
+-- A queue API keeps arbitrary extension callbacks out of the transport's single polling loop.
+function Net:resetExtensionContext()
+    self.extensionInbox = {}
+    self.extensionGeneration = self.extensionGeneration + 1
+end
+
+function Net:enableExtensions(enabled)
+    enabled = enabled == true
+    if enabled ~= self.extensionsEnabled then
+        self.extensionsEnabled = enabled
+        self.extensionFault = nil
+        self:resetExtensionContext()
+    end
+    return self.extensionsEnabled
+end
+
+function Net:extensionContext()
+    if not self.extensionsEnabled or self.stopped or not self.ownsNative or not self.ready
+        or not self.peer or not self.remoteHello or not self.remoteSession then return nil end
+    return { generation = self.generation, extensionGeneration = self.extensionGeneration,
+             peer = self.peer, localRole = self.role, localSession = self.session,
+             remoteSession = self.remoteSession }
+end
+
+function Net:extensionContextMatches(context)
+    local current = self:extensionContext()
+    if type(context) ~= "table" or not current then return false end
+    for key, value in pairs(current) do
+        if context[key] ~= value then return false end
+    end
+    return true
+end
+
+local function extensionPayload(channel, payload)
+    return (channel == Net.EXTENSION_RELIABLE or channel == Net.EXTENSION_POSE)
+        and type(payload) == "string" and #payload > 0 and #payload <= 256
+        and not payload:find("[^ -~]")
+end
+
+function Net:sendExtension(context, channel, payload)
+    if not self:extensionContextMatches(context) or not extensionPayload(channel, payload) then return false end
+    return self:send(channel, payload)
+end
+
+function Net:takeExtension(context)
+    if not self:extensionContextMatches(context) or #self.extensionInbox == 0 then return nil end
+    return table.remove(self.extensionInbox, 1)
+end
+
+function Net:queueExtension(sender, channel, payload)
+    local context = self:extensionContext()
+    if not context or not extensionPayload(channel, payload) then return end
+    if #self.extensionInbox >= Net.MAX_EXTENSIONS then
+        -- Native reliable delivery already accepted this message. Silently dropping lifecycle
+        -- events would hide a consistency failure. Disable only the experiment; its owner sees
+        -- a missing context/fault and must shutdown its temporary actor immediately.
+        self.extensionsEnabled = false
+        self.extensionFault = "extension inbox overflow"
+        self:resetExtensionContext()
+        return
+    end
+    self.extensionInbox[#self.extensionInbox + 1] = {
+        sender = sender, channel = channel, reliable = channel == Net.EXTENSION_RELIABLE,
+        payload = payload, context = context,
+    }
 end
 
 function Net:stop()
@@ -237,9 +311,18 @@ function Net:onScript(sender, channel, text)
             self.packets, self.payloads = {}, {}
             self.latest, self.lastPacketAt, self.cachedSample = nil, nil, nil
             self.generation = self.generation + 1
+            self:resetExtensionContext()
         end
         self.remoteSession, self.remoteHello = f[2], true
         self:activate()
+        return
+    end
+    -- NT1 uses a separately negotiated HOST harness epoch, including joiner acknowledgments.
+    -- It therefore cannot pass the C3 sender-session check below. The extension coordinator must
+    -- validate its offer/ACK against BOTH sessions in this captured receive context, then
+    -- pass NT1 only to the harness bound to the resulting host epoch. Never infer sender from NT1.
+    if channel == Net.EXTENSION_RELIABLE or channel == Net.EXTENSION_POSE then
+        self:queueExtension(sender, channel, text)
         return
     end
     if not self.remoteHello or f[2] ~= self.remoteSession then return end

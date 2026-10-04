@@ -76,6 +76,7 @@ function pair()
         b:update(1/60); b:push(state(40,1))
     end
     assert(a:status().ready and b:status().ready)
+    a:update(0); b:update(0) -- deliver the last joiner frame before resetting observations
     while a:takePacket() do end
     while b:takePacket() do end
     while a:takePayload() do end
@@ -238,6 +239,102 @@ def test_teleport_survives_pacing_and_bad_calls():
         assert(not a:push({x=0/0,y=0,z=0}))
         a.natives.Net_Poll=function() error('native unavailable') end
         a:update(0); assert(a:status().mode=='error' and a:sample()==nil)
+    """)
+
+
+def test_extension_opt_in_context_and_real_sender():
+    runtime().execute(r"""
+        pair()
+        assert(a:extensionContext()==nil and b:extensionContext()==nil)
+        bus.inject(2,'1|20|NT1|999|B|1|0|0|0|0'); b:update(0)
+        assert(#b.extensionInbox==0) -- reserved traffic is inert by default
+        a:enableExtensions(true); b:enableExtensions(true)
+        local ac,bc=a:extensionContext(),b:extensionContext()
+        assert(ac.peer==2 and ac.localRole=='host' and ac.localSession=='101' and ac.remoteSession=='202')
+        assert(bc.peer==1 and bc.localRole=='joiner' and bc.localSession=='202' and bc.remoteSession=='101')
+        assert(a:sendExtension(ac,20,'C3N1|101|202|999|offer'))
+        b:update(0)
+        local e=b:takeExtension(bc)
+        assert(e and e.sender==1 and e.channel==20 and e.reliable and e.payload=='C3N1|101|202|999|offer')
+        assert(e.context.generation==bc.generation and e.context.remoteSession=='101')
+        -- A joiner ACK carries the HOST harness epoch, not the joiner's C3 sender epoch.
+        assert(b:sendExtension(bc,20,'NT1|999|A|1'))
+        a:update(0); e=a:takeExtension(ac)
+        assert(e and e.sender==2 and e.reliable and e.payload=='NT1|999|A|1')
+        assert(a:sendExtension(ac,2,'NT1|999|S|1|1|10|20|30|0'))
+        b:update(0); e=b:takeExtension(bc)
+        assert(e and not e.reliable and e.channel==2)
+        bus.inject(2,'9|20|NT1|999|B|1|0|0|0|0')
+        b:update(0); assert(b:takeExtension(bc)==nil) -- payload cannot assert its own identity
+        assert(not a:sendExtension(ac,16,'bad') and not a:sendExtension(ac,1,'bad'))
+        assert(not a:sendExtension(ac,20,string.rep('x',257)))
+        assert(not a:sendExtension(ac,20,'bad\nmessage') and not a:sendExtension(ac,20,''))
+        assert(a:takePacket()==nil and b:takePacket()==nil) -- no extension leaks to gameplay
+    """)
+
+
+def test_extension_context_expires_on_disable_and_peer_session_change():
+    runtime().execute(r"""
+        pair(); a:enableExtensions(true); b:enableExtensions(true)
+        local ac,bc=a:extensionContext(),b:extensionContext()
+        assert(a:sendExtension(ac,20,'NT1|999|D|1')); b:update(0)
+        b:enableExtensions(false)
+        assert(b:extensionContext()==nil and b:takeExtension(bc)==nil)
+        assert(not b:sendExtension(bc,20,'NT1|999|X|1'))
+        assert(b:isV2() and b:status().ready and b:sample())
+        b:enableExtensions(true)
+        local fresh=b:extensionContext()
+        assert(fresh.extensionGeneration~=bc.extensionGeneration)
+        assert(b:takeExtension(fresh)==nil and not b:sendExtension(bc,20,'old closure'))
+        bc=fresh
+        bus.inject(2,'1|20|old queued offer')
+        bus.inject(2,'1|30|C3H1|303|host|0.0.35')
+        b:update(0)
+        fresh=b:extensionContext()
+        assert(fresh and fresh.remoteSession=='303' and fresh.generation~=bc.generation)
+        assert(b:takeExtension(fresh)==nil and not b:sendExtension(bc,20,'wrong session'))
+        bus.inject(2,'0|0|peer_leave 1 quit'); b:update(0)
+        assert(b:extensionContext()==nil and b:takeExtension(fresh)==nil)
+        assert(not b:sendExtension(fresh,20,'departed peer'))
+    """)
+
+
+def test_extension_overflow_fails_only_experiment():
+    runtime().execute(r"""
+        pair(); b:enableExtensions(true)
+        local context=b:extensionContext()
+        for i=1,Net.MAX_EXTENSIONS+1 do bus.inject(2,'1|20|NT1|999|B|1|0|0|0|0') end
+        b:update(0)
+        assert(b:extensionContext()==nil and b:takeExtension(context)==nil)
+        assert(b:status().extensionFault=='extension inbox overflow')
+        assert(b:isV2() and b:status().ready and b:sample())
+        assert(bus.clients[2].disconnects==0 and #b.extensionInbox==0)
+        a:update(1/30); a:push(state(77)); b:update(1/30)
+        assert(b:takePacket().x==77) -- player path remains operational
+        b:enableExtensions(true)
+        assert(b:extensionContext() and b:status().extensionFault==nil)
+        assert(not b:sendExtension(context,20,'stale closure after overflow'))
+    """)
+
+
+def test_extension_not_available_before_application_readiness():
+    runtime().execute(r"""
+        local n=bus.native(1,'host')
+        local net=Net.new({mode='v2',natives=n,probeDisabled=true,extensions=true})
+        assert(net:extensionContext()==nil)
+        net:update(0)
+        bus.inject(1,'0|0|peer_join 2 joiner')
+        bus.inject(1,'2|20|unsolicited extension')
+        net:update(0)
+        assert(net:extensionContext()==nil and #net.extensionInbox==0)
+        bus.inject(1,'2|30|C3H1|202|joiner|0.0.35')
+        net:update(0)
+        assert(net:extensionContext()==nil) -- clock/player push still unavailable
+        net:push(state())
+        assert(net:extensionContext())
+        local context=net:extensionContext()
+        net:stop()
+        assert(net:extensionContext()==nil and not net:sendExtension(context,20,'after shutdown'))
     """)
 
 
