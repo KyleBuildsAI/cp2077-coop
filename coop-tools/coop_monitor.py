@@ -55,6 +55,13 @@ EXPECTED_CODEWARE = "1.18.0"
 
 REFRESH_SECONDS = 5.0
 STATS_STALE_SECONDS = 15.0
+# [STATS] fields kept in the history CSV, after time and server_ping_ms. A new field
+# changes the header, so the old file is kept and a new one starts (append_history).
+HISTORY_STATS_KEYS = (
+    "version", "state", "sync", "role", "rtt_ms", "rtt_min", "rtt_max", "pps_in", "pps_out", "fps", "frame_p99_ms",
+    "peer_rate", "missed_pct", "missed_total_pct", "overwritten_pct", "out_merged_pct", "ignored", "age_ms",
+    "avatar_err_m", "drift_avg_m", "drift_max_m", "hard_per_min", "flags_rx_ps", "conflict", "peer_old",
+)
 
 # Expected ranges. Route: Los Angeles <-> Warsaw relay <-> Russia.
 # LA -> Warsaw ICMP is ~185 ms; player-to-player RTT adds the other leg,
@@ -451,6 +458,11 @@ def grade_stats(stats):
     checks.append((grade(drift, EXPECT["avatar_err_m"]), "avatar drift",
                    f"{stats.get('drift_avg_m', '-')} m avg, {stats.get('drift_max_m', '-')} m max over 5 s, now {stats.get('avatar_err_m')} m "
                    "(from where the partner is now)"))
+    if any(key in stats for key in ("flags_rx_ps", "frame_p99_ms", "hard_per_min")):
+        # v0.0.32+: the phase 0 baseline numbers (compare host and joiner side by side)
+        checks.append((INFO, "sync detail", f"partner flags {stats.get('flags_rx_ps', '-')}/s, frame p99 "
+                                            f"{stats.get('frame_p99_ms', '-')} ms, avatar hard corrections "
+                                            f"{stats.get('hard_per_min', '-')}/min"))
     if stats.get("conflict") == "true":
         checks.append((BAD, "roles", "BOTH players have the same role - one must switch in the coop panel"))
     if stats.get("peer_old") == "true":
@@ -512,13 +524,14 @@ def monitor_loop(args, game_dir, mod_dir, history_path, server):
             checks.append((WARN, "in-game stats", f"none in the last {STATS_STALE_SECONDS:.0f} s - game closed, still loading, "
                                                   "or an older mod build (it printed stats only to cyber_engine_tweaks/scripting.log)"))
         for role, stats_age, stats in stats_blocks:
-            checks.append((INFO, "in-game stats", f"{role}, written {stats_age:.0f} s ago"))
+            # builds before v0.0.32 had no version= in [STATS]
+            build = f"v{stats['version']}" if "version" in stats else "build before v0.0.32"
+            checks.append((INFO, "in-game stats", f"{role} {build}, written {stats_age:.0f} s ago"))
             checks.extend(grade_stats(stats))
             history_error = append_history(history_path, {
                 "time": datetime.datetime.now().isoformat(timespec="seconds"),
                 "server_ping_ms": f"{server_ping:.0f}" if server_ping is not None else "",
-                **{key: stats.get(key, "") for key in ("state", "sync", "role", "rtt_ms", "rtt_min", "rtt_max", "pps_in", "pps_out", "fps", "peer_rate", "missed_pct",
-                                                    "missed_total_pct", "overwritten_pct", "out_merged_pct", "ignored", "age_ms", "avatar_err_m", "drift_avg_m", "drift_max_m", "conflict", "peer_old")},
+                **{key: stats.get(key, "") for key in HISTORY_STATS_KEYS},
             })
             if history_error:
                 checks.append((WARN, "history", history_error))

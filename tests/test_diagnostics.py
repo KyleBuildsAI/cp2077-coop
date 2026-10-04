@@ -151,10 +151,17 @@ def test_stats_and_events_files():
         out = run.stdout
         history_rows = read(test_history).splitlines() if os.path.exists(test_history) else []
         repo_untouched = file_state(repo_history) == repo_history_before
+        version = upvalue(host, "Diag").VERSION
+        header = history_rows[0].split(",") if history_rows else []
+        baseline_columns = {"version", "frame_p99_ms", "hard_per_min", "flags_rx_ps"}
+        detail_rows = [line.strip() for line in out.splitlines() if "in-game stats" in line or "sync detail" in line]
         end_to_end_ok = ("player round trip" in out and "in-game stats" in out and "end-to-end marker" in out and "none in the last" not in out
-                         and len(history_rows) == 3 and repo_untouched)
+                         and len(history_rows) == 3 and repo_untouched
+                         and out.count(f"v{version}, written") == 2 and out.count("sync detail") == 2
+                         and baseline_columns.issubset(header) and all(f",{version}," in row for row in history_rows[1:]))
         print(f"  monitor --once: exit {run.returncode}, rows shown: {'player round trip' in out}, events shown: {'recent events' in out}; "
               f"--history file has {len(history_rows)} lines (header + host + joiner), repo history untouched {repo_untouched}")
+        print(f"  version and baseline rows: {detail_rows[:2]}; history has {sorted(baseline_columns & set(header))}")
         if not end_to_end_ok:
             print(out[-1500:], run.stderr[-800:])
         return files_ok and bounded_ok and monitor_ok and end_to_end_ok
