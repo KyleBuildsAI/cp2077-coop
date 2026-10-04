@@ -248,7 +248,8 @@ local Diag = {
         rtt_ms = { 450, 700 },
         server_ping_ms = { 250, 400 },
         missed_pct = { 10, 25 },
-        age_ms = { 300, 1500 }
+        age_ms = { 300, 1500 },
+        avatar_err_m = { 2.0, 5.0 }
     },
 
     -- progi stanu połączenia (sekundy bez nowego pakietu)
@@ -2956,7 +2957,37 @@ end
 -- Tabela Diag i Diag.log: na początku pliku (sekcja LOG).
 ------------------------------------------------------------
 
-function Diag.recordDrift(distance)
+-- Dryf avatara: odległość od miejsca, gdzie drugi gracz jest teraz
+-- (ostatni pakiet + prędkość * (wiek pakietu + opóźnienie w jedną
+-- stronę), najwyżej PREDICTION_TIME). Cel sterowania S.target* wyprzedza
+-- gracza o PREDICTION_TIME (do 2 m), więc zawyżał odczyt przy każdym biegu.
+function Diag.recordDrift(current)
+
+    if S.previousRemoteX == nil then
+        return
+    end
+
+    local lead = 0.0
+
+    if S.remoteMoving then
+
+        lead =
+            math.min(
+                (Diag.packetAge() or 0.0) + Sync.oneWayLatency(),
+                PREDICTION_TIME
+            )
+    end
+
+    local distance =
+        distance3(
+            current.x,
+            current.y,
+            current.z,
+
+            S.previousRemoteX + S.remoteVelocityX * lead,
+            S.previousRemoteY + S.remoteVelocityY * lead,
+            S.previousRemoteZ
+        )
 
     Diag.avatarError = distance
     Diag.driftSum = Diag.driftSum + distance
@@ -3797,8 +3828,12 @@ function Diag.draw()
 
         Diag.row(
             "Avatar drift",
-            string.format("%.2f m", Diag.avatarError),
-            Diag.avatarError < 1.5 and "good" or (Diag.avatarError < 4 and "warn" or "bad")
+            string.format(
+                "%.2f m from where the partner is now (5 s avg %s)",
+                Diag.avatarError,
+                Diag.driftAvgLast and string.format("%.2f", Diag.driftAvgLast) or "-"
+            ),
+            Diag.levelFor(Diag.avatarError, Diag.LIMITS.avatar_err_m)
         )
     end
 
@@ -5636,7 +5671,7 @@ registerForEvent(
                 S.targetZ
             )
 
-        Diag.recordDrift(errorDistance)
+        Diag.recordDrift(current)
 
 
         ----------------------------------------------------

@@ -56,7 +56,7 @@ EXPECT = {
     "rtt_ms": (450, 700),
     "missed_pct": (10.0, 25.0),       # last 5 s, without packets overwritten by a low local fps
     "age_ms": (300, 1500),
-    "avatar_err_m": (2.5, 5.0),
+    "avatar_err_m": (2.0, 5.0),       # graded on the 5 s average (drift_avg_m)
 }
 MIN_PPS = 20.0
 
@@ -276,7 +276,7 @@ def grade_stats(stats):
     rtt = as_float(stats.get("rtt_ms"))
     missed = as_float(stats.get("missed_pct"))
     age = as_float(stats.get("age_ms"))
-    err = as_float(stats.get("avatar_err_m"))
+    drift = as_float(stats.get("drift_avg_m", stats.get("avatar_err_m")))
     pps = as_float(stats.get("pps_in"))
     fps = as_float(stats.get("fps"))
     peer_rate = as_float(stats.get("peer_rate"))
@@ -305,7 +305,9 @@ def grade_stats(stats):
                    f"{stats.get('missed_pct')} % last 5 s, session {stats.get('missed_total_pct', '-')} %  "
                    f"(network loss or the partner's DLL merging ticks; late {stats.get('ignored')})"))
     checks.append((grade(age, EXPECT["age_ms"]), "last packet age", f"{stats.get('age_ms')} ms"))
-    checks.append((grade(err, EXPECT["avatar_err_m"]), "avatar drift", f"{stats.get('avatar_err_m')} m"))
+    checks.append((grade(drift, EXPECT["avatar_err_m"]), "avatar drift",
+                   f"{stats.get('drift_avg_m', '-')} m avg, {stats.get('drift_max_m', '-')} m max over 5 s, now {stats.get('avatar_err_m')} m "
+                   "(from where the partner is now)"))
     if stats.get("conflict") == "true":
         checks.append((BAD, "roles", "BOTH players have the same role - one must switch in the coop panel"))
     if stats.get("peer_old") == "true":
@@ -359,7 +361,7 @@ def run(args):
                 "time": datetime.datetime.now().isoformat(timespec="seconds"),
                 "server_ping_ms": f"{server_ping:.0f}" if server_ping is not None else "",
                 **{key: stats.get(key, "") for key in ("state", "sync", "role", "rtt_ms", "rtt_min", "rtt_max", "pps_in", "pps_out", "fps", "peer_rate", "missed_pct",
-                                                    "missed_total_pct", "overwritten_pct", "out_merged_pct", "ignored", "age_ms", "avatar_err_m", "conflict", "peer_old")},
+                                                    "missed_total_pct", "overwritten_pct", "out_merged_pct", "ignored", "age_ms", "avatar_err_m", "drift_avg_m", "drift_max_m", "conflict", "peer_old")},
             })
 
         render(checks, events)
