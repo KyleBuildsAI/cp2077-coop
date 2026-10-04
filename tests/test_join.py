@@ -11,7 +11,8 @@ accepted call, on a later frame. A newer call replaces one still queued.
 J1  slow game, host sprinting: the join waits until the joiner has been in the
     game for 4 s, calls Teleport once per attempt, measures the result against the
     point it teleported to (the host is 4+ m further by then) and joins on attempt
-    2. The previous logic (OLD_REVISION, read with git) gives up without moving.
+    2. The previous logic (init.lua from commit 30077d1, kept as
+    tests/fixtures/init_30077d1.lua) gives up without moving.
 J2  teleports never apply: 3 attempts, each logged with the measured result and
     "position did not change", growing pauses (2 s, 4 s), one GAVE UP, no more
     Teleport calls, avatar spawned after. "Teleport to host" then runs the same
@@ -26,10 +27,10 @@ J5  the panel's "Join" row says what the join is doing in every phase (and the
 
 Usage: python test_join.py path/to/init.lua
 """
+import hashlib
 import math
 import os
 import re
-import subprocess
 import sys
 
 from lupa.luajit21 import LuaRuntime
@@ -50,9 +51,11 @@ RETRY_DELAYS = (2.0, 4.0)
 TOLERANCE = 2.5
 JOIN_OFFSET = 1.75
 
-# the last commit with the old join loop (8 Teleport calls in 2 s per attempt)
+# the last commit with the old join loop (8 Teleport calls in 2 s per attempt), kept
+# as a fixture so shallow clones, ZIP downloads and a squash merge still run J1
 OLD_REVISION = "30077d1b47646a2ca5f95482a2443165852fe1cc"
-SCRIPT_IN_REPO = "bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/init.lua"
+OLD_FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "init_30077d1.lua")
+OLD_BLOB = "e8e39966214acf2ae1c91fe900cb8ab4e0f150ff"  # git rev-parse 30077d1:<init.lua>
 
 HOST_START = (40.0, 25.0)
 JOINER_START = (30.0, 15.0)  # ~14 m from the host, like the live test
@@ -125,15 +128,14 @@ def new_source():
 
 
 def old_source():
-    """init.lua before the fix, from git (any clone of the repo has it)."""
-    tests_dir = os.path.dirname(os.path.abspath(__file__))
-    result = subprocess.run(
-        ["git", "-C", tests_dir, "show", f"{OLD_REVISION}:{SCRIPT_IN_REPO}"],
-        capture_output=True, text=True, encoding="utf-8",
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"git show {OLD_REVISION[:7]} failed: {result.stderr.strip()}")
-    return result.stdout
+    """init.lua before the fix, from the fixture; its git blob hash proves it is unchanged."""
+    with open(OLD_FIXTURE, "rb") as handle:
+        data = handle.read().replace(b"\r\n", b"\n")  # core.autocrlf=true checkouts
+    blob = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+    if blob != OLD_BLOB:
+        raise RuntimeError(f"{OLD_FIXTURE} is not init.lua from {OLD_REVISION[:7]} "
+                           f"(blob {blob[:7]}, want {OLD_BLOB[:7]})")
+    return data.decode("utf-8")
 
 
 def sprinting_host(t):
@@ -276,17 +278,25 @@ def test_slow_game_joins():
             and spawn_near
         )
 
-    old = Session(old_source(), sprinting_host)
-    old.run(22.0)
-    old_calls = old.calls()
-    old_attempts = max(1, len(old.lines("WORLD SYNC FAILED")))
-    moved = math.hypot(old.player()[0] - JOINER_START[0], old.player()[1] - JOINER_START[1])
-    gave_up = old.lines("GAVE UP")
-    print(f"  old logic ({OLD_REVISION[:7]}), same game:")
-    show(old, ("WORLD SYNC FAILED", "GAVE UP", "WORLD SYNC OK"))
-    print(f"    {len(old_calls)} Teleport calls ({len(old_calls) / old_attempts:.0f} per attempt), "
-          f"first {old_calls[0]['t']:.2f} s, player moved {moved:.2f} m")
-    old_failed = bool(gave_up) and not old.lines("WORLD SYNC OK") and moved < 0.5 and len(old_calls) >= 3 * 6
+    print(f"  new logic: {'ok' if new_ok else 'FAILED'}")
+
+    # the old half runs on its own, so a broken fixture cannot hide the new-logic verdict
+    try:
+        old = Session(old_source(), sprinting_host)
+        old.run(22.0)
+        old_calls = old.calls()
+        old_attempts = max(1, len(old.lines("WORLD SYNC FAILED")))
+        moved = math.hypot(old.player()[0] - JOINER_START[0], old.player()[1] - JOINER_START[1])
+        gave_up = old.lines("GAVE UP")
+        print(f"  old logic ({OLD_REVISION[:7]}), same game:")
+        show(old, ("WORLD SYNC FAILED", "GAVE UP", "WORLD SYNC OK"))
+        print(f"    {len(old_calls)} Teleport calls ({len(old_calls) / old_attempts:.0f} per attempt), "
+              f"first {old_calls[0]['t']:.2f} s, player moved {moved:.2f} m")
+        old_failed = bool(gave_up) and not old.lines("WORLD SYNC OK") and moved < 0.5 and len(old_calls) >= 3 * 6
+    except Exception as error:  # reported, and J1 fails: the fixture is in the repo
+        print(f"  old logic: EXCEPTION {error!r}")
+        old_failed = False
+    print(f"  old logic gives up: {old_failed}")
     return new_ok and old_failed
 
 
