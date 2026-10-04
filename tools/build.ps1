@@ -15,11 +15,15 @@
 # rejections, script messages, player snapshots rendered through SampleRemote, a relay restart) and
 # two C++ v2 test clients through relay_v2.py (tools\run_v2_loopback.py: reliable order, clock
 # error under 5 ms, both instances agree).
-# -All implies -Loopback and also runs tests\test_lua_helper.py, the relay's unit tests and its
-# tools\check_c_header.py.
+# -Demo runs every scenario of the relay's run_demo.py with the C++ demo client (tests\V2DemoClient.cpp)
+# as the host, as the joiner and on both ends (tools\run_v2_demo.py, about 20 minutes), after the same
+# scenarios with the relay's Python clients as the reference (about 5 minutes).
+# -All implies -Loopback and -Demo and also runs tests\test_lua_helper.py, the relay's unit tests and
+# its tools\check_c_header.py.
 # The Lua test needs the lupa package: pip install lupa, or set PYTHONPATH to a folder that has it.
 param(
     [switch]$Loopback,
+    [switch]$Demo,
     [switch]$All,
     [switch]$Clean,
     [string]$VsInstance = 'C:/Program Files/Microsoft Visual Studio/2022/Community'
@@ -80,6 +84,14 @@ if ($Loopback -or $All) {
     }
     Invoke-Step 'v2 loopback: two C++ clients through relay_v2.py' {
         python (Join-Path $PSScriptRoot 'run_v2_loopback.py') --relay $relay --exe (Join-Path $release 'coopnet_v2_loopback_client.exe')
+    }
+}
+if ($Demo -or $All) {
+    Invoke-Step 'relay run_demo.py scenarios with the Python clients (reference)' {
+        python (Join-Path $relay 'run_demo.py') --out (Join-Path $build 'run_demo_python')
+    }
+    Invoke-Step 'run_demo.py scenarios with the C++ demo client as host, as joiner and on both ends' {
+        python (Join-Path $PSScriptRoot 'run_v2_demo.py') --relay $relay --exe (Join-Path $release 'coopnet_v2_demo_client.exe')
     }
 }
 if ($All) {
