@@ -28,9 +28,12 @@ bin/x64/global.ini
 # Runtime files written by the mod and monitor
 role.txt
 monitor_status.txt
+monitor_status.txt.tmp
 coop_stats_*.txt
-coop-tools/coop_monitor_history.csv
+coop-tools/coop_monitor_history*.csv
 modlist.txt
+# test-bot autostart switch, created by hand in the host's mod folder
+testpattern.txt
 __pycache__/
 
 # Offline test suite dependencies (installed by tests/run_all.ps1)
