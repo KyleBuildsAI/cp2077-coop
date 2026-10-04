@@ -59,6 +59,8 @@ STATS_STALE_SECONDS = 15.0
 # Expected ranges. Route: Los Angeles <-> Warsaw relay <-> Russia.
 # LA -> Warsaw ICMP is ~185 ms; player-to-player RTT adds the other leg,
 # frame time and send-slot waits, so ~250-400 ms is normal for this route.
+# Players and relay all in the US see ~30-80 ms: these limits are set for the
+# long route, so a US-only session above ~150 ms is worth a look.
 # The in-game panel grades with the same numbers (Diag.LIMITS in init.lua):
 # change both together.
 EXPECT = {

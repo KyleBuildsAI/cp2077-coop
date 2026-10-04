@@ -17,17 +17,30 @@ All of these ship inside the release zip:
 ## Install
 
 1. Extract the release zip into the game folder (the one containing `bin`, `r6`, `red4ext`).
-2. Edit `red4ext/plugins/CP2077Coop/server.ini` if the relay server address changed.
+2. Edit `red4ext/plugins/CP2077Coop/server.ini` if the relay server address changed. Save it as
+   UTF-8 **without** BOM (Notepad: *UTF-8*, not *UTF-8 with BOM* or *Unicode*), or let the dev kit
+   write it: `python coop-tools/devkit.py server <game folder> IP:PORT`. The monitor warns about a
+   BOM and reports a UTF-16 file or a missing `server_ip` / `server_port`.
 3. Pick a role in the in-game **CP2077 Coop** panel (open the CET overlay, click *Switch to HOST/JOINER*).
    The choice is saved to `role.txt` in the mod folder. One player must be host, the other joiner.
 
-Both players must run the same version.
+**Both players must run the same version** (the *Version* row at the top of the panel). The
+protocol changes between builds: a partner on an older build shows up as *Peer: no ping reply -
+other player on old version?* and *Role check: unknown*, not as a role problem. Update the older
+side instead of switching roles. Against a v0.0.26 or v0.0.27 partner a current build still shows
+position and facing, but the RTT and the role check stay empty.
 
 ## Run
 
 Start the game normally. The **CP2077 Coop** panel shows connection state, player count,
 player-to-player round trip, packet rates, missed packets, avatar drift, both players' state
 and the relay server. Toggle it under CET *Bindings* → *Toggle coop panel*.
+
+**Player RTT** is the network round trip between the two games plus up to a few frames of
+waiting for the next send slot. Expect about **30-80 ms** when both players and the relay are in
+the US, and about 250-400 ms on the Los Angeles - Warsaw relay - Russia route. The panel and the
+monitor use the same limits (OK below 450 ms, WARN up to 700 ms, BAD above), set so the long route
+reads OK; on a US-only route anything above ~150 ms is worth a look.
 
 The game reads the network plugin once per frame and the plugin keeps only the newest packet,
 so packet counts are split by cause:
@@ -47,9 +60,16 @@ count of what each game skipped and what the simulated link dropped.
 python coop-tools/coop_monitor.py
 ```
 
-Checks compile and crash logs, plugin loading, your ping to the relay and the in-game stats
-against expected ranges every 5 s, and appends to `coop-tools/coop_monitor_history.csv`.
-It also feeds the relay address and ping into the in-game panel. Requires Python 3.
+Checks compile and crash logs, plugin loading (Codeware 1.18.0 and the coop DLL, by RED4ext's
+own "has been loaded" line), your ping to the relay and the in-game stats against expected ranges
+every 5 s, and appends to `coop-tools/coop_monitor_history.csv` (`--history PATH` for another file).
+The CSV can stay open in Excel: samples taken while Excel locks it are skipped with a WARN. When
+the columns change, the old file is kept as `coop_monitor_history-until-<time>.csv`.
+The ping works with any Windows language.
+
+It also feeds the relay address and ping into the in-game panel through `monitor_status.txt`. If
+the monitor dies or its window is closed, the panel says *monitor stopped N s ago* after 30 s and
+no longer shows the old ping; after Ctrl+C it asks for the monitor again within 2 s. Requires Python 3.
 
 Logs, all in `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/` unless noted:
 

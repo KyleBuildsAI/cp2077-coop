@@ -247,7 +247,8 @@ local Diag = {
     -- progi ocen w panelu: { ostrzeżenie od, źle od }. Te same liczby co
     -- EXPECT w coop-tools/coop_monitor.py - zmieniać razem. RTT gracz ->
     -- serwer -> gracz na trasie LA - Warszawa - Rosja to normalnie
-    -- ~250-400 ms (sieć + czekanie na klatkę i slot wysyłki).
+    -- ~250-400 ms (sieć + czekanie na klatkę i slot wysyłki). Gracze
+    -- i serwer w USA: ~30-80 ms; progi są ustawione pod długą trasę.
     LIMITS = {
         rtt_ms = { 450, 700 },
         server_ping_ms = { 250, 400 },
