@@ -32,6 +32,42 @@ def world_states(tick, alive, rng_seed=0):
     return states
 
 
+class WorldIdTests(unittest.TestCase):
+    def test_world_id_travels_with_the_spawn(self):
+        placed = quantize(proto.EntityKind.QUEST_NPC, 0, 1, 77, 5, (-1400.0, 200.0, 20.0), 90.0, (0, 0, 0),
+                          world_id=0x8F00000012345678)
+        record = make_record(9, None, placed)
+        self.assertEqual(record["world_id"], 0x8F00000012345678)
+        self.assertIn("spawn", record)
+        self.assertEqual(apply_record(None, CODEC.decode(CODEC.encode(
+            {"tick": 1, "baseline": 0, "sample_time": 0, "records": [record]}))["records"][0]), placed)
+        moved = quantize(proto.EntityKind.QUEST_NPC, 0, 1, 77, 5, (-1399.0, 200.0, 20.0), 90.0, (0, 0, 0),
+                         world_id=0x8F00000012345678)
+        delta = make_record(9, placed, moved)
+        self.assertNotIn("world_id", delta)
+        self.assertNotIn("spawn", delta)
+        rebound = quantize(proto.EntityKind.QUEST_NPC, 0, 1, 77, 5, (-1399.0, 200.0, 20.0), 90.0, (0, 0, 0),
+                           world_id=0x8F00000087654321)
+        respawn = make_record(9, moved, rebound)
+        self.assertIn("spawn", respawn)
+        self.assertEqual(respawn["world_id"], 0x8F00000087654321)
+        dynamic = quantize(proto.EntityKind.CROWD_NPC, 1, 1, 77, 5, (-1400.0, 200.0, 20.0), 0.0, (0, 0, 0))
+        self.assertNotIn("world_id", make_record(3, None, dynamic))
+        self.assertNotEqual(view_hash({9: placed}), view_hash({9: rebound}))
+
+    def test_delta_link_with_world_ids(self):
+        encoder, decoder = DeltaEncoder(), DeltaDecoder()
+        states = {net_id: quantize(proto.EntityKind.QUEST_NPC, 0, 1, 77, net_id, (-1400.0 + net_id, 200.0, 20.0),
+                                   10.0 * net_id, (1.0, 0, 0), world_id=(0x8F << 56) | net_id)
+                  for net_id in range(1, 30)}
+        for tick in range(1, 6):
+            body, sent_tick, baseline, view = encoder.encode(tick * 100, states)
+            result = decoder.apply(CODEC.decode(body))
+            self.assertEqual(view_hash(result), view_hash(view))
+            encoder.on_ack(sent_tick)
+        self.assertEqual(view_hash(result), view_hash(states))
+
+
 class DeltaTests(unittest.TestCase):
     def run_link(self, loss, ack_loss, ticks=300, budget=1000, seed=1, entities=80):
         rng = random.Random(seed)

@@ -14,6 +14,9 @@ Delta model (Quake 3 / Fiedler style, end to end between host and receiver):
   already-quantized states.
 * A byte budget (default 1000 bytes) bounds every snapshot; entities are sent
   in priority-accumulator order and unsent changes simply wait.
+* ``world_id`` (protocol minor 1, ``X_WORLD_ID``) is the static EntityID hash of
+  a placed NPC, 0 for dynamic ones. It is part of the identity, so it travels
+  with the spawn block and a change re-sends the spawn.
 """
 from __future__ import annotations
 
@@ -44,17 +47,18 @@ class EntityState:
     state: tuple = DEFAULT_STATE  # move_state, flags, health
     target: int = 0
     weapon: int = 0
+    world_id: int = 0   # u64 static world id (minor 1), 0 = dynamic entity
 
     @property
     def uses_quat(self) -> bool:
         return self.kind == proto.EntityKind.VEHICLE
 
     def identity(self) -> tuple:
-        return self.kind, self.spawn_flags, self.attitude, self.record, self.appearance
+        return self.kind, self.spawn_flags, self.attitude, self.record, self.appearance, self.world_id
 
 
 def quantize(kind, spawn_flags, attitude, record, appearance, pos_m, rotation, vel_mps,
-             move_state=0, flags=0, health=255, target=0, weapon=0) -> EntityState:
+             move_state=0, flags=0, health=255, target=0, weapon=0, world_id=0) -> EntityState:
     """``rotation`` is yaw degrees, or an (x, y, z, w) quaternion for vehicles."""
     if kind == proto.EntityKind.VEHICLE:
         rot = proto.pack_quat(*rotation)
@@ -63,7 +67,7 @@ def quantize(kind, spawn_flags, attitude, record, appearance, pos_m, rotation, v
     return EntityState(kind, spawn_flags, attitude, record, appearance,
                        tuple(proto.meters_to_mm(v) for v in pos_m), rot,
                        tuple(proto.velocity_to_cms(v) for v in vel_mps),
-                       (move_state, flags, health), target, weapon)
+                       (move_state, flags, health), target, weapon, world_id)
 
 
 def make_record(net_id: int, old: EntityState | None, new: EntityState):
@@ -83,6 +87,8 @@ def make_record(net_id: int, old: EntityState | None, new: EntityState):
             record["target"] = new.target
         if new.weapon:
             record["weapon"] = new.weapon
+        if new.world_id:
+            record["world_id"] = new.world_id
         return record
     if new.pos != old.pos:
         delta = tuple(n - o for n, o in zip(new.pos, old.pos))
@@ -110,7 +116,7 @@ def apply_record(old: EntityState | None, record: dict) -> EntityState:
         return EntityState(spawn["kind"], spawn["spawn_flags"], spawn["attitude"], spawn["record"],
                            spawn["appearance"], tuple(record["pos"]), rot,
                            tuple(record.get("vel", DEFAULT_VEL)), tuple(record.get("state", DEFAULT_STATE)),
-                           record.get("target", 0), record.get("weapon", 0))
+                           record.get("target", 0), record.get("weapon", 0), record.get("world_id", 0))
     if old is None:
         raise proto.ProtocolError(f"delta for unknown entity {record['net_id']}")
     pos = old.pos
@@ -125,10 +131,11 @@ def apply_record(old: EntityState | None, record: dict) -> EntityState:
         rot = record.get("quat", record.get("yaw"))
     return EntityState(old.kind, old.spawn_flags, old.attitude, old.record, old.appearance, pos, rot,
                        tuple(record.get("vel", old.vel)), tuple(record.get("state", old.state)),
-                       record.get("target", old.target), record.get("weapon", old.weapon))
+                       record.get("target", old.target), record.get("weapon", old.weapon),
+                       record.get("world_id", old.world_id))
 
 
-VIEW_HASH_LAYOUT = struct.Struct("<HBBBQQiiiIhhhBBBHQ")
+VIEW_HASH_LAYOUT = struct.Struct("<HBBBQQiiiIhhhBBBHQQ")
 
 
 def view_hash(view: dict) -> str:
@@ -139,7 +146,7 @@ def view_hash(view: dict) -> str:
         digest.update(VIEW_HASH_LAYOUT.pack(net_id, int(s.kind), int(s.spawn_flags), int(s.attitude), int(s.record),
                                             int(s.appearance), *(int(v) for v in s.pos), int(s.rot),
                                             *(int(v) for v in s.vel), *(int(v) for v in s.state), int(s.target),
-                                            int(s.weapon)))
+                                            int(s.weapon), int(s.world_id)))
     return digest.hexdigest()[:16]
 
 
