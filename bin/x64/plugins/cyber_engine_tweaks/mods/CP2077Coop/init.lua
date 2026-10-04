@@ -1309,9 +1309,21 @@ local Sync = {
     SPAWN_PLACE_WAIT = 3.0,
     -- tyle s po spawnie / wyjściu z auta teleport nie liczy się jako korekta
     SPAWN_GRACE = 3.0,
-    -- nowy avatar zamiast martwego / odpiętego najwyżej co tyle s
+    -- nowy avatar zamiast martwego / odpiętego / dalekiego najwyżej co tyle s
     AVATAR_RESPAWN_COOLDOWN = 10.0,
     lastAvatarDropAt = -100.0,
+
+    -- Smycz avatara: drugi gracz dalej niż AVATAR_FAR od nas = bez
+    -- avatara i auta (tam świat nie jest wczytany: AI nie działa, NPC
+    -- spada albo stoi; dawniej teleport na kilometry przy starcie hosta,
+    -- rozdzieleniu albo szybkiej podróży). Wraca poniżej AVATAR_NEAR,
+    -- spawnem w miejscu drugiego gracza.
+    AVATAR_FAR = 150.0,
+    AVATAR_NEAR = 120.0,
+    remoteFar = false,
+    -- avatar dalej od celu niż tyle (po wyjściu z auta po długiej jeździe,
+    -- skok drugiego gracza): nowy spawn zamiast teleportu AI
+    FAR_SNAP = 50.0,
 
     clock = 0.0,
 
@@ -3177,8 +3189,7 @@ function Steer.hardCorrectAllowed(current, errorDistance, snapNow)
                 Sync.avatarGone()
 
             if gone ~= nil
-                and Sync.clock - Sync.lastAvatarDropAt >=
-                    Sync.AVATAR_RESPAWN_COOLDOWN
+                and Sync.respawnAllowed()
             then
                 Sync.dropAvatar(Game.GetPlayer(), "remote avatar " .. gone)
                 return false
@@ -5051,6 +5062,16 @@ function Sync.avatarGone()
 end
 
 
+-- Nowy avatar zamiast martwego / dalekiego najwyżej co cooldown
+-- (gdyby kasowanie starego się nie udało, nie kręcimy się w kółko).
+function Sync.respawnAllowed()
+
+    return
+        Sync.clock - Sync.lastAvatarDropAt >=
+        Sync.AVATAR_RESPAWN_COOLDOWN
+end
+
+
 -- Avatar znika (DespawnRemote); następny pakiet spawnuje nowy przy
 -- drugim graczu (Sync.requestSpawn, Sync.spawnPoint).
 function Sync.dropAvatar(player, why)
@@ -5106,10 +5127,62 @@ function Sync.dropAvatar(player, why)
 end
 
 
+-- Co pakiet: czy drugi gracz jest w naszym zasięgu (Sync.AVATAR_FAR,
+-- powrót poniżej AVATAR_NEAR). Daleko: avatar i auto znikają.
+function Sync.updateAvatarRange(player)
+
+    local own =
+        player:GetWorldPosition()
+
+    local away =
+        distance3(
+            own.x, own.y, own.z,
+            S.targetX, S.targetY, S.targetZ
+        )
+
+    if not Sync.remoteFar
+        and away > Sync.AVATAR_FAR
+    then
+
+        Sync.remoteFar = true
+
+        Diag.log(
+            string.format(
+                "[CP2077Coop] EVENT partner out of range (%.0f m): no avatar until within %.0f m",
+                away,
+                Sync.AVATAR_NEAR
+            )
+        )
+
+        if Sync.vehicleShown or Sync.remoteVehicleIndex ~= nil then
+            Sync.hideRemoteVehicle(player)
+        end
+
+        if S.remoteInitialized then
+            Sync.dropAvatar(player, string.format("partner %.0f m away", away))
+        end
+
+    elseif Sync.remoteFar
+        and away < Sync.AVATAR_NEAR
+    then
+
+        Sync.remoteFar = false
+
+        Diag.log(
+            string.format(
+                "[CP2077Coop] EVENT partner back in range (%.0f m)",
+                away
+            )
+        )
+    end
+end
+
+
 function Sync.updateRemoteVehicle(player, delta)
 
     if player.CP2077Coop_ShowRemoteVehicle == nil
         or Sync.frozen ~= nil
+        or Sync.remoteFar
     then
         return
     end
@@ -6277,6 +6350,7 @@ local function resetRemote()
     S.hostSettled = 0.0
     S.hostJumpAt = -100.0
     S.joinPausedFor = 0.0
+    Sync.remoteFar = false
 
     S.worldJoinComplete = IS_HOST
 
@@ -7006,9 +7080,12 @@ registerForEvent(
             -- joiner przed teleportem do hosta: spawn dopiero po nim
             -- (avatar pojawia się przed lokalnym graczem, nie w miejscu,
             -- które gracz zaraz opuści; patrz Sync.joinAllowsSpawn)
+            Sync.updateAvatarRange(player)
+
             if not S.remoteInitialized
                 and Sync.joinAllowsSpawn()
                 and Sync.frozen == nil
+                and not Sync.remoteFar
             then
 
                 Sync.requestSpawn(
@@ -7034,7 +7111,9 @@ registerForEvent(
         -- świat stoi (menu): bez szukania avatara, snapu, korekt i
         -- komend ruchu; cel i prędkość idą dalej z pakietów, więc po
         -- menu jedna zwykła korekta dogania drugiego gracza
-        if Sync.frozen ~= nil then
+        if Sync.frozen ~= nil
+            or Sync.remoteFar
+        then
             return
         end
 
@@ -7192,6 +7271,20 @@ registerForEvent(
                     S.targetZ
                 )
 
+            -- avatar daleko od drugiego gracza (ukryty w miejscu, gdzie
+            -- wsiadł do auta, a ten odjechał daleko): nowy spawn przy nim
+            -- zamiast teleportu AI przez pół miasta. Nie dla nowego
+            -- avatara (stoi przy drugim graczu z założenia; daleko = stara
+            -- encja jeszcze się kasuje) i nie częściej niż co cooldown.
+            if not S.spawnSnapFresh
+                and snapError > Sync.FAR_SNAP
+                and Sync.respawnAllowed()
+            then
+
+                Sync.dropAvatar(player, string.format("avatar %.0f m from the partner", snapError))
+                return
+            end
+
             -- nowy avatar bliżej niż TELEPORT_DISTANCE: resztę dojdzie
             -- AIMoveTo; teleport tylko z daleka, najwyżej co
             -- HARD_CORRECT_COOLDOWN (po wyjściu z auta jak dawniej)
@@ -7319,6 +7412,16 @@ registerForEvent(
         local snapNow =
             snapFollow
             and targetMoved
+
+        -- daleko (drugi gracz skoczył o dziesiątki metrów): nowy spawn
+        -- przy nim zamiast teleportu AI na taką odległość
+        if errorDistance > Sync.FAR_SNAP
+            and Sync.respawnAllowed()
+        then
+
+            Sync.dropAvatar(player, string.format("avatar %.0f m from the partner", errorDistance))
+            return
+        end
 
         if snapNow
             or errorDistance >= TELEPORT_DISTANCE

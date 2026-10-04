@@ -12,6 +12,7 @@ LIVE-3  vehicles: the sender sends the car origin, the receiver extrapolates the
 Usage: python test_live_bugs.py path/to/init.lua
 """
 import math
+import os
 import random
 import sys
 
@@ -41,6 +42,15 @@ pendingTeleport = nil
 supersededTeleports = 0
 wrappedController = false
 visibleCalls = {}
+despawns = 0
+-- remote.reds DespawnRemote: the entity goes; the next spawn creates a new NPC
+function player:CP2077Coop_DespawnRemote()
+    despawns = despawns + 1
+    npc = nil
+    spawnAt = nil
+    pendingTeleport = nil
+    wrappedController = false
+end
 function player:CP2077Coop_MoveRemoteTest(x, y, z)
     stats.teleports = stats.teleports + 1
     if npc == nil or teleportsIgnored then return end
@@ -91,6 +101,10 @@ end
 
 
 def make_receiver(role="host", position=(0.0, 0.0), extra=""):
+    # a role.txt left by an earlier test (the panel's role button) would override `role`
+    for leftover in ("role.txt", "testpattern.txt"):
+        if os.path.exists(leftover):
+            os.remove(leftover)
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.globals().simTime = 0.0
     lua.execute(sim.MOCK)
@@ -480,16 +494,20 @@ def test_avatar_parked_while_driving():
             marks["drive"] = (g.stats.teleports, g.stats.moveCommands, g.stats.rotates)
         if t >= 10.9 and "exit" not in marks:
             marks["exit"] = (g.stats.teleports, g.stats.moveCommands, g.stats.rotates)
-        if t >= 12.5 and g.npc is not None:
+        if t >= 13.0 and g.npc is not None:
             x, y = drive_path(t)[:2]
             after_exit.append(math.hypot(g.npc.x - x, g.npc.y - y))
 
-    run(receiver, remote, 14.0, 60, on_frame)
+    run(receiver, remote, 15.0, 60, on_frame)
     commands_while_driving = [b - a for a, b in zip(marks["drive"], marks["exit"])]
     calls = [(c.visible, round(c.t, 2)) for c in g.visibleCalls.values()]
     parked = [l for l in logs(receiver) if "avatar parked" in l]
+    # the drive ends ~117 m from where the avatar waits: a new spawn next to the
+    # remote instead of an AI teleport across the map
+    respawned = [l for l in logs(receiver) if "avatar despawned" in l and "from the partner" in l]
     print(f"  park: AI commands while driving (teleport, moveTo, rotate) = {commands_while_driving}, "
-          f"visibility calls {calls}, car hidden {g.carHides}x, avatar after exit {max(after_exit):.2f} m from remote")
+          f"visibility calls {calls}, car hidden {g.carHides}x, {respawned}, despawns {int(g.despawns)}, "
+          f"avatar from 13 s {max(after_exit) if after_exit else None} m from remote")
     return (
         commands_while_driving == [0, 0, 0]
         and len(parked) == 1
@@ -497,7 +515,8 @@ def test_avatar_parked_while_driving():
         and calls[1][1] > 11.0
         and g.carHides >= 1
         and g.carPose is None
-        and max(after_exit) < 1.5
+        and len(respawned) == 1 and int(g.despawns) == 1
+        and after_exit and max(after_exit) < 2.0
     )
 
 
@@ -549,8 +568,8 @@ end
 
 
 def jog_path(t):
-    """The other player jogs north at 5 m/s from (20, 0) (host bit set)."""
-    return 20.0, 5.0 * t, 0.0, 0.0, 1.0, 256
+    """The other player jogs up and down a 40 m street at up to 5 m/s (host bit set), always in range."""
+    return 20.0, 20.0 * math.sin(0.25 * t), 0.0, 0.0, 1.0 if math.cos(0.25 * t) >= 0 else -1.0, 256
 
 
 def test_menu_holds_corrections():
@@ -650,6 +669,65 @@ def test_spawn_at_partner():
             and int(diag.hardTotal) == 0 and end_error is not None and end_error < 3.0)
 
 
+# every AI teleport the mod sends: how far it moves the NPC
+JUMP_LOG = r"""
+aiJumps = {}
+local moveBase = player.CP2077Coop_MoveRemoteTest
+function player:CP2077Coop_MoveRemoteTest(x, y, z, ...)
+    if npc ~= nil then
+        aiJumps[#aiJumps + 1] = math.sqrt((npc.x - x) ^ 2 + (npc.y - y) ^ 2)
+    end
+    return moveBase(self, x, y, z, ...)
+end
+"""
+
+
+def far_then_near(t):
+    """Joiner still 4 km away (before its join teleport) for 6 s, then next to the host."""
+    return (4000.0, 0.0, 0.0, 0.0, 1.0, 0) if t < 6.0 else (5.0, 0.0, 0.0, 0.0, 1.0, 0)
+
+
+def fast_travel(t):
+    """The partner walks, fast-travels 2 km away at 5 s and comes back at 15 s (host bit set)."""
+    if 5.0 <= t < 15.0:
+        return 2000.0, 0.0, 0.0, 0.0, 1.0, 256
+    return 10.0, 1.4 * (t if t < 5.0 else t - 15.0), 0.0, 0.0, 1.0, 256
+
+
+def test_avatar_leash():
+    # (a) host start: the joiner's packets come from 4 km away before its join teleport
+    host = make_receiver(role="host", position=(0.0, 0.0), extra=JUMP_LOG)
+    run(host, ScriptedRemote(host, far_then_near, loss=0.0), 10.0, 60)
+    host_spawns = [l for l in logs(host) if "remote spawn requested" in l]
+    host_far_spawn = [l for l in host_spawns if "4000" in l]
+    host_jumps = list(host.globals().aiJumps.values())
+    host_npc = host.globals().npc
+    host_ok = (not host_far_spawn and len(host_spawns) == 1 and max(host_jumps, default=0.0) < 50.0
+               and host_npc is not None and math.hypot(host_npc.x - 5.0, host_npc.y) < 2.0)
+    print(f"  host start, joiner 4 km away for 6 s: spawn requests {host_spawns}; longest AI teleport "
+          f"{max(host_jumps, default=0.0):.1f} m; ok {host_ok}")
+
+    # (b) the partner fast-travels 2 km away and back
+    joiner = make_receiver(role="joiner", position=(0.0, 0.0), extra=JUMP_LOG)
+    run(joiner, ScriptedRemote(joiner, fast_travel, loss=0.0), 20.0, 60)
+    g = joiner.globals()
+    lines = logs(joiner)
+    out = [l for l in lines if "out of range" in l]
+    back = [l for l in lines if "back in range" in l]
+    spawns = [l for l in lines if "remote spawn requested" in l]
+    jumps = list(g.aiJumps.values())
+    npc = g.npc
+    x, y = fast_travel(20.0)[:2]
+    error = math.hypot(npc.x - x, npc.y - y) if npc is not None else None
+    bad = [l for l in lines if "NOT RESPONDING" in l or "SNAP FAILED" in l]
+    travel_ok = (len(out) == 1 and len(back) == 1 and int(g.despawns) == 1 and len(spawns) == 2
+                 and max(jumps, default=0.0) < 50.0 and not bad and error is not None and error < 3.0)
+    print(f"  partner fast-travels 2 km and back: {out} {back}; despawns {int(g.despawns)}, spawn requests {len(spawns)}, "
+          f"longest AI teleport {max(jumps, default=0.0):.1f} m, bad logs {bad[:2]}, avatar "
+          f"{error if error is None else round(error, 2)} m from the partner at 20 s; ok {travel_ok}")
+    return host_ok and travel_ok
+
+
 def test_car_kept_through_long_local_frame():
     # one 5.5 s local frame (window drag, autosave) while the remote drives:
     # packets kept arriving, so the car stays and the avatar stays parked
@@ -683,11 +761,12 @@ if __name__ == "__main__":
         "LIVE-2 dead avatar: despawned once at NOT RESPONDING, a new one follows the partner": test_dead_avatar_respawned,
         "LIVE-3 sender sends the car origin and heading while mounted": test_sender_sends_vehicle_origin,
         "LIVE-3 receiver extrapolates the car to now every frame": test_car_extrapolated_every_frame,
-        "LIVE-3 avatar parked hidden while the remote drives, snaps back on exit": test_avatar_parked_while_driving,
+        "LIVE-3 avatar parked hidden while the remote drives; 117 m later it respawns next to the remote": test_avatar_parked_while_driving,
         "LIVE-3 car hidden on connection LOST and on reset": test_car_hidden_on_lost_and_reset,
         "LIVE-3 one 5.5 s local frame while the remote drives keeps the car (no false LOST)": test_car_kept_through_long_local_frame,
         "LIVE-4 a minute in the ESC menu: no teleports, hard corrections or NOT RESPONDING into the frozen world": test_menu_holds_corrections,
         "LIVE-5 avatar spawned at the partner: no teleport before the game places it, no SNAP FAILED, no hard correction": test_spawn_at_partner,
+        "LIVE-6 no avatar for a partner over 150 m away (host start, fast travel): no km teleports, respawn when back": test_avatar_leash,
     }
     results = {}
     for name, test in tests.items():
