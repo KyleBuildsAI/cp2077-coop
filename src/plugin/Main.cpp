@@ -19,6 +19,7 @@
 #include <Windows.h>
 
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -337,6 +338,46 @@ bool IsSupportedRuntime()
     Log(coopnet::LogLevel::Info, "game file version " + found + " (2.31) ok");
     return true;
 }
+
+// ---- bundled redscript declarations ------------------------------------------------------------
+
+std::filesystem::path PluginDirectory()
+{
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(&PluginDirectory), &module))
+    {
+        return {};
+    }
+    std::wstring path(MAX_PATH, L'\0');
+    const DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+    if (length == 0 || length >= path.size())
+    {
+        return {};
+    }
+    path.resize(length);
+    return std::filesystem::path(path).parent_path();
+}
+
+// The Net_* declarations live next to the DLL (Scripts/*.reds) and are handed to the redscript
+// compiler only when this plugin actually loaded, so a missing or rejected DLL can never leave
+// the game with script declarations for natives that do not exist.
+void RegisterScripts(RED4ext::v1::PluginHandle aHandle, const RED4ext::v1::Sdk* aSdk)
+{
+    const std::filesystem::path scripts = PluginDirectory() / L"Scripts";
+    std::error_code error;
+    if (!std::filesystem::is_directory(scripts, error))
+    {
+        Log(coopnet::LogLevel::Warn, "no Scripts folder next to the plugin; Net_* must be declared elsewhere");
+        return;
+    }
+    if (aSdk->scripts == nullptr || !aSdk->scripts->Add(aHandle, scripts.c_str()))
+    {
+        Log(coopnet::LogLevel::Error, "RED4ext refused the plugin's Scripts folder");
+        return;
+    }
+    Log(coopnet::LogLevel::Info, "added " + scripts.string() + " to the redscript compilation");
+}
 } // namespace
 
 #ifndef RED4EXT_API_VERSION_LATEST
@@ -370,6 +411,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
         auto* rtti = RED4ext::CRTTISystem::Get();
         rtti->AddRegisterCallback(RegisterTypes);
         rtti->AddPostRegisterCallback(PostRegisterTypes);
+        RegisterScripts(aHandle, aSdk);
         Log(coopnet::LogLevel::Info, "CP2077CoopNet loaded (protocol v1)");
         break;
     }
