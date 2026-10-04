@@ -49,6 +49,8 @@ SCRIPTS_DIR = os.path.join("r6", "scripts", "CP2077Coop")
 DEPLOY_FILES = [
     os.path.join(MOD_DIR, "init.lua"),
     os.path.join(MOD_DIR, "net_transport.lua"),
+    os.path.join(MOD_DIR, "testnpc.lua"),
+    os.path.join(MOD_DIR, "npc_test.lua"),
     os.path.join("red4ext", "plugins", "CP2077Coop", "CP2077Coop.dll"),
 ]
 DEPLOY_DIRS = ["coop-tools", os.path.join("red4ext", "plugins", "Codeware")]

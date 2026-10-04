@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.34 WORLD + STATE + VEHICLE + COMBAT SYNC + V2 PLAYER TRANSPORT
+-- v0.0.35 WORLD + STATE + VEHICLE + COMBAT SYNC + OPTIONAL TEST NPC
 --
 -- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
 -- albo domyślnie poniżej. role.txt ma pierwszeństwo.
@@ -270,7 +270,7 @@ S.joinForwardY = nil
 -- tytule i pierwszym wierszu panelu oraz w każdej linii [STATS]
 -- (version=), więc stary build na stanowisku testowym od razu widać.
 local Diag = {
-    VERSION = "0.0.34",
+    VERSION = "0.0.35",
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
@@ -568,6 +568,9 @@ end
 
 local function cancelMoveCommand()
 
+    S.activeMoveType, S.activeMoveCrouched = nil, nil
+    S.nativePendingFor = 0.0
+
     if S.remoteHandle == nil then
         S.activeMoveCommand = nil
         return
@@ -695,6 +698,10 @@ local function moveRemoteAI(
         SendCommand(command)
 
     S.activeMoveCommand = command
+    S.activeMoveType = moveType or "Walk"
+    S.activeMoveCrouched = crouched == true
+    S.nativePendingFor = 0.0
+    S.nativeCommandsStarted = (S.nativeCommandsStarted or 0) + 1
 
     -- AIMoveTo obraca NPC w stronę drogi (cofanie, krok w bok,
     -- dojście po zatrzymaniu): następny obrót w bezruchu musi
@@ -2315,7 +2322,7 @@ end
 -- Native transport is explicitly opted into per installation. No config means
 -- the unchanged v1 path, including its existing DLL and packet format.
 function Sync.loadTransportConfig()
-    local config = { mode = "v1", host = "127.0.0.1", port = 11778, room = "coop", key = "" }
+    local config = { mode = "v1", host = "127.0.0.1", port = 11778, room = "coop", key = "", npc_test = false, native_retarget = false }
     local file = io.open("transport.ini", "r")
     if file ~= nil then
         for line in file:lines() do
@@ -2326,6 +2333,8 @@ function Sync.loadTransportConfig()
                 config.port = tonumber(value)
             elseif key == "probe_disabled" then
                 config.probeDisabled = value == "true"
+            elseif key == "npc_test" or key == "native_retarget" then
+                config[key] = value == "true"
             end
         end
         file:close()
@@ -2359,6 +2368,7 @@ function Sync.hasRemotePlayer()
 end
 
 function Sync.restartTransport()
+    if Sync.npcTest ~= nil then Sync.npcTest:shutdown(); Sync.npcTest = nil end
     if Sync.transport ~= nil then Sync.transport:stop() end
     Sync.transport = nil
     Sync.v2Sample = nil
@@ -2374,6 +2384,36 @@ function Sync.restartTransport()
     options.log = function(message) Diag.log(tostring(message)) end
     Sync.transport = Sync.transportModule.new(options)
     Sync.transportEpoch = Sync.transport:status().epoch
+    Sync.npcTestError = nil
+    if Sync.transportConfig.npc_test then
+        local ok, result = pcall(function()
+            local module = require("npc_test")
+            local harness = require("testnpc")
+            return module.new({enabled=true, transport=Sync.transport,
+                entity=harness.cetEntity(Game.GetPlayer), log=Diag.log,
+                epochFactory=function()
+                    -- Native high-resolution monotonic clock plus a per-Lua-lifetime
+                    -- counter; no NPC/native methods are called when opt-in is off.
+                    local ms = Game.Net_NowMs()
+                    if type(ms) ~= "number" or ms ~= ms or ms <= 0 or ms == math.huge then
+                        error("NPC epoch clock unavailable")
+                    end
+                    Sync.npcEpochSerial = (Sync.npcEpochSerial or 0) + 1
+                    return string.format("%.0f%06d", ms * 1000, Sync.npcEpochSerial)
+                end})
+        end)
+        if ok then Sync.npcTest = result else Sync.npcTestError = tostring(result); Diag.log("[NPC TEST] unavailable: " .. tostring(result)) end
+    end
+end
+
+function Sync.updateNpcTest(delta)
+    if Sync.npcTest == nil then return end
+    local ok, message = pcall(function() Sync.npcTest:update(delta, Sync.frozen) end)
+    if not ok then
+        pcall(function() Sync.npcTest:shutdown() end)
+        Sync.npcTest, Sync.npcTestError = nil, tostring(message)
+        Diag.log("[NPC TEST] disabled after error: " .. tostring(message))
+    end
 end
 
 function Sync.updateTransport(player, delta)
@@ -3188,7 +3228,7 @@ function Steer.endpoint()
 end
 
 
-function Steer.shouldReissue(current, endX, endY, endZ, moveType, crouched, delta)
+function Steer.shouldReissue(current, endX, endY, endZ, moveType, crouched, delta, forceReplacement)
 
     Steer.sinceIssue =
         Steer.sinceIssue +
@@ -3197,6 +3237,8 @@ function Steer.shouldReissue(current, endX, endY, endZ, moveType, crouched, delt
     if Steer.sinceIssue < Steer.MIN_INTERVAL then
         return false
     end
+
+    if forceReplacement then return true end
 
     if Steer.endX == nil
         or moveType ~= Steer.moveType
@@ -3329,6 +3371,37 @@ function Steer.reset()
     Steer.moveType = nil
     Steer.crouched = nil
     Steer.sinceIssue = 99.0
+end
+
+
+-- Opt-in only: keep one executing command and update its exact native sample
+-- target. Returning handled=true also covers a queued command, which must not
+-- be cancelled every frame before the game has a chance to start it.
+function Steer.retarget(player, x, y, z, moveType, crouched, delta)
+    if S.activeMoveCommand == nil or S.activeMoveType ~= moveType
+        or S.activeMoveCrouched ~= (crouched == true) then
+        return false, true
+    end
+    if player.CP2077Coop_RetargetRemoteMove == nil then return false, false end
+    local ok, state = pcall(function()
+        return player:CP2077Coop_RetargetRemoteMove(S.activeMoveCommand, x, y, z)
+    end)
+    if ok and state == 2 then
+        S.nativeRetargets = (S.nativeRetargets or 0) + 1
+        S.nativePendingFor = 0.0
+        Steer.remember(x, y, z, moveType, crouched)
+        return true, false
+    end
+    if ok and (state == 0 or state == 1) then
+        S.nativePendingFor = (S.nativePendingFor or 0.0) + delta
+        if S.nativePendingFor < 5.0 then return true, false end
+    elseif not ok and not S.nativeRetargetErrorReported then
+        S.nativeRetargetErrorReported = true
+        Diag.log("[CP2077Coop] retained move bridge failed; using ordinary commands: " .. tostring(state))
+    end
+    -- Completed/cancelled/interrupted/unavailable commands, and a command that
+    -- stayed queued for five seconds, use the normal rate-limited submission.
+    return false, true
 end
 
 
@@ -4468,7 +4541,7 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] version=%s state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f fps=%.0f peer_rate=%.1f missed_pct=%s missed_total_pct=%.1f overwritten_pct=%s out_merged_pct=%s ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d frame_p99_ms=%s hard_per_min=%s flags_rx_ps=%s",
+            "[CP2077Coop] [STATS] version=%s state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f fps=%.0f peer_rate=%.1f missed_pct=%s missed_total_pct=%.1f overwritten_pct=%s out_merged_pct=%s ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d frame_p99_ms=%s hard_per_min=%s flags_rx_ps=%s commands_started=%d retargets=%d",
             Diag.VERSION,
             Diag.lastState,
             S.syncActive and "on" or "off",
@@ -4505,7 +4578,9 @@ function Diag.statsLine()
             Diag.tornReads,
             Diag.formatTenths(Diag.frameP99Last),
             Diag.formatTenths(Diag.hardPerMinuteLast),
-            Diag.formatTenths(Diag.flagsInLast)
+            Diag.formatTenths(Diag.flagsInLast),
+            S.nativeCommandsStarted or 0,
+            S.nativeRetargets or 0
         )
 end
 
@@ -4869,6 +4944,31 @@ function Diag.joinStatus()
 end
 
 
+-- Stable controls are drawn before any conditional diagnostics rows at 720p.
+function Diag.drawActions()
+    if ImGui.Button("Go to test area") then Diag.testAreaRequested = true end
+    ImGui.SameLine()
+    if ImGui.Button("Teleport to host") and not IS_HOST then Diag.teleportRequested = true end
+    if ImGui.Button("Log stats now") then Diag.writeStats(Diag.statsLine()) end
+    ImGui.SameLine()
+    if ImGui.Button(Bot.active and "Stop test pattern" or "Start test pattern") then
+        Diag.botToggleRequested = true
+    end
+    if ImGui.Button(IS_HOST and "Switch to JOINER" or "Switch to HOST") then Diag.setRole(not IS_HOST) end
+    if Sync.transportConfig ~= nil and Sync.transportConfig.npc_test then
+        if ImGui.Button("Spawn test NPC") and Sync.npcTest ~= nil and not Sync.frozen then
+            local player = Game.GetPlayer()
+            if player ~= nil then Sync.npcTest:spawnNear(player:GetWorldPosition()) end
+        end
+        ImGui.SameLine()
+        if ImGui.Button("Toggle NPC path") and Sync.npcTest ~= nil then Sync.npcTest:togglePath() end
+        ImGui.SameLine()
+        if ImGui.Button("Remove test NPC") and Sync.npcTest ~= nil then Sync.npcTest:remove() end
+    end
+    ImGui.Separator()
+end
+
+
 function Diag.draw()
 
     if not Diag.visible then
@@ -4887,6 +4987,8 @@ function Diag.draw()
         return
     end
 
+
+    Diag.drawActions()
 
     -- POŁĄCZENIE (stan z ostatniego odczytu DLL, jak w logu)
     local state =
@@ -4914,6 +5016,13 @@ function Diag.draw()
         local pose = Sync.v2Sample
         Diag.row("Native sample", pose and string.format("%s / %.0f ms buffer", pose.mode, pose.delayMs) or "waiting", "neutral")
     end
+    Diag.row("Native steering", string.format("commands=%d retargets=%d", S.nativeCommandsStarted or 0, S.nativeRetargets or 0), "neutral")
+    local npcText = Sync.npcTestError and ("unavailable: " .. Sync.npcTestError) or "off (optional controlled actor)"
+    if Sync.npcTest ~= nil then
+        local ok, status = pcall(function() return Sync.npcTest:status() end)
+        npcText = ok and status.text or "actor bridge unavailable"
+    end
+    Diag.row("NPC test", npcText, "neutral")
     Diag.row("Connection", state, stateLevel)
     Diag.row("Players", hasRemote and "2 / 2" or "1 / 2", hasRemote and "good" or "warn")
 
@@ -5201,51 +5310,6 @@ function Diag.draw()
 
 
     ImGui.Separator()
-
-    -- AKCJE (klikalne przy otwartym overlayu CET)
-    if ImGui.Button(IS_HOST and "Switch to JOINER" or "Switch to HOST") then
-        Diag.setRole(not IS_HOST)
-    end
-
-    if not IS_HOST then
-
-        ImGui.SameLine()
-
-        if ImGui.Button("Teleport to host") then
-            Diag.teleportRequested = true
-        end
-    end
-
-    ImGui.SameLine()
-
-    if ImGui.Button("Log stats now") then
-        Diag.writeStats(Diag.statsLine())
-    end
-
-
-    if ImGui.Button("Go to test area") then
-        Diag.testAreaRequested = true
-    end
-
-    ImGui.SameLine()
-
-    -- bot testowy: wysyła trasę zamiast prawdziwej pozycji
-    if ImGui.Button(Bot.active and "Stop test pattern" or "Start test pattern") then
-        Diag.botToggleRequested = true
-    end
-
-    if Bot.active then
-
-        ImGui.SameLine()
-
-        local r, g, b, a =
-            Diag.colorFor("warn")
-
-        ImGui.TextColored(
-            r, g, b, a,
-            string.format("sending test path: %s", Bot.phaseName())
-        )
-    end
 
     ImGui.End()
 end
@@ -6795,6 +6859,7 @@ registerForEvent(
 
 registerForEvent("onShutdown", function()
     Sync.resetRemoteMarker()
+    if Sync.npcTest ~= nil then Sync.npcTest:shutdown(); Sync.npcTest = nil end
     if Sync.transport ~= nil then Sync.transport:stop() end
     local player = Game.GetPlayer()
     if player ~= nil and player.CP2077Coop_SuppressLegacyCombat ~= nil then
@@ -6913,6 +6978,7 @@ registerForEvent(
         -- menu / mapa / ekwipunek: świat stoi (Sync.frozen)
         Sync.updateFrozen(delta)
         Sync.updateTransport(player, delta)
+        Sync.updateNpcTest(delta)
 
         -- Expire on movement silence even if the DLL keeps its last slot.
         -- Fresh packet updates below also work before the avatar has spawned.
@@ -7896,14 +7962,21 @@ registerForEvent(
             local endX, endY, endZ =
                 Steer.endpoint()
 
-            if Steer.shouldReissue(
+            local retained, replace = false, false
+            if Sync.isV2() and Sync.transportConfig ~= nil
+                and Sync.transportConfig.native_retarget == true then
+                retained, replace = Steer.retarget(player, endX, endY, endZ, moveType, crouched, delta)
+            end
+
+            if not retained and Steer.shouldReissue(
                 current,
                 endX,
                 endY,
                 endZ,
                 moveType,
                 crouched,
-                delta
+                delta,
+                replace
             ) then
 
                 if moveRemoteAI(

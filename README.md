@@ -24,7 +24,7 @@ All of these ship inside the release zip:
 3. Pick a role in the in-game **CP2077 Coop** panel (open the CET overlay, click *Switch to HOST/JOINER*).
    The choice is saved to `role.txt` in the mod folder. One player must be host, the other joiner.
 
-**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.34*), the
+**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.35*), the
 *Version* row at the top of the panel and `version=` at the start of every `[STATS]` line show it.
 The protocol changes between builds: a partner on an older build shows up as *Peer: no ping reply -
 other player on old version?* and *Role check: unknown*, not as a role problem. Update the older
@@ -83,6 +83,8 @@ port=11778
 room=codex-bench
 key=
 probe_disabled=true
+npc_test=false
+native_retarget=false
 ```
 
 Restart the games after changing this file. `mode=auto` allows fallback to v1
@@ -110,6 +112,48 @@ pitch (health and pitch fields are placeholders). The avatar remains a local NPC
 following the sampled target, so pathfinding and animation still affect the visible
 result. Default v1 retains its existing proximity-based ranged-hit approximation.
 Neither transport constitutes full-world multiplayer synchronization yet.
+
+### Optional controlled test NPC (v0.0.35)
+
+Set `npc_test=true` in both installations' `transport.ini` to opt into one temporary
+test actor. It requires v2 and the packaged `npc_test.lua`, `testnpc.lua` and
+`testnpc.reds`; default false does not call NPC methods or spawn actors. This is a
+source-tested experiment; live actor animation, collision and cleanup still need
+verification. It is separate from the broader NPC prototype and never enables
+population suppression, prevention changes, vanilla/quest binding or damage hooks.
+
+After both sides show **NPC test: ready**, use the host's **Spawn test NPC** button.
+The fixed generic NPC appears six metres west of the host. **Toggle NPC path** moves
+the target north/south along a 12 m lane at 1.5 m/s; inspect clearance first. It is
+a transform demonstration, not autonomous synchronized AI. **Remove test NPC**
+retries removal until acknowledged. The panel reads the actor's actual position;
+`[NPC TEST]` events report state and message/expiry counters every five seconds.
+Primary actions are now at the top of the panel before diagnostics, so changing
+diagnostic rows cannot shift a teleport button into the role switch.
+
+One central adapter owns polling. Reliable channel 20 carries NPC opt-in and
+lifecycle, and unreliable channel 2 carries measured actor poses at 10 Hz. Both
+current application sessions, the authenticated sender, a fresh joiner activation
+challenge and a fresh host NPC epoch must match before actor APIs can run. Reliable
+creation/removal acknowledgement concerns actual actor attachment/removal, beyond
+accepting a network send. Old IDs/epochs cannot revive removed actors. The adapter's
+bounded extension inbox fails closed without disconnecting the player stream.
+
+Host/joiner menu pause removes the experimental actor and renegotiates on resume;
+respawn explicitly. Silence expires the peer actor after three seconds. Disconnect,
+role change, save unload and CET shutdown clear the private tag. Codeware's session
+cleanup is also registered before spawn. Appearance variation, AI, health/deaths,
+combat, traffic and quest/world identity are outside this slice. The generic record
+is fixed, but its runtime appearance is not serialized. No shared-world completion
+claim follows from this experiment.
+
+`native_retarget=true` separately enables the experimental retained AIMoveTo path
+for the player stand-in. It is also false by default. Compare `commands_started`
+and `retargets` in `[STATS]` plus actual visible drift before selecting it for normal
+play; changing a target can behave differently in the real game than in the mock.
+
+The tagged spawn/lifecycle interfaces follow [Codeware's primary documentation](https://github.com/psiberx/cp2077-codeware/wiki/)
+(checked 2026-10-04); the broad NPC design and research remain in the Obsidian vault.
 
 The standard test bot's sprint lasts **3 seconds**. The offline A10 regression uses
 12 seconds and still has its documented measured-lag failure; a normal bot cycle
