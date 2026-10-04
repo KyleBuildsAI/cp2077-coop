@@ -169,6 +169,9 @@ S.joinTargetX = 0.0
 S.joinTargetY = 0.0
 S.joinTargetZ = 0.0
 
+S.joinForwardX = nil
+S.joinForwardY = nil
+
 
 ------------------------------------------------------------
 -- MATH
@@ -998,6 +1001,20 @@ function Sync.decodeForward(rawX, rawY)
         rawX / length,
         rawY / length,
         payload
+end
+
+
+-- Yaw (stopnie) dla kierunku w poziomie, tak jak liczy go gra:
+-- (0, 1) = 0°, obrót przeciwnie do ruchu wskazówek zegara, (-1, 0) = 90°.
+function Sync.yawFromForward(forwardX, forwardY)
+
+    return
+        math.deg(
+            math.atan2(
+                -forwardX,
+                forwardY
+            )
+        )
 end
 
 
@@ -2695,11 +2712,15 @@ end
 -- TELEPORT REAL LOCAL PLAYER
 ------------------------------------------------------------
 
+-- forwardX/forwardY: kierunek, w który gracz ma patrzeć po teleporcie
+-- (nil = obecny kierunek gracza).
 local function teleportLocalPlayer(
     player,
     x,
     y,
-    z
+    z,
+    forwardX,
+    forwardY
 )
 
     local ok, err =
@@ -2713,15 +2734,33 @@ local function teleportLocalPlayer(
                     1.0
                 )
 
-            local orientation =
-                player:
-                    GetWorldOrientation()
+            if forwardX == nil then
+
+                local forward =
+                    player:
+                        GetWorldForward()
+
+                forwardX = forward.x
+                forwardY = forward.y
+            end
+
+            -- Teleport chce EulerAngles; Quaternion z GetWorldOrientation()
+            -- kończył się błędem "parameter 3 must be EulerAngles"
+            local rotation =
+                EulerAngles.new(
+                    0.0,
+                    0.0,
+                    Sync.yawFromForward(
+                        forwardX,
+                        forwardY
+                    )
+                )
 
             Game.GetTeleportationFacility():
                 Teleport(
                     player,
                     position,
-                    orientation
+                    rotation
                 )
 
         end)
@@ -2807,6 +2846,10 @@ local function beginJoinWorldSync(
     S.joinTargetZ =
         hostZ
 
+    -- P2 patrzy w tę samą stronę co host
+    S.joinForwardX = hostForwardX
+    S.joinForwardY = hostForwardY
+
 
     S.joinSyncPending = true
     S.joinSyncElapsed = 0.0
@@ -2886,6 +2929,8 @@ local function resetRemote()
     S.joinTargetX = 0.0
     S.joinTargetY = 0.0
     S.joinTargetZ = 0.0
+    S.joinForwardX = nil
+    S.joinForwardY = nil
 
     S.sendAccumulator = 0.0
     S.commandAccumulator = 0.0
@@ -3573,7 +3618,9 @@ registerForEvent(
                     player,
                     S.joinTargetX,
                     S.joinTargetY,
-                    S.joinTargetZ
+                    S.joinTargetZ,
+                    S.joinForwardX,
+                    S.joinForwardY
                 )
             end
 
