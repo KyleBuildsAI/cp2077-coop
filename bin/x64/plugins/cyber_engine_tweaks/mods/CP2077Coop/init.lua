@@ -896,6 +896,20 @@ local Sync = {
     timeCooldown = 0.0,
 
     appliedWeather = -1,
+    -- liczba pogód w CP2077Coop_WeatherNames (state.reds); większy
+    -- indeks w pakiecie = uszkodzony pakiet
+    WEATHER_COUNT = 9,
+    -- SetWeather (priorytet 5) trzyma pogodę hosta aż do ResetWeather:
+    -- czy to my ją wymusiliśmy (tylko wtedy ją zwalniamy)
+    weatherForced = false,
+    -- Sync.clock przy ostatnim znanym indeksie pogody hosta
+    weatherKnownClock = -100.0,
+    -- tyle s bez znanej pogody hosta (host milczy albo ma pogodę
+    -- spoza listy, np. z questu) = pogoda wraca do gry
+    WEATHER_RELEASE_AFTER = 15.0,
+    -- gra odmówiła SetWeather: ponowienie po tylu sekundach
+    weatherRetry = 0.0,
+    WEATHER_RETRY = 5.0,
 
     scriptsReported = false
 }
@@ -1134,8 +1148,17 @@ function Sync.receivePayload(payload)
 
     elseif packetType == Sync.TYPE_WEATHER then
 
+        -- poza listą pogód = uszkodzony pakiet, nie pogoda
+        if value > Sync.WEATHER_COUNT then
+            return
+        end
+
         Sync.remoteWeather =
             value - 1
+
+        if Sync.remoteWeather >= 0 then
+            Sync.weatherKnownClock = Sync.clock
+        end
 
     elseif packetType == Sync.TYPE_PING then
 
@@ -1602,12 +1625,115 @@ function Sync.applyRemoteTime(player, delta)
 end
 
 
+-- Koniec wymuszenia pogody hosta: ResetWeather, wraca cykl pogody gry.
+-- Tylko pogoda wymuszona przez nas (nigdy pogoda questu ani hosta).
+function Sync.releaseWeather(player, reason)
+
+    if not Sync.weatherForced
+        or player.CP2077Coop_ReleaseWeather == nil
+    then
+        return
+    end
+
+    Sync.weatherForced = false
+
+    -- pogoda hosta wróci z następnym znanym indeksem
+    Sync.appliedWeather = -1
+
+    local released =
+        player:CP2077Coop_ReleaseWeather()
+
+    print(
+        string.format(
+            "[CP2077Coop] weather released to the game (%s)%s",
+            reason,
+            released == false and ", game had no override" or ""
+        )
+    )
+end
+
+
+-- Pogoda hosta: przy zmianie indeksu, z ponowieniem, gdy gra odmówi.
+function Sync.applyRemoteWeather(player, delta)
+
+    Sync.weatherRetry =
+        math.max(
+            0.0,
+            Sync.weatherRetry - delta
+        )
+
+    -- host milczy albo ma pogodę spoza listy (quest): wcześniej
+    -- wymuszona pogoda zostawała do końca sesji
+    if Sync.clock - Sync.weatherKnownClock >=
+        Sync.WEATHER_RELEASE_AFTER
+    then
+
+        Sync.releaseWeather(
+            player,
+            "no known host weather"
+        )
+
+        return
+    end
+
+    if Sync.remoteWeather == nil
+        or Sync.remoteWeather < 0
+        or Sync.remoteWeather == Sync.appliedWeather
+        or Sync.weatherRetry > 0.0
+    then
+        return
+    end
+
+    -- false = gra odmówiła (zmiana obszaru, pogoda questu o wyższym
+    -- priorytecie): ponowienie po WEATHER_RETRY, log raz na indeks;
+    -- nil = stary state.reds bez wyniku (Void): jak przyjęta
+    if player:CP2077Coop_SetWeatherIndex(Sync.remoteWeather) == false then
+
+        Sync.weatherRetry =
+            Sync.WEATHER_RETRY
+
+        if Sync.weatherRefusedIndex ~= Sync.remoteWeather then
+
+            Sync.weatherRefusedIndex = Sync.remoteWeather
+
+            print(
+                string.format(
+                    "[CP2077Coop] weather index %d refused by the game, retrying every %.0f s",
+                    Sync.remoteWeather,
+                    Sync.WEATHER_RETRY
+                )
+            )
+        end
+
+        return
+    end
+
+    Sync.appliedWeather = Sync.remoteWeather
+    Sync.weatherForced = true
+    Sync.weatherRefusedIndex = nil
+
+    print(
+        "[CP2077Coop] weather synced to host, index "
+        .. tostring(Sync.remoteWeather)
+    )
+end
+
+
 -- Joiner przejmuje godzinę i pogodę hosta (co klatkę z onUpdate).
 function Sync.applyWorldState(player, isHost, delta)
 
-    if isHost
-        or not Sync.hasScripts(player)
-    then
+    if not Sync.hasScripts(player) then
+        return
+    end
+
+    -- host (też po zmianie roli w panelu) nie trzyma pogody joinera
+    if isHost then
+
+        Sync.releaseWeather(
+            player,
+            "role is host"
+        )
+
         return
     end
 
@@ -1616,24 +1742,10 @@ function Sync.applyWorldState(player, isHost, delta)
         delta
     )
 
-
-    if Sync.remoteWeather ~= nil
-        and Sync.remoteWeather >= 0
-        and Sync.remoteWeather ~= Sync.appliedWeather
-    then
-
-        player:CP2077Coop_SetWeatherIndex(
-            Sync.remoteWeather
-        )
-
-        Sync.appliedWeather =
-            Sync.remoteWeather
-
-        print(
-            "[CP2077Coop] weather synced to host, index "
-            .. tostring(Sync.remoteWeather)
-        )
-    end
+    Sync.applyRemoteWeather(
+        player,
+        delta
+    )
 end
 
 
@@ -1794,7 +1906,12 @@ function Sync.reset()
     Sync.remoteTimeClock = -100.0
     Sync.remoteWeather = nil
     Sync.timeCooldown = 0.0
+    -- weatherForced i weatherKnownClock zostają: wymuszona pogoda
+    -- zwalnia się sama, gdy host nie wróci (WEATHER_RELEASE_AFTER),
+    -- albo od razu po zmianie roli na hosta
     Sync.appliedWeather = -1
+    Sync.weatherRetry = 0.0
+    Sync.weatherRefusedIndex = nil
     Sync.remoteFlagsSeen = false
     Sync.remoteVehicleIndex = nil
     Sync.vehicleShown = false

@@ -187,15 +187,25 @@ public func CP2077Coop_GetWeatherIndex() -> Int32 {
     return ArrayFindFirst(this.CP2077Coop_WeatherNames(), state.name);
 }
 
+// false = not applied (index outside the list, or the game refused, e.g.
+// during an area transition or under a higher-priority quest weather).
+// The priority-5 override holds until CP2077Coop_ReleaseWeather.
 @addMethod(PlayerPuppet)
-public func CP2077Coop_SetWeatherIndex(index: Int32) -> Void {
+public func CP2077Coop_SetWeatherIndex(index: Int32) -> Bool {
     let names = this.CP2077Coop_WeatherNames();
 
     if index < 0 || index >= ArraySize(names) {
-        return;
+        return false;
     }
 
-    GameInstance.GetWeatherSystem(this.GetGame()).SetWeather(names[index], 10.0, 5u);
+    return GameInstance.GetWeatherSystem(this.GetGame()).SetWeather(names[index], 10.0, 5u);
+}
+
+// Ends the override set by CP2077Coop_SetWeatherIndex: the game's own
+// weather cycle takes over again.
+@addMethod(PlayerPuppet)
+public func CP2077Coop_ReleaseWeather() -> Bool {
+    return GameInstance.GetWeatherSystem(this.GetGame()).ResetWeather(true, 10.0);
 }
 
 
