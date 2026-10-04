@@ -17,7 +17,9 @@
     tracked failure and not counted.
 
 .PARAMETER Only
-    Run just these Python tests, e.g. -Only test_bot.py,test_mods.py.
+    Run just these tests, e.g. -Only test_bot.py,test_mods.py. test_relay.py and
+    coop_sim30.py run as the relay and movement sim groups; any other name must be
+    one of the Python tests in $PythonTests.
 
 .PARAMETER KeepWorkDir
     Keep the per-run folder with every test's full log (always kept on failure).
@@ -196,6 +198,22 @@ function Test-ToolsSyntax {
     Complete-Group ($broken -eq 0)
 }
 
+function Invoke-SelectedTest {
+    # -Only: each name runs the group that knows its arguments; any other name fails loudly.
+    param([string]$Name)
+    switch ($Name) {
+        "coop_sim30.py" { Test-MovementSim; return }
+        "test_relay.py" { Test-Relay; return }
+    }
+    if ($PythonTests -contains $Name) {
+        Test-PythonScript $Name
+        return
+    }
+    Write-Output "== $Name"
+    Write-Output ("FAIL  not a runner test: $Name (use: " + (($PythonTests + "coop_sim30.py", "test_relay.py") -join ", ") + ")")
+    Complete-Group $false
+}
+
 if (-not (Get-Command $Python -ErrorAction SilentlyContinue)) {
     Write-Output "python not found (put it on PATH or set COOP_PYTHON)"
     exit 1
@@ -216,7 +234,7 @@ try {
         Complete-Group $false
     }
     elseif ($Only.Count -gt 0) {
-        foreach ($test in $Only) { Test-PythonScript $test }
+        foreach ($test in $Only) { Invoke-SelectedTest $test }
     }
     else {
         Test-LuaLoad

@@ -13,7 +13,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests\run_all.ps1
 The run must end with `TOTAL FAILED GROUPS: 0`. The exit code is the number of
 failed groups. Options:
 
-- `-Only test_bot.py,test_mods.py` runs just those Python tests
+- `-Only test_bot.py,test_mods.py` runs just those tests; `test_relay.py` and
+  `coop_sim30.py` run as the relay and movement sim groups; any other name fails with
+  the list of valid names
 - `-KeepWorkDir` keeps the per-run folder with each test's full log (it is always
   kept when something fails, and the path is printed)
 
