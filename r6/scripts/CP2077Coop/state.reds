@@ -199,6 +199,17 @@ private func CP2077Coop_WeatherNames() -> array<CName> {
     ];
 }
 
+// The host reads its weather every send slot; the 9-name list is built and
+// searched only when the weather state changes.
+@addField(PlayerPuppet)
+private let m_coopWeatherCached: Bool;
+
+@addField(PlayerPuppet)
+private let m_coopWeatherName: CName;
+
+@addField(PlayerPuppet)
+private let m_coopWeatherIndex: Int32;
+
 @addMethod(PlayerPuppet)
 public func CP2077Coop_GetWeatherIndex() -> Int32 {
     let state = GameInstance.GetWeatherSystem(this.GetGame()).GetWeatherState();
@@ -207,7 +218,13 @@ public func CP2077Coop_GetWeatherIndex() -> Int32 {
         return -1;
     }
 
-    return ArrayFindFirst(this.CP2077Coop_WeatherNames(), state.name);
+    if !this.m_coopWeatherCached || NotEquals(this.m_coopWeatherName, state.name) {
+        this.m_coopWeatherIndex = ArrayFindFirst(this.CP2077Coop_WeatherNames(), state.name);
+        this.m_coopWeatherName = state.name;
+        this.m_coopWeatherCached = true;
+    }
+
+    return this.m_coopWeatherIndex;
 }
 
 // false = not applied (index outside the list, or the game refused, e.g.

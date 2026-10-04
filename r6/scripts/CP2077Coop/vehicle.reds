@@ -83,6 +83,27 @@ public func CP2077Coop_VehicleList() -> array<TweakDBID> {
 // LOCAL PLAYER
 // ------------------------------------------------------------
 
+// The list lookups below run up to every frame (the remote car) or every send
+// slot (the mounted index): the 64-entry list is built and searched only when
+// the record changes. A new PlayerPuppet (save load) starts with empty caches.
+@addField(PlayerPuppet)
+private let m_coopMountedCached: Bool;
+
+@addField(PlayerPuppet)
+private let m_coopMountedRecord: TweakDBID;
+
+@addField(PlayerPuppet)
+private let m_coopMountedIndex: Int32;
+
+@addField(PlayerPuppet)
+private let m_coopRecordCached: Bool;
+
+@addField(PlayerPuppet)
+private let m_coopRecordIndex: Int32;
+
+@addField(PlayerPuppet)
+private let m_coopRecord: TweakDBID;
+
 // -1 = not in a vehicle, 0 = vehicle not in list, 1..N = list index + 1
 @addMethod(PlayerPuppet)
 public func CP2077Coop_GetMountedVehicleIndex() -> Int32 {
@@ -92,7 +113,15 @@ public func CP2077Coop_GetMountedVehicleIndex() -> Int32 {
         return -1;
     }
 
-    return ArrayFindFirst(CP2077Coop_VehicleList(), vehicle.GetRecordID()) + 1;
+    let record = vehicle.GetRecordID();
+
+    if !this.m_coopMountedCached || this.m_coopMountedRecord != record {
+        this.m_coopMountedIndex = ArrayFindFirst(CP2077Coop_VehicleList(), record) + 1;
+        this.m_coopMountedRecord = record;
+        this.m_coopMountedCached = true;
+    }
+
+    return this.m_coopMountedIndex;
 }
 
 // Pose sent over the network while driving: [x, y, z, forwardX, forwardY] of
@@ -120,13 +149,22 @@ public func CP2077Coop_GetMountedVehiclePose() -> array<Float> {
 
 @addMethod(PlayerPuppet)
 private func CP2077Coop_VehicleRecordFor(index: Int32) -> TweakDBID {
-    let list = CP2077Coop_VehicleList();
-
-    if index >= 1 && index <= ArraySize(list) {
-        return list[index - 1];
+    // the default Int32 0 is a valid index (the fallback): m_coopRecordCached marks a filled cache
+    if this.m_coopRecordCached && this.m_coopRecordIndex == index {
+        return this.m_coopRecord;
     }
 
-    return CP2077Coop_FallbackVehicle();
+    let list = CP2077Coop_VehicleList();
+    let record = CP2077Coop_FallbackVehicle();
+
+    if index >= 1 && index <= ArraySize(list) {
+        record = list[index - 1];
+    }
+
+    this.m_coopRecordIndex = index;
+    this.m_coopRecord = record;
+    this.m_coopRecordCached = true;
+    return record;
 }
 
 @addMethod(PlayerPuppet)
