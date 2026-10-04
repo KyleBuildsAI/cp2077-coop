@@ -1,6 +1,7 @@
 #include "Transport.hpp"
 
 #include "Reliability.hpp"
+#include "Version.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -1352,6 +1353,7 @@ std::string Transport::StatsJson() const
     std::ostringstream json;
     json << "{\"state\":\"" << ToString(State()) << "\"";
     json << ",\"id\":" << LocalId();
+    json << ",\"version\":\"" << kVersionString << "\"";
     json << ",\"relay\":\"" << JsonEscape(stats.host) << ":" << stats.port << "\"";
     json << ",\"room\":\"" << JsonEscape(stats.room) << "\"";
     json << ",\"relayRttMs\":" << (stats.relayRttValid ? FormatDouble(stats.relayRttMs) : "null");

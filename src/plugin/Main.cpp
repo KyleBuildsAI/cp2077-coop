@@ -13,6 +13,7 @@
 // From CET: Game.Net_Connect("127.0.0.1", 11779), Game.Net_Poll(), ...
 
 #include "core/Transport.hpp"
+#include "core/Version.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 
@@ -430,7 +431,7 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo)
 {
     aInfo->name = L"CP2077CoopNet";
     aInfo->author = L"CP2077 Coop";
-    aInfo->version = RED4EXT_V1_SEMVER(0, 1, 0);
+    aInfo->version = RED4EXT_V1_SEMVER(COOPNET_VERSION_MAJOR, COOPNET_VERSION_MINOR, COOPNET_VERSION_PATCH);
     aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_2_31;
     aInfo->sdk = RED4EXT_V1_SDK_VERSION_CURRENT;
 }

@@ -9,6 +9,8 @@
 #include <RED4ext/Api/v1/PluginInfo.hpp>
 #include <RED4ext/Api/v1/Runtime.hpp>
 
+#include "core/Version.hpp"
+
 #include <Windows.h>
 
 #include <cstdio>
@@ -54,7 +56,13 @@ int wmain(int argc, wchar_t** argv)
     const bool runtimeOk = info.runtime.major == expectedRuntime.major && info.runtime.minor == expectedRuntime.minor &&
                            info.runtime.build == expectedRuntime.build &&
                            info.runtime.revision == expectedRuntime.revision;
-    const bool ok = apiVersion == RED4EXT_API_VERSION_1 && runtimeOk && info.sdk.major == 1;
+    // The version RED4ext logs ("CP2077CoopNet (version: x.y.z, ...) has been loaded") must be the CMake one.
+    const bool versionOk = info.version.major == coopnet::kVersionMajor &&
+                           info.version.minor == coopnet::kVersionMinor &&
+                           info.version.patch == coopnet::kVersionPatch;
+    std::printf("  expected version=%u.%u.%u -> %s\n", coopnet::kVersionMajor, coopnet::kVersionMinor,
+                coopnet::kVersionPatch, versionOk ? "match" : "MISMATCH");
+    const bool ok = apiVersion == RED4EXT_API_VERSION_1 && runtimeOk && versionOk && info.sdk.major == 1;
     FreeLibrary(module);
     std::puts(ok ? "PROBE PASS" : "PROBE FAIL");
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;

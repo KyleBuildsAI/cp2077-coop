@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(CP2077CoopNet VERSION 0.1.0 LANGUAGES CXX)
+project(CP2077CoopNet VERSION 0.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,6 +26,18 @@ add_subdirectory("${RED4EXT_SDK_DIR}" RED4ext.SDK EXCLUDE_FROM_ALL)
 set(COOPNET_WARNINGS /W4 /permissive- /utf-8 /Zc:__cplusplus)
 
 # -----------------------------------------------------------------------------
+# Version: project(VERSION) above is the single source of truth. Query() reports it to RED4ext
+# and Net_Version() returns "CP2077CoopNet <major.minor.patch> proto <protocol>".
+# -----------------------------------------------------------------------------
+add_library(coopnet_version INTERFACE)
+target_include_directories(coopnet_version INTERFACE "${PROJECT_SOURCE_DIR}/src")
+target_compile_definitions(coopnet_version INTERFACE
+  COOPNET_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+  COOPNET_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+  COOPNET_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+)
+
+# -----------------------------------------------------------------------------
 # Transport core (no RED4ext dependency, shared by the plugin and the tests)
 # -----------------------------------------------------------------------------
 add_library(coopnet_core STATIC
@@ -35,11 +47,12 @@ add_library(coopnet_core STATIC
   src/core/Reliability.hpp
   src/core/Transport.cpp
   src/core/Transport.hpp
+  src/core/Version.hpp
 )
 target_include_directories(coopnet_core PUBLIC "${PROJECT_SOURCE_DIR}/src")
 target_compile_definitions(coopnet_core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
 target_compile_options(coopnet_core PRIVATE ${COOPNET_WARNINGS} /WX)
-target_link_libraries(coopnet_core PUBLIC ws2_32)
+target_link_libraries(coopnet_core PUBLIC ws2_32 coopnet_version)
 
 # -----------------------------------------------------------------------------
 # RED4ext plugin
@@ -62,6 +75,6 @@ target_compile_options(coopnet_loopback PRIVATE ${COOPNET_WARNINGS} /WX)
 
 # Loads the built plugin with LoadLibrary and calls Query/Supports (never Main, which needs the game).
 add_executable(coopnet_plugin_probe tests/PluginProbe.cpp)
-target_link_libraries(coopnet_plugin_probe PRIVATE RED4ext::SDK)
+target_link_libraries(coopnet_plugin_probe PRIVATE RED4ext::SDK coopnet_version)
 target_compile_options(coopnet_plugin_probe PRIVATE ${COOPNET_WARNINGS})
 add_dependencies(coopnet_plugin_probe CP2077CoopNet)

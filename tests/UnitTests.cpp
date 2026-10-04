@@ -1,7 +1,9 @@
-// Deterministic tests for the frame codec and the reliability layer. No sockets, simulated clock.
+// Deterministic tests for the frame codec and the reliability layer (no sockets, simulated clock),
+// plus the Net_Version string.
 
 #include "core/Protocol.hpp"
 #include "core/Reliability.hpp"
+#include "core/Version.hpp"
 
 #include <algorithm>
 #include <array>
@@ -10,6 +12,7 @@
 #include <cstdlib>
 #include <deque>
 #include <random>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -432,6 +435,29 @@ void TestLossyTransfers()
     // More than 65536 messages: exercises 16-bit sequence wrap-around on both sides.
     CHECK(RunLossyTransfer({"sequence wrap", 70'000, 0, 0.05, 0.02, 5'000, 5'000, 4}).ok);
 }
+// ---- Net_Version -------------------------------------------------------------------------------
+
+void TestVersionString()
+{
+    std::puts("Net_Version format");
+    const std::string version(kVersionString);
+    std::printf("    Net_Version() = \"%s\"\n", version.c_str());
+    const std::regex format(R"(^CP2077CoopNet (\d+)\.(\d+)\.(\d+) proto (\d+)$)");
+    std::smatch parts;
+    CHECK(std::regex_match(version, parts, format));
+    if (parts.size() == 5)
+    {
+        CHECK(std::stoul(parts[1].str()) == kVersionMajor);
+        CHECK(std::stoul(parts[2].str()) == kVersionMinor);
+        CHECK(std::stoul(parts[3].str()) == kVersionPatch);
+        CHECK(std::stoul(parts[4].str()) == kProtocolVersion);
+    }
+    CHECK(version == std::string(kPluginName) + " " + std::string(kSemVer) + " proto " +
+                         std::to_string(kProtocolVersion));
+    CHECK(kSemVer == std::to_string(kVersionMajor) + "." + std::to_string(kVersionMinor) + "." +
+                         std::to_string(kVersionPatch));
+}
+
 } // namespace
 
 int main()
@@ -444,6 +470,7 @@ int main()
     TestFastRetransmit();
     TestSackHorizon();
     TestLossyTransfers();
+    TestVersionString();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

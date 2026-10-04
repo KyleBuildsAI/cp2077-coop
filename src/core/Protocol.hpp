@@ -28,7 +28,9 @@
 namespace coopnet
 {
 constexpr uint32_t kMagic = 0x324E5043; // bytes "CPN2" when written little-endian
-constexpr uint8_t kProtocolVersion = 1;
+// A macro as well as a constant so Version.hpp can spell it into the Net_Version() string literal.
+#define COOPNET_PROTOCOL_VERSION 1
+constexpr uint8_t kProtocolVersion = COOPNET_PROTOCOL_VERSION;
 constexpr size_t kHeaderSize = 20;
 constexpr size_t kMaxDatagramSize = 1200;
 constexpr size_t kMaxPayloadSize = kMaxDatagramSize - kHeaderSize;
