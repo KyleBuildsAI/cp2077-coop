@@ -1,0 +1,21 @@
+# Third-party checkouts (fetched by tools/fetch_deps.ps1)
+deps/
+
+# Build output
+build/
+out/
+*.dll
+*.exe
+*.lib
+*.pdb
+*.obj
+*.ilk
+*.exp
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs and local config
+*.log
+.env
