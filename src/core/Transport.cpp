@@ -107,6 +107,60 @@ std::string LastSocketError(const char* aWhat)
     return std::string(aWhat) + " failed (WSA error " + std::to_string(WSAGetLastError()) + ")";
 }
 
+// Empty when aText is empty or not valid UTF-8.
+std::wstring Utf8ToWide(std::string_view aText)
+{
+    if (aText.empty() || aText.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+    {
+        return {};
+    }
+    const int inputLength = static_cast<int>(aText.size());
+    const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, aText.data(), inputLength, nullptr, 0);
+    if (size <= 0)
+    {
+        return {};
+    }
+    std::wstring wide(static_cast<size_t>(size), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, aText.data(), inputLength, wide.data(), size) != size)
+    {
+        return {};
+    }
+    return wide;
+}
+
+// One overlapped GetAddrInfoExW call. The event is manual-reset and signalled by Winsock when the
+// lookup completes, fails or is cancelled.
+struct AddressLookup
+{
+    AddressLookup()
+        : event(CreateEventW(nullptr, TRUE, FALSE, nullptr))
+    {
+    }
+
+    ~AddressLookup()
+    {
+        if (result != nullptr)
+        {
+            FreeAddrInfoExW(result);
+        }
+        if (event != nullptr)
+        {
+            CloseHandle(event);
+        }
+    }
+
+    AddressLookup(const AddressLookup&) = delete;
+    AddressLookup& operator=(const AddressLookup&) = delete;
+
+    OVERLAPPED overlapped{};
+    HANDLE event = nullptr;
+    HANDLE cancel = nullptr;
+    ADDRINFOEXW* result = nullptr;
+};
+
+// How long a cancelled lookup may take to report completion before it is abandoned.
+constexpr DWORD kLookupCancelWaitMillis = 1000;
+
 struct OutgoingRequest
 {
     uint8_t channel = 0;
@@ -278,13 +332,12 @@ public:
     void Run()
     {
         m_startedMicros = NowMicros();
-        if (!Open())
+        const bool opened = Open();
+        if (opened)
         {
-            PublishStats(NowMicros());
-            return;
+            Loop();
+            SayGoodbye();
         }
-        Loop();
-        SayGoodbye();
         Close();
         if (static_cast<ConnectionState>(m_shared.state.load()) != ConnectionState::Error)
         {
@@ -293,7 +346,12 @@ public:
         m_shared.peerCount = 0;
         m_shared.localId = 0;
         PublishStats(NowMicros());
-        m_shared.PushEvent("disconnected");
+        // A failed Open already pushed "error ..."; a stop during it (for example while the host
+        // name was still resolving) ends the session like a normal disconnect.
+        if (opened || m_shared.stopRequested.load())
+        {
+            m_shared.PushEvent("disconnected");
+        }
     }
 
 private:
@@ -387,23 +445,88 @@ private:
         return true;
     }
 
+    // Resolves m_host with an overlapped GetAddrInfoExW and waits on both the lookup and the wake
+    // event. Disconnect, a reconnect and the Transport destructor (Main(Unload)) set stopRequested
+    // and wake this thread; the lookup is then cancelled, so StopThread's join on the game thread
+    // never waits for a slow or unreachable DNS server. Returns false on failure (after Fail) and
+    // on a stop request (without Fail).
     bool Resolve()
     {
-        addrinfo hints{};
+        if (m_shared.stopRequested.load())
+        {
+            return false;
+        }
+        const std::wstring host = Utf8ToWide(m_host);
+        if (host.empty())
+        {
+            Fail("cannot resolve '" + m_host + "' (not valid UTF-8)");
+            return false;
+        }
+        const std::wstring service = std::to_wstring(m_port);
+        auto lookup = std::make_unique<AddressLookup>();
+        if (lookup->event == nullptr)
+        {
+            Fail("cannot resolve '" + m_host + "': CreateEvent failed (error " + std::to_string(GetLastError()) +
+                 ")");
+            return false;
+        }
+        ADDRINFOEXW hints{};
         hints.ai_family = AF_INET;
         hints.ai_socktype = SOCK_DGRAM;
         hints.ai_protocol = IPPROTO_UDP;
-        addrinfo* result = nullptr;
-        const std::string service = std::to_string(m_port);
-        const int status = getaddrinfo(m_host.c_str(), service.c_str(), &hints, &result);
-        if (status != 0 || result == nullptr)
+        lookup->overlapped.hEvent = lookup->event;
+        int status = GetAddrInfoExW(host.c_str(), service.c_str(), NS_ALL, nullptr, &hints, &lookup->result, nullptr,
+                                    &lookup->overlapped, nullptr, &lookup->cancel);
+        if (status == WSA_IO_PENDING)
+        {
+            const HANDLE handles[2] = {lookup->event, m_shared.wakeEvent};
+            while (true)
+            {
+                const DWORD waitResult = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+                if (waitResult == WAIT_OBJECT_0)
+                {
+                    break;
+                }
+                if (waitResult == WAIT_OBJECT_0 + 1)
+                {
+                    if (m_shared.stopRequested.load())
+                    {
+                        CancelLookup(std::move(lookup));
+                        return false;
+                    }
+                    continue; // woken for something else; keep waiting for the lookup
+                }
+                Fail("cannot resolve '" + m_host + "': WaitForMultipleObjects failed (error " +
+                     std::to_string(GetLastError()) + ")");
+                CancelLookup(std::move(lookup));
+                return false;
+            }
+            status = GetAddrInfoExOverlappedResult(&lookup->overlapped);
+        }
+        if (status != NO_ERROR || lookup->result == nullptr || lookup->result->ai_addr == nullptr)
         {
             Fail("cannot resolve '" + m_host + "' (error " + std::to_string(status) + ")");
             return false;
         }
-        std::memcpy(&m_relayAddress, result->ai_addr, sizeof(m_relayAddress));
-        freeaddrinfo(result);
+        std::memcpy(&m_relayAddress, lookup->result->ai_addr, sizeof(m_relayAddress));
         return true;
+    }
+
+    // Cancels a pending lookup and waits for Winsock to report its completion, after which the
+    // OVERLAPPED and the result pointer are no longer written and can be freed. If the completion
+    // does not arrive in time, the lookup is deliberately left allocated (a few hundred bytes)
+    // rather than freed while Winsock may still write to it.
+    void CancelLookup(std::unique_ptr<AddressLookup> aLookup)
+    {
+        const INT cancelStatus = GetAddrInfoExCancel(&aLookup->cancel);
+        if (WaitForSingleObject(aLookup->event, kLookupCancelWaitMillis) == WAIT_OBJECT_0)
+        {
+            return;
+        }
+        m_shared.Log(LogLevel::Warn, "DNS lookup of '" + m_host + "' did not confirm cancellation within " +
+                                         std::to_string(kLookupCancelWaitMillis) + " ms (GetAddrInfoExCancel " +
+                                         std::to_string(cancelStatus) + "); leaving it allocated");
+        static_cast<void>(aLookup.release());
     }
 
     void Close()

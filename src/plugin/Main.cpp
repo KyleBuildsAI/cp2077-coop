@@ -515,7 +515,8 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
     }
     case RED4ext::v1::EMainReason::Unload:
     {
-        // Joins the network thread (it is woken immediately, so this does not stall shutdown).
+        // Joins the network thread. The stop request wakes it at once and cancels a DNS lookup that
+        // is still running, so quitting does not wait for the network.
         g_transport.reset();
         g_sdk = nullptr;
         break;

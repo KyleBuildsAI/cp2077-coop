@@ -126,7 +126,8 @@ buffer, so a redscript loop such as `let raw = Net_Poll();` would leak one buffe
   connected, there are no peers, or the outbox (4096) is full.
 * **Thread safety**: natives can be called from any thread. They only touch mutex-protected queues
   and atomics. The network thread owns the socket and all protocol state. Host resolution happens on
-  that thread, so `Net_Connect` never blocks the game on DNS.
+  that thread, as an overlapped `GetAddrInfoExW` that a stop request cancels. So neither
+  `Net_Connect`, `Net_Disconnect`, a reconnect, nor unloading the plugin waits for a slow DNS server.
 
 ```lua
 local CoopNet = require("coopnet")

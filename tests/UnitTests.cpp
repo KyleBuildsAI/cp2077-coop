@@ -1,6 +1,6 @@
 // Deterministic tests for the frame codec and the reliability layer (no sockets, simulated clock),
 // plus the logic behind the Net_NowMs / Net_Version natives, native registration checks, String
-// results and the startup summary line.
+// results and the startup summary line, and the transport's behaviour while a host name resolves.
 
 #include "core/Clock.hpp"
 #include "core/LoadReport.hpp"
@@ -8,7 +8,11 @@
 #include "core/Protocol.hpp"
 #include "core/Reliability.hpp"
 #include "core/ScriptString.hpp"
+#include "core/Transport.hpp"
 #include "core/Version.hpp"
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
 
 #include <algorithm>
 #include <array>
@@ -843,6 +847,142 @@ void TestScriptString()
     MockScriptString::liveBuffers = 0;
 }
 
+// ---- stopping while the relay host name is still resolving -------------------------------------
+// Single-label names that do not exist go through LLMNR/NetBIOS on Windows, which takes about a
+// second. Every stop below must return long before that.
+
+std::string UnresolvableSingleLabelName(std::mt19937& aRandom)
+{
+    char suffix[16];
+    std::snprintf(suffix, sizeof(suffix), "%08x", static_cast<unsigned>(aRandom()));
+    return std::string("coopnet-dnsprobe-") + suffix;
+}
+
+double MillisSince(std::chrono::steady_clock::time_point aStart)
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - aStart).count();
+}
+
+std::vector<std::string> DrainEvents(Transport& aTransport)
+{
+    std::vector<std::string> events;
+    std::string message;
+    while (aTransport.Poll(message))
+    {
+        events.push_back(message);
+    }
+    return events;
+}
+
+bool WaitForEvent(Transport& aTransport, const std::string& aPrefix, std::vector<std::string>& aSeen)
+{
+    const auto start = std::chrono::steady_clock::now();
+    while (MillisSince(start) < 3000.0)
+    {
+        for (const std::string& event : DrainEvents(aTransport))
+        {
+            aSeen.push_back(event);
+        }
+        for (const std::string& event : aSeen)
+        {
+            if (event.starts_with(aPrefix))
+            {
+                return true;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return false;
+}
+
+void TestStopWhileResolving()
+{
+    std::puts("Disconnect, reconnect and destroy while the relay host name resolves");
+    std::mt19937 random(std::random_device{}());
+    constexpr double kStopLimitMs = 250.0;
+
+    // Reference: a plain blocking lookup of such a name on this machine.
+    WSADATA data{};
+    CHECK(WSAStartup(MAKEWORD(2, 2), &data) == 0);
+    const std::string reference = UnresolvableSingleLabelName(random);
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo* result = nullptr;
+    const auto lookupStart = std::chrono::steady_clock::now();
+    const int status = getaddrinfo(reference.c_str(), "11779", &hints, &result);
+    const double blockingMs = MillisSince(lookupStart);
+    if (result != nullptr)
+    {
+        freeaddrinfo(result);
+    }
+    WSACleanup();
+    std::printf("    blocking getaddrinfo('%s') took %.1f ms (status %d)\n", reference.c_str(), blockingMs, status);
+    if (blockingMs < 2.0 * kStopLimitMs)
+    {
+        std::puts("    note: lookups fail fast on this machine, so the timings below cannot tell the old code apart");
+    }
+
+    {
+        Transport transport;
+        CHECK(transport.Connect(UnresolvableSingleLabelName(random), 11779, "dns"));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const bool resolving = transport.State() == ConnectionState::Resolving;
+        const auto start = std::chrono::steady_clock::now();
+        transport.Disconnect();
+        const double stopMs = MillisSince(start);
+        std::printf("    Disconnect() while %s: %.1f ms\n", resolving ? "resolving" : ToString(transport.State()),
+                    stopMs);
+        CHECK(resolving);
+        CHECK(stopMs < kStopLimitMs);
+        CHECK(transport.State() == ConnectionState::Idle);
+        const std::vector<std::string> events = DrainEvents(transport);
+        CHECK(events == std::vector<std::string>{"0|0|disconnected"});
+    }
+    {
+        Transport transport;
+        CHECK(transport.Connect(UnresolvableSingleLabelName(random), 11779, "dns"));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const auto start = std::chrono::steady_clock::now();
+        CHECK(transport.Connect(UnresolvableSingleLabelName(random), 11779, "dns"));
+        const double reconnectMs = MillisSince(start);
+        const auto stopStart = std::chrono::steady_clock::now();
+        transport.Disconnect();
+        const double stopMs = MillisSince(stopStart);
+        std::printf("    second Connect() while resolving: %.1f ms, then Disconnect(): %.1f ms\n", reconnectMs,
+                    stopMs);
+        CHECK(reconnectMs < kStopLimitMs);
+        CHECK(stopMs < kStopLimitMs);
+    }
+    {
+        // the path Main(Unload) takes: g_transport.reset()
+        auto transport = std::make_unique<Transport>();
+        CHECK(transport->Connect(UnresolvableSingleLabelName(random), 11779, "dns"));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const auto start = std::chrono::steady_clock::now();
+        transport.reset();
+        const double destroyMs = MillisSince(start);
+        std::printf("    destroying the Transport while resolving: %.1f ms\n", destroyMs);
+        CHECK(destroyMs < kStopLimitMs);
+    }
+    {
+        // the overlapped lookup still resolves real names and reports failures
+        Transport transport;
+        std::vector<std::string> seen;
+        CHECK(transport.Connect("localhost", 9, "dns")); // discard port: no bench relay there
+        const bool connecting = WaitForEvent(transport, "0|0|connecting 127.0.0.1:9", seen);
+        std::printf("    localhost -> %s\n", connecting ? "0|0|connecting 127.0.0.1:9" : "no connecting event");
+        CHECK(connecting);
+        transport.Disconnect();
+
+        seen.clear();
+        CHECK(transport.Connect("relay.coopnet-test.invalid", 11779, "dns"));
+        const bool failed = WaitForEvent(transport, "0|0|error cannot resolve 'relay.coopnet-test.invalid'", seen);
+        std::printf("    relay.coopnet-test.invalid -> %s\n", failed ? seen.back().c_str() : "no error event");
+        CHECK(failed);
+        CHECK(transport.State() == ConnectionState::Error);
+    }
+}
 } // namespace
 
 int main()
@@ -861,6 +1001,7 @@ int main()
     TestLoadReport();
     TestNativeRegistration();
     TestScriptString();
+    TestStopWhileResolving();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

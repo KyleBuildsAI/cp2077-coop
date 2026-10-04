@@ -74,6 +74,9 @@ public:
     // Starts (or restarts) the network thread. Host resolution happens on that thread so a slow
     // DNS lookup never stalls the game. Returns false only for invalid arguments or thread failure.
     bool Connect(std::string_view aHost, int aPort, std::string_view aRoom);
+
+    // Stops the network thread and waits for it. A lookup still in progress is cancelled, so
+    // neither this, a reconnect through Connect, nor the destructor waits for the DNS server.
     void Disconnect();
 
     // Queues a payload for every peer (aTarget = kBroadcastId) or for one peer id.
