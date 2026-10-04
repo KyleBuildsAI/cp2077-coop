@@ -33,8 +33,18 @@ position and facing, but the RTT and the role check stay empty.
 ## Run
 
 Start the game normally. The **CP2077 Coop** panel shows connection state, player count,
-player-to-player round trip, packet rates, missed packets, avatar drift, both players' state
-and the relay server. Toggle it under CET *Bindings* → *Toggle coop panel*.
+player-to-player round trip, packet rates, missed packets, avatar drift, both players' state,
+the joiner's teleport to the host and the relay server. Toggle it under CET *Bindings* →
+*Toggle coop panel*.
+
+**Joining.** The joiner is teleported next to the host once their game has settled: 4 s in the
+world in a row, not in a car and not in a scene that holds the player (a car, a scene or the game
+moving the player after a load restarts the 4 s). Each attempt sends one teleport, waits up to
+2.5 s for the game to move the player and checks the result against the point it sent the player
+to. There are up to 3 attempts, 2 s and then 4 s apart. The panel's *Join* row shows each step.
+If it gives up, *Teleport to host* runs the same steps again. The host's avatar appears after the
+join, or straight away while the joiner sits in a car or a scene. Every attempt is logged as a
+`WORLD SYNC` line with the measured error and how far the player moved.
 
 **Player RTT** is the network round trip between the two games plus up to a few frames of
 waiting for the next send slot. Expect about **30-80 ms** when both players and the relay are in
