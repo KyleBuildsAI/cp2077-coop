@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.29 WORLD + STATE SYNC + DIAGNOSTICS + TEST BOT
+-- v0.0.30 WORLD + STATE + VEHICLE SYNC + DIAGNOSTICS + TEST BOT
 --
 -- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
 -- albo domyślnie poniżej. role.txt ma pierwszeństwo.
@@ -496,6 +496,8 @@ local Sync = {
     -- ping/pong: prawdziwe opóźnienie gracz -> serwer -> gracz
     TYPE_PING = 3,
     TYPE_PONG = 4,
+    -- indeks pojazdu z listy w vehicle.reds (0 = spoza listy)
+    TYPE_VEHICLE = 5,
     TYPE_STRIDE = 512,
 
     FLAG_CROUCH = 1,
@@ -618,12 +620,34 @@ function Sync.buildPayload(player, isHost)
     end
 
     -- flagi czytamy przy każdym pakiecie (panel + blokada teleportu w aucie)
+    -- (pojazd: patrz niżej)
     -- flagsOverride: ustawiane przez bota testowego (Bot)
     Sync.localFlags =
         (Sync.flagsOverride or player:CP2077Coop_GetStateFlags()) +
         roleFlag
 
     Sync.sendSlot = Sync.sendSlot + 1
+
+    -- w pojeździe: co 6. pakiet (nieparzysty, nie koliduje z hostem) = model pojazdu
+    if Sync.hasFlag(Sync.localFlags, Sync.FLAG_IN_VEHICLE)
+        and Sync.sendSlot % 6 == 3
+    then
+
+        local index = Sync.vehicleIndexOverride
+
+        if index == nil
+            and player.CP2077Coop_GetMountedVehicleIndex ~= nil
+        then
+            index = player:CP2077Coop_GetMountedVehicleIndex()
+        end
+
+        if index ~= nil and index >= 0 then
+
+            return
+                Sync.TYPE_VEHICLE * Sync.TYPE_STRIDE +
+                index
+        end
+    end
 
     if isHost
         and Sync.sendSlot % 2 == 0
@@ -727,6 +751,10 @@ function Sync.receivePayload(payload)
     elseif packetType == Sync.TYPE_PONG then
 
         Sync.onPong(value)
+
+    elseif packetType == Sync.TYPE_VEHICLE then
+
+        Sync.remoteVehicleIndex = value
     end
 end
 
@@ -771,6 +799,42 @@ function Sync.onPong(token)
             Sync.rttMaxMs,
             sampleMs
         )
+end
+
+
+-- Pojazd drugiego gracza: spawn + teleport przy każdym nowym pakiecie,
+-- usunięcie po wyjściu z auta.
+function Sync.applyRemoteVehicle(player, x, y, z, forwardX, forwardY)
+
+    if player.CP2077Coop_ShowRemoteVehicle == nil then
+        return
+    end
+
+    local inVehicle =
+        Sync.hasFlag(
+            Sync.remoteFlags,
+            Sync.FLAG_IN_VEHICLE
+        )
+
+    if inVehicle then
+
+        if Sync.remoteVehicleIndex ~= nil then
+
+            Sync.vehicleShown =
+                player:CP2077Coop_ShowRemoteVehicle(
+                    Sync.remoteVehicleIndex,
+                    x, y, z,
+                    forwardX, forwardY
+                ) or Sync.vehicleShown
+        end
+
+    elseif Sync.vehicleShown or Sync.remoteVehicleIndex ~= nil then
+
+        player:CP2077Coop_HideRemoteVehicle()
+
+        Sync.vehicleShown = false
+        Sync.remoteVehicleIndex = nil
+    end
 end
 
 
@@ -977,6 +1041,9 @@ function Sync.reset()
     Sync.timeCooldown = 0.0
     Sync.appliedWeather = -1
     Sync.remoteFlagsSeen = false
+    Sync.remoteVehicleIndex = nil
+    Sync.vehicleShown = false
+    Sync.vehicleIndexOverride = nil
 end
 
 
@@ -1182,6 +1249,7 @@ local Bot = {
         { "idle-end",     40,  0.0, 0 },
     },
     CYCLE = 44.0,
+    VEHICLE_INDEX = 35,
 
     active = false,
     time = 0.0,
@@ -1239,6 +1307,7 @@ function Bot.stop()
 
     Bot.active = false
     Sync.flagsOverride = nil
+    Sync.vehicleIndexOverride = nil
 
     print("[CP2077Coop] EVENT test pattern stopped")
 end
@@ -1300,6 +1369,13 @@ function Bot.update(delta)
     Bot.forwardY = math.cos(angle)
 
     Sync.flagsOverride = phase[4]
+
+    -- faza "vehicle": Archer Hella (indeks 35 w vehicle.reds)
+    if Sync.hasFlag(phase[4], Sync.FLAG_IN_VEHICLE) then
+        Sync.vehicleIndexOverride = Bot.VEHICLE_INDEX
+    else
+        Sync.vehicleIndexOverride = nil
+    end
 end
 
 
@@ -1324,7 +1400,7 @@ end
 ------------------------------------------------------------
 
 local Diag = {
-    VERSION = "0.0.29",
+    VERSION = "0.0.30",
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
@@ -1939,6 +2015,10 @@ function Diag.draw()
 
     Diag.row("Remote speed", string.format("%.1f m/s (%s)", S.remoteSpeed or 0, S.movementType or "-"), "neutral")
     Diag.row("Remote state", Diag.describeFlags(Sync.remoteFlags), "neutral")
+
+    if Sync.remoteVehicleIndex ~= nil then
+        Diag.row("Remote vehicle", "#" .. tostring(Sync.remoteVehicleIndex) .. (Sync.vehicleShown and " (shown)" or " (spawning)"), Sync.vehicleShown and "good" or "warn")
+    end
     Diag.row("Your state", Diag.describeFlags(Sync.localFlags), "neutral")
 
     Diag.row(
@@ -2585,6 +2665,12 @@ registerForEvent(
             S.remoteForwardY = forwardY
 
             Sync.receivePayload(payload)
+
+            Sync.applyRemoteVehicle(
+                player,
+                rx, ry, rz,
+                forwardX, forwardY
+            )
 
 
             ------------------------------------------------
