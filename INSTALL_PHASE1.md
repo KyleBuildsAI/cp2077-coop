@@ -191,7 +191,8 @@ print(string.format("%.3f", Game.Net_NowMs()))
 print(type(Game.Net_NowMs()))
 ```
 `1791...` (milliseconds since 1970-01-01 UTC, with a fraction) and `number`. Plain `print(Game.Net_NowMs())`
-shows only 14 significant digits (`1.791...e+12`), so format it. `Net_NowMs` returns a
+shows only 14 significant digits, for example `1791099704063.8` (one decimal place), so use the
+`string.format("%.3f", ...)` line above to see the sub-millisecond part. `Net_NowMs` returns a
 Double on purpose: CET would turn an Int64 into LuaJIT cdata (`123LL`), while a Double is a plain Lua
 number. Both games read the same Windows clock, so their stamps compare directly.
 
