@@ -116,6 +116,10 @@ S.lastRemoteSequence = -1
 -- przy resecie, ignorujemy, aż przyjdzie inny (nil = brak)
 S.staleSequence = nil
 
+-- kolejne starsze numery z rzędu (restart drugiej gry bez długiej ciszy)
+S.olderStreak = 0
+S.lastIgnoredSequence = nil
+
 -- numer i licznik tyknięć ostatniego pakietu RUCHU; pakiety bojowe
 -- zużywają numery, ale nie są upływem czasu
 S.lastMoveSequence = nil
@@ -2274,6 +2278,11 @@ local Diag = {
     STALE_AFTER = 1.5,
     LOST_AFTER = 5.0,
 
+    -- restart drugiej gry (numery od 1): starszy numer po ciszy
+    -- >= STALE_AFTER albo tyle różnych starszych numerów z rzędu
+    -- (spóźniony pakiet UDP przychodzi pojedynczo)
+    RESTART_OLDER_STREAK = 10,
+
     -- odczyt slotu DLL przerwany nowym pakietem (pominięty, patrz onUpdate)
     tornReads = 0,
 
@@ -3633,6 +3642,9 @@ local function resetRemote()
             Game.CP2077Coop_GetRemoteSequence()
     end
 
+    S.olderStreak = 0
+    S.lastIgnoredSequence = nil
+
     S.lastMoveSequence = nil
     S.combatSinceMove = 0
     S.moveTicks = 0
@@ -3943,7 +3955,7 @@ registerForEvent(
 
         ----------------------------------------------------
         -- UDP: tylko nowsze pakiety. Spóźniony stary pakiet
-        -- cofałby postać. Duży spadek = restart drugiego klienta.
+        -- cofałby postać. Restart drugiej gry = numery od 1.
         ----------------------------------------------------
 
         -- pakiet sprzed resetu (wczytanie gry, zmiana roli): jak brak
@@ -3959,9 +3971,20 @@ registerForEvent(
             not isStale
             and sequence > S.lastRemoteSequence
 
+        -- duży spadek albo starszy numer po ciszy: start gry trwa
+        -- długo, a spóźniony pakiet z żywego strumienia nigdy nie
+        -- przychodzi po STALE_AFTER. Ten sam numer co ostatnio
+        -- pominięty = pakiet, który DLL wciąż trzyma, nie nowy.
         local isRestart =
             not isStale
-            and sequence < S.lastRemoteSequence - SEQUENCE_RESET_GAP
+            and sequence < S.lastRemoteSequence
+            and (
+                sequence < S.lastRemoteSequence - SEQUENCE_RESET_GAP
+                or (
+                    sequence ~= S.lastIgnoredSequence
+                    and (Diag.packetAge() or 0.0) >= Diag.STALE_AFTER
+                )
+            )
 
         -- spóźniony pakiet: liczymy raz (DLL trzyma go aż do następnego)
         if not isNewer
@@ -3971,7 +3994,19 @@ registerForEvent(
         then
 
             S.lastIgnoredSequence = sequence
-            Diag.onIgnored()
+
+            -- spóźnione pakiety UDP przychodzą pojedynczo; seria
+            -- różnych starszych numerów = druga gra liczy od nowa
+            S.olderStreak =
+                S.olderStreak + 1
+
+            if S.olderStreak >=
+                Diag.RESTART_OLDER_STREAK
+            then
+                isRestart = true
+            else
+                Diag.onIgnored()
+            end
         end
 
 
@@ -4007,11 +4042,22 @@ registerForEvent(
             or isRestart
         then
 
+            S.olderStreak = 0
+
             local previousSequence =
                 S.lastRemoteSequence
 
             if isRestart then
+
                 Diag.onPacket(sequence, -1)
+
+                print(
+                    string.format(
+                        "[CP2077Coop] EVENT peer restart detected: sequence %d after %d",
+                        sequence,
+                        previousSequence
+                    )
+                )
             else
                 Diag.onPacket(sequence, previousSequence)
             end
