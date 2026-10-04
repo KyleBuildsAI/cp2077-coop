@@ -101,6 +101,42 @@ def test_native_sample_is_not_a_packet_or_second_prediction():
     assert lua.globals().legacyPushes == 0
 
 
+def test_native_buffered_target_does_not_reverse_steering_direction():
+    lua = receiver()
+    welcome(lua)
+    movement(lua)
+    state, steer = [upvalue(lua, x) for x in ("S", "Steer")]
+    state.previousRemoteX, state.previousRemoteY = 10.0, 0.0
+    state.targetX, state.targetY, state.targetZ = 8.0, 0.0, 0.0
+    state.remoteVelocityX, state.remoteVelocityY = 7.0, 0.0
+    steer.remember(8.0, 0.0, 0.0, "Sprint", False)
+    assert (steer.dirX, steer.dirY) == (1.0, 0.0), "buffered target is behind raw pose, but motion remains forward"
+    current = lua.table_from({"x": 4.0, "y": 0.0, "z": 0.0})
+    # A forward-moving endpoint alone must not cancel an active command.
+    for index in range(1, 9):
+        target = 8.0 + index * 1.75
+        state.previousRemoteX, state.targetX = target + 2.0, target
+        assert not steer.shouldReissue(current, target, 0.0, 0.0, "Sprint", False, 0.26)
+        assert steer.endpoint() == (target, 0.0, 0.0)  # no second prediction
+    # Real turn and reverse direction still re-steer promptly.
+    state.remoteVelocityX, state.remoteVelocityY = 0.0, 7.0
+    assert steer.shouldReissue(current, state.targetX, 0.1, 0.0, "Sprint", False, 0.26)
+    state.remoteVelocityX, state.remoteVelocityY = -7.0, 0.0
+    assert steer.shouldReissue(current, state.targetX, 0.0, 0.0, "Sprint", False, 0.26)
+    # Held/near-zero velocity keeps the previous command direction, rather than
+    # normalizing packet noise or deriving the backwards raw-to-sample vector.
+    state.remoteVelocityX, state.remoteVelocityY = 0.0, 0.0
+    assert not steer.shouldReissue(current, state.targetX, 0.0, 0.0, "Sprint", False, 0.26)
+    steer.remember(state.targetX, 0.0, 0.0, "Sprint", False)
+    assert (steer.dirX, steer.dirY) == (1.0, 0.0)
+    state.remoteVelocityX, state.remoteVelocityY = -0.001, 0.0
+    assert not steer.shouldReissue(current, state.targetX, 0.0, 0.0, "Sprint", False, 0.26)
+    steer.reset()
+    state.remoteVelocityX, state.remoteVelocityY = 0.0, 0.0
+    steer.remember(8.0, 0.0, 0.0, "Sprint", False)
+    assert (steer.dirX, steer.dirY) == (0.0, 0.0)
+
+
 def test_v2_world_flags_cosmetic_car_and_departure():
     lua = receiver()
     welcome(lua)
@@ -171,6 +207,7 @@ def test_role_unload_reload_shutdown_own_native_lifecycle():
 if __name__ == "__main__":
     failed = 0
     for test in (test_native_sample_is_not_a_packet_or_second_prediction,
+                 test_native_buffered_target_does_not_reverse_steering_direction,
                  test_v2_world_flags_cosmetic_car_and_departure,
                  test_auto_fallback_and_explicit_error_never_replays_old_slot,
                  test_role_unload_reload_shutdown_own_native_lifecycle):

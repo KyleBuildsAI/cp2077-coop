@@ -3270,6 +3270,20 @@ end
 
 function Steer.direction(current, endX, endY)
 
+    if Sync.isV2() then
+        -- A buffered sample normally trails the newest raw packet. Deriving
+        -- direction from raw -> sample reverses forward motion and makes each
+        -- advancing endpoint look like a turn backwards. Use the velocity at
+        -- render time; leave the sampled endpoint itself unchanged.
+        local vx, vy = S.remoteVelocityX or 0.0, S.remoteVelocityY or 0.0
+        local speed = math.sqrt(vx * vx + vy * vy)
+        if speed > 0.1 then return vx / speed, vy / speed end
+        -- Held/stopped samples and tiny velocity noise keep the last stable
+        -- command direction. A reset with no movement stays neutral (0, 0).
+        if Steer.endX ~= nil then return Steer.dirX or 0.0, Steer.dirY or 0.0 end
+        return 0.0, 0.0
+    end
+
     local dx = endX - current.x
     local dy = endY - current.y
 
