@@ -1,5 +1,10 @@
 # CP2077 Coop - NPC / world sync prototype
 
+**2026-10-04: start with [the isolated controlled test NPC harness](harness/README.md)
+for a future opt-in vertical slice.** It has separate scripts, no vanilla population
+suppression or damage hooks, and is not installed or live-tested. The broad prototype
+below remains research; do not enable its joiner role as part of the harness.
+
 Host-authoritative NPC, crowd and traffic sync for the CP2077 Coop mod (Cyberpunk 2077 2.31a).
 The host streams the NPCs and vehicles around both players. The joiner hides its own random
 population. It then shows the host's NPCs, either by binding its own copy of each placed NPC
