@@ -15,6 +15,7 @@ Examples:
 """
 import argparse
 import filecmp
+import fnmatch
 import glob
 import os
 import re
@@ -32,9 +33,11 @@ LOCAL = ("127.0.0.1", "11778")
 HARDLINK_DIRS = [os.path.join("archive", "pc", "content"), os.path.join("archive", "pc", "ep1")]
 HARDLINK_EXTENSIONS = {".cache"}  # engine/shader caches
 
-# Never copied into a new instance: per-instance runtime output.
+# Never copied into a new instance or deployed: per-instance runtime output.
 SKIP_NAMES = {"role.txt", "monitor_status.txt", "coop_monitor_history.csv", "coop_relay.log",
               "coop_stats_host.txt", "coop_stats_joiner.txt", "coop_events.log"}
+# The same by pattern: history files the monitor rotated out, its interrupted status swap, logs.
+SKIP_PATTERNS = ("coop_monitor_history*.csv", "monitor_status.txt.tmp", "*.log")
 SKIP_DIRS = {os.path.join("r6", "logs"), os.path.join("red4ext", "logs")}
 
 SCRIPTS_DIR = os.path.join("r6", "scripts", "CP2077Coop")
@@ -50,6 +53,11 @@ DEPLOY_DIRS = ["coop-tools", os.path.join("red4ext", "plugins", "Codeware")]
 def require_game(path):
     if not os.path.isfile(os.path.join(path, "bin", "x64", "Cyberpunk2077.exe")):
         sys.exit(f"not a game folder (no bin/x64/Cyberpunk2077.exe): {path}")
+
+
+def is_skipped(name):
+    """True for runtime output that make-instance and deploy never copy."""
+    return name in SKIP_NAMES or any(fnmatch.fnmatch(name, pattern) for pattern in SKIP_PATTERNS)
 
 
 def is_hardlink_candidate(relative):
@@ -71,7 +79,7 @@ def make_instance(source, dest):
         dirs[:] = [d for d in dirs if os.path.normpath(os.path.join(relative_root, d)) not in SKIP_DIRS]
         os.makedirs(os.path.join(dest, relative_root), exist_ok=True)
         for name in files:
-            if name in SKIP_NAMES or name.endswith(".log"):
+            if is_skipped(name):
                 continue
             relative = os.path.normpath(os.path.join(relative_root, name))
             src_file = os.path.join(source, relative)
@@ -120,7 +128,7 @@ def deploy(games):
             print(f"  backed up {backed_up} overwritten file(s) to {os.path.join(game, 'coop-backup', stamp)}")
         for relative in DEPLOY_DIRS:
             shutil.copytree(os.path.join(PACKAGE_ROOT, relative), os.path.join(game, relative), dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns(*SKIP_NAMES, "__pycache__", "*.log"))
+                            ignore=shutil.ignore_patterns(*SKIP_NAMES, *SKIP_PATTERNS, "__pycache__"))
         write_modlist(game)
         print(f"deployed {mod_version(PACKAGE_ROOT)} -> {game}")
 

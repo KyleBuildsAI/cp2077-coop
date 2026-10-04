@@ -937,6 +937,44 @@ def test_version_everywhere():
             and titles == [f"CP2077 Coop v{expected}###CP2077Coop"] and rows == [expected])
 
 
+# ------------------------------------------------------------------ D17
+
+DEVKIT_LEFTOVERS = [
+    os.path.join("coop-tools", "coop_monitor_history-until-20261004-120000.csv"),
+    os.path.join("coop-tools", "coop_monitor_history.csv"),
+    os.path.join("coop-tools", "coop_relay.log"),
+    os.path.join(MOD_DIR, "monitor_status.txt.tmp"),
+    os.path.join(MOD_DIR, "coop_events.log"),
+]
+DEVKIT_KEPT = [os.path.join("coop-tools", "coop_monitor.py"), os.path.join(MOD_DIR, "init.lua")]
+
+
+def test_devkit_skips_runtime_leftovers():
+    names = [os.path.basename(path) for path in DEVKIT_LEFTOVERS + DEVKIT_KEPT]
+    skipped = {name: devkit.is_skipped(name) for name in names}
+    print(f"  is_skipped: {skipped}")
+    deploy_ignore = shutil.ignore_patterns(*devkit.SKIP_NAMES, *devkit.SKIP_PATTERNS, "__pycache__")
+    ignored = deploy_ignore("coop-tools", names)
+    root = tempfile.mkdtemp(prefix="coopdevkit_")
+    try:
+        source, dest = os.path.join(root, "source"), os.path.join(root, "clone")
+        os.makedirs(os.path.join(source, "bin", "x64"))
+        open(os.path.join(source, "bin", "x64", "Cyberpunk2077.exe"), "wb").close()
+        for relative in DEVKIT_LEFTOVERS + DEVKIT_KEPT:
+            os.makedirs(os.path.dirname(os.path.join(source, relative)), exist_ok=True)
+            with open(os.path.join(source, relative), "w", encoding="utf-8") as handle:
+                handle.write("x\n")
+        devkit.make_instance(source, dest)
+        cloned = {relative: os.path.exists(os.path.join(dest, relative)) for relative in DEVKIT_LEFTOVERS + DEVKIT_KEPT}
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    print(f"  deploy ignores {sorted(ignored)}; make-instance copied {cloned}")
+    leftovers = {os.path.basename(path) for path in DEVKIT_LEFTOVERS}
+    return (all(skipped[name] == (name in leftovers) for name in names)
+            and ignored == leftovers
+            and all(cloned[relative] == (relative in DEVKIT_KEPT) for relative in cloned))
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -955,6 +993,7 @@ if __name__ == "__main__":
         "D14 a v0.0.26 partner gets a constant vector length (no rotate spam); current builds sync at once": test_old_partner_sees_constant_vector,
         "D15 STATS: frame p99, hard corrections per minute (not fast follow), partner flags per second": test_frame_corrections_flags_stats,
         "D16 the init.lua version (x.y.z, header banner too) in every [STATS] line, the panel title and the Version row": test_version_everywhere,
+        "D17 devkit deploy and make-instance skip rotated history, the status tmp swap and logs": test_devkit_skips_runtime_leftovers,
     }
     results = {}
     for name, test in tests.items():
