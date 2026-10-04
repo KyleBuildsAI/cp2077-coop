@@ -155,6 +155,7 @@ class RelayChecks:
         for log in (self.host_log, self.joiner_log):
             session = harness.read_lines(log, "SESSION")[0]
             self.assertIn("clock=Net_NowMs", session)
+            self.assertIn("plugin=CP2077CoopNet", session)  # Net_Version string of the compiled core
             events = " ".join(harness.read_lines(log, "EVENT"))
             self.assertIn("text=welcome", events)
             self.assertIn("text=peer_join", events)

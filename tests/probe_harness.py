@@ -74,6 +74,7 @@ int cnshim_send(void* handle, int channel, const char* payload, int length);
 int cnshim_poll(void* handle, char* buffer, int capacity);
 int cnshim_local_id(void* handle);
 double cnshim_now_ms(void);
+const char* cnshim_version(void);
 ]]
 local shim = ffi.load(shimPath)
 local handle = shim.cnshim_create()
@@ -90,7 +91,7 @@ Game.Net_Poll = function()
 end
 Game.Net_LocalId = function() return shim.cnshim_local_id(handle) end
 Game.Net_NowMs = function() return shim.cnshim_now_ms() end
-Game.Net_Version = function() return "coopnet_shim (dllproto core)" end
+Game.Net_Version = function() return ffi.string(shim.cnshim_version()) end
 SHIM_DESTROY = function()
     shim.cnshim_disconnect(handle)
     shim.cnshim_destroy(handle)

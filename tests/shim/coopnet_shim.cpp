@@ -6,6 +6,11 @@
 
 #include "core/Transport.hpp"
 
+#if __has_include("core/Version.hpp")
+#include "core/Version.hpp"
+#define CNSHIM_HAS_VERSION 1
+#endif
+
 #include <windows.h>
 
 #include <cstdio>
@@ -163,4 +168,16 @@ CNSHIM_API double cnshim_now_ms()
     const long long sinceEpoch = ticks - kFileTimeTicksAtUnixEpoch;
     return static_cast<double>(sinceEpoch / kFileTimeTicksPerMs) +
            static_cast<double>(sinceEpoch % kFileTimeTicksPerMs) / static_cast<double>(kFileTimeTicksPerMs);
+}
+
+// What Net_Version() would return for this core ("CP2077CoopNet x.y.z proto n"), or a marker for
+// cores older than Version.hpp.
+CNSHIM_API const char* cnshim_version()
+{
+#ifdef CNSHIM_HAS_VERSION
+    static const std::string version(coopnet::kVersionString);
+#else
+    static const std::string version("CP2077CoopNet core (no Version.hpp)");
+#endif
+    return version.c_str();
 }
