@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+runs/
+build/
+*.log
+*.tmp
+relay_stats.json
+.env
