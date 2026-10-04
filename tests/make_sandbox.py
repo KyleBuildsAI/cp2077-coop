@@ -1,10 +1,12 @@
 """Build a redscript compile sandbox in %TEMP% for coop-tools/scc_check.py.
 
 The sandbox is a minimal fake game folder: the compiler (engine/tools), the
-vanilla script cache (r6/cache/final.redscripts) and Codeware's scripts
-(red4ext/plugins/Codeware/Scripts) are copied from a real game folder, which
-is only ever read. The repo's r6/scripts/CP2077Coop/*.reds are then mirrored
-in, so the sandbox always compiles the current checkout.
+vanilla script cache (r6/cache/final.redscripts) and every RED4ext plugin's
+Scripts folder (red4ext/plugins/*/Scripts, e.g. Codeware and CP2077CoopNet;
+the game compiles all of them) are copied from a real game folder, which is
+only ever read. CP2077Coop's own plugin folder is skipped: its scripts come
+from the repo. The repo's r6/scripts/CP2077Coop/*.reds are then mirrored in, so
+the sandbox always compiles the current checkout against what the bench loads.
 
 Game folder: --game, else the COOP_GAME_DIR environment variable, else
 DEFAULT_GAME_DIR. The sandbox path is printed as the last line of output.
@@ -30,7 +32,8 @@ MOD_SCRIPTS = os.path.join("r6", "scripts", "CP2077Coop")
 # (relative path in the game folder, required) - the only things read from it
 TOOLS_DIR = os.path.join("engine", "tools")
 VANILLA_CACHE = os.path.join("r6", "cache", "final.redscripts")
-CODEWARE_SCRIPTS = os.path.join("red4ext", "plugins", "Codeware", "Scripts")
+PLUGINS_DIR = os.path.join("red4ext", "plugins")
+OWN_PLUGIN = "CP2077Coop"  # compiled from the repo's r6/scripts, never from the bench
 
 
 class SetupError(Exception):
@@ -76,6 +79,61 @@ def mirror_files(source_dir, target_dir, names):
     return changes
 
 
+def mirror_tree(source_dir, target_dir, relpaths):
+    """Like mirror_files, for a folder tree: also removes stale files in subfolders."""
+    os.makedirs(target_dir, exist_ok=True)
+    wanted = {os.path.normcase(path) for path in relpaths}
+    changes = 0
+    for root, _dirs, names in os.walk(target_dir):
+        for name in names:
+            stale = os.path.join(root, name)
+            if os.path.normcase(os.path.relpath(stale, target_dir)) not in wanted:
+                os.remove(stale)
+                changes += 1
+    for path in relpaths:
+        changes += copy_file(os.path.join(source_dir, path), os.path.join(target_dir, path))
+    return changes
+
+
+def reds_tree(folder):
+    """Relative paths of every .reds below folder (the compiler reads Scripts folders recursively)."""
+    return sorted(os.path.relpath(os.path.join(root, name), folder)
+                  for root, _dirs, names in os.walk(folder)
+                  for name in names if name.lower().endswith(".reds"))
+
+
+def plugin_script_names(game):
+    """Plugins whose Scripts folder the game compiles, except our own."""
+    plugins = os.path.join(game, PLUGINS_DIR)
+    if not os.path.isdir(plugins):
+        return []
+    return sorted(name for name in os.listdir(plugins)
+                  if name.lower() != OWN_PLUGIN.lower() and os.path.isdir(os.path.join(plugins, name, "Scripts")))
+
+
+def mirror_plugin_scripts(game, sandbox):
+    """Copies every plugin's Scripts folder and drops plugins the game no longer has."""
+    names = plugin_script_names(game)
+    changes = 0
+    for name in names:
+        source = os.path.join(game, PLUGINS_DIR, name, "Scripts")
+        changes += mirror_tree(source, os.path.join(sandbox, PLUGINS_DIR, name, "Scripts"), reds_tree(source))
+    sandbox_plugins = os.path.join(sandbox, PLUGINS_DIR)
+    if os.path.isdir(sandbox_plugins):
+        for name in os.listdir(sandbox_plugins):
+            if name not in names:  # safe: the sandbox carries the marker and overlaps neither game nor repo
+                shutil.rmtree(os.path.join(sandbox_plugins, name))
+                changes += 1
+    own = os.path.join(game, PLUGINS_DIR, OWN_PLUGIN, "Scripts")
+    if os.path.isdir(own) and reds_tree(own):
+        print(f"warning: {own} has .reds files; the game compiles them next to r6/scripts/CP2077Coop "
+              f"(duplicate declarations), the sandbox does not")
+    if "Codeware" not in names:
+        print(f"note: no Codeware in {game}; @if(ModuleExists(\"Codeware\")) blocks will not be compiled")
+    print(f"plugin scripts: {', '.join(names) or 'none'}")
+    return changes
+
+
 def files_in(folder, suffix=""):
     return sorted(name for name in os.listdir(folder)
                   if os.path.isfile(os.path.join(folder, name)) and name.lower().endswith(suffix))
@@ -107,14 +165,7 @@ def build(game, sandbox):
     changes = mirror_files(tools, os.path.join(sandbox, TOOLS_DIR), files_in(tools))
     changes += copy_file(os.path.join(game, VANILLA_CACHE), os.path.join(sandbox, VANILLA_CACHE))
 
-    codeware = os.path.join(game, CODEWARE_SCRIPTS)
-    if os.path.isdir(codeware):
-        changes += mirror_files(codeware, os.path.join(sandbox, CODEWARE_SCRIPTS), files_in(codeware, ".reds"))
-    else:
-        print(f"note: no Codeware in {game}; @if(ModuleExists(\"Codeware\")) blocks will not be compiled")
-        stale = os.path.join(sandbox, CODEWARE_SCRIPTS)
-        if os.path.isdir(stale):
-            changes += mirror_files(stale, stale, [])
+    changes += mirror_plugin_scripts(game, sandbox)
 
     mod_scripts = os.path.join(REPO, MOD_SCRIPTS)
     changes += mirror_files(mod_scripts, os.path.join(sandbox, MOD_SCRIPTS), files_in(mod_scripts, ".reds"))

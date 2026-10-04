@@ -49,7 +49,7 @@ $Python = if ($env:COOP_PYTHON) { $env:COOP_PYTHON } else { "python" }
 $PythonTests = @(
     "test_state_sync.py", "test_two_players.py", "test_bot.py", "test_combat.py", "test_mods.py",
     "test_live_bugs.py", "test_join.py", "test_timing.py", "test_avatar.py", "test_robustness.py", "test_diagnostics.py",
-    "test_payload_schedule.py"
+    "test_payload_schedule.py", "test_make_sandbox.py"
 )
 $ResultPattern = "PASS|FAIL|EXC|Error"
 $ManagedVariables = @("PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "PYTHONUNBUFFERED", "COOP_TEST_WORKDIR")

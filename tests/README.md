@@ -29,8 +29,9 @@ Requirements:
 - For the redscript group, a game folder with redscript and Codeware. It defaults to
   `G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Test B`. Set `COOP_GAME_DIR`
   to use another one. `make_sandbox.py` reads only `engine\tools`,
-  `r6\cache\final.redscripts` and `red4ext\plugins\Codeware\Scripts` from it, copies
-  them into a sandbox, mirrors this repo's `.reds` files in, and
+  `r6\cache\final.redscripts` and every `red4ext\plugins\*\Scripts` folder except
+  CP2077Coop's own (the set the game compiles, e.g. Codeware and CP2077CoopNet) from
+  it, copies them into a sandbox, mirrors this repo's `.reds` files in, and
   `coop-tools\scc_check.py` compiles there without error popups. The runner builds a
   fresh sandbox inside its per-run folder (so concurrent runs never compile each
   other's scripts), keeps the compiler's `redscript_rCURRENT.log` next to the test
@@ -49,6 +50,7 @@ folder on its own when it is run without the runner.
 |---|---|
 | `run_all.ps1` | Runs every group below: LuaJIT load (catches the 60-upvalue limit), redscript compile, the tests, the movement sim, the relay and the `coop-tools` syntax check |
 | `make_sandbox.py` | Builds and refreshes the redscript compile sandbox |
+| `test_make_sandbox.py` | The sandbox gets every plugin's Scripts folder (subfolders too) but not CP2077Coop's own, drops removed plugins, refuses a folder inside the game or the repo |
 | `run_with_timeout.py` | Runs one Python command with the runner's time limit and kills the whole process tree on timeout |
 | `test_state_sync.py` | State payload round trip through float32 and `%.6f`. Before the partner's first ping the host sends only flags; after it, world state, which the joiner applies |
 | `test_two_players.py` | Two instances through a simulated LA-Warsaw-Russia relay: RTT, rates, join, role conflict, join give-up, STALE/LOST, panel buttons. Shared harness for most tests |
