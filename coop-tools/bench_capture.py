@@ -19,6 +19,8 @@ FILES = [
     MOD / "coop_stats_host.txt",
     MOD / "coop_stats_joiner.txt",
     MOD / "CP2077Coop.log",
+    MOD / "coop_steering_host.csv",
+    MOD / "coop_steering_joiner.csv",
     Path("bin/x64/plugins/cyber_engine_tweaks/scripting.log"),
     Path("bin/x64/plugins/cyber_engine_tweaks/gamelog.log"),
     Path("bin/x64/plugins/cyber_engine_tweaks/mods/CoopNetCheck/coopnet_check.log"),
@@ -38,7 +40,7 @@ def read_text(path):
 def snapshot_sources(game):
     sources = [p.relative_to(game) for p in sorted((game / MOD).glob("*.lua"))]
     sources += [MOD / "transport.ini",
-               MOD / "role.txt", MOD / "testpattern.txt",
+               MOD / "role.txt", MOD / "testpattern.txt", MOD / "steering-trace.txt",
                MOD.parent / "CoopNetCheck/init.lua", MOD.parent / "CoopNetCheck/disabled.txt"]
     sources += [p.relative_to(game) for p in (game / "r6/scripts/CP2077Coop").glob("*.reds")]
     sources += [Path("red4ext/plugins/CP2077CoopNet/CP2077CoopNet.dll")]
