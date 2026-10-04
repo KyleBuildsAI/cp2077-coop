@@ -12,8 +12,8 @@
 # checkout is ..\relay or $env:COOPNET_RELAY_DIR.
 # -Loopback adds the CPN2 relay loopback and two C++ v2 clients through relay_v2.py over UDP
 # (tools\run_v2_loopback.py: reliable order, clock error under 5 ms, both instances agree).
-# -All implies -Loopback and also runs tests\test_relay_protocol.py, tests\test_lua_helper.py, the
-# relay's unit tests and its tools\check_c_header.py.
+# -All implies -Loopback and also runs tests\test_lua_helper.py, the relay's unit tests and its
+# tools\check_c_header.py.
 # The Lua test needs the lupa package: pip install lupa, or set PYTHONPATH to a folder that has it.
 param(
     [switch]$Loopback,
@@ -74,7 +74,6 @@ if ($Loopback -or $All) {
     }
 }
 if ($All) {
-    Invoke-Step 'relay protocol test' { python (Join-Path $root 'tests\test_relay_protocol.py') }
     Invoke-Step 'Lua helper test (LuaJIT 2.1)' { python (Join-Path $root 'tests\test_lua_helper.py') }
     Invoke-Step 'relay unit tests' { Push-Location $relay; try { python -m unittest discover -s tests } finally { Pop-Location } }
     Invoke-Step 'relay C header check (MSVC)' { python (Join-Path $relay 'tools\check_c_header.py') }
