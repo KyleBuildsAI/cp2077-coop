@@ -117,7 +117,6 @@ struct PeerStatsSnapshot
 {
     uint16_t id = 0;
     uint32_t nonce = 0;
-    bool confirmed = false;
     bool unresponsive = false;
     bool rttValid = false;
     double rttMs = 0.0;
@@ -132,6 +131,8 @@ struct PeerStatsSnapshot
     uint64_t unreliableReceived = 0;
     uint64_t unreliableStale = 0;
     uint64_t unreliableDropped = 0;
+    uint64_t pingsSent = 0;
+    uint64_t pongsReceived = 0;
 };
 
 struct StatsSnapshot
@@ -148,6 +149,7 @@ struct StatsSnapshot
     uint64_t bytesReceived = 0;
     uint64_t badFrames = 0;
     uint64_t foreignDatagrams = 0;
+    uint64_t unknownPeerFrames = 0;
     uint64_t sendErrors = 0;
     uint64_t droppedInbound = 0;
     uint64_t droppedNoPeer = 0;
@@ -298,7 +300,6 @@ private:
     {
         uint16_t id = 0;
         uint32_t nonce = 0;
-        bool confirmed = false;
         bool reportedUnresponsive = false;
         uint64_t createdMicros = 0;
         uint64_t lastHeardMicros = 0;
@@ -311,6 +312,8 @@ private:
         uint64_t unreliableReceived = 0;
         uint64_t unreliableStale = 0;
         uint64_t unreliableDropped = 0;
+        uint64_t pingsSent = 0;
+        uint64_t pongsReceived = 0;
     };
 
     // ---- lifecycle ------------------------------------------------------------------------
@@ -463,9 +466,10 @@ private:
             FlushReliable(now);
             RunTimers(now);
             FlushAcks();
-            if (now >= m_nextStatsMicros)
+            if (m_statsDirty || now >= m_nextStatsMicros)
             {
                 PublishStats(now);
+                m_statsDirty = false;
                 m_nextStatsMicros = now + m_shared.config.statsIntervalMicros;
             }
         }
@@ -651,32 +655,20 @@ private:
             auto found = m_peers.find(id);
             if (found == m_peers.end())
             {
-                AddPeer(id, nonce, true, aNow);
-                continue;
+                AddPeer(id, nonce, aNow);
             }
-            Peer& peer = *found->second;
-            if (!peer.confirmed && peer.nonce == 0)
-            {
-                peer.nonce = nonce;
-                peer.confirmed = true;
-            }
-            else if (peer.nonce != nonce)
+            else if (found->second->nonce != nonce)
             {
                 // Same id, different client session: the old reliability state is meaningless.
                 RemovePeer(id, "replaced");
-                AddPeer(id, nonce, true, aNow);
-            }
-            else
-            {
-                peer.confirmed = true;
+                AddPeer(id, nonce, aNow);
             }
         }
 
         std::vector<uint16_t> departed;
         for (const auto& [id, peer] : m_peers)
         {
-            const bool withinGrace = !peer->confirmed && aNow - peer->createdMicros < m_shared.config.peerGraceMicros;
-            if (!listed.contains(id) && !withinGrace)
+            if (!listed.contains(id))
             {
                 departed.push_back(id);
             }
@@ -703,9 +695,11 @@ private:
         Peer* peer = FindPeer(aHeader.sender);
         if (peer == nullptr)
         {
-            // Frames can overtake the relay's PEERS update; adopt the peer and let the next list
-            // confirm (or remove) it.
-            peer = &AddPeer(aHeader.sender, 0, false, aNow);
+            // The relay's PEERS list is the only source of membership. A frame from an unknown
+            // sender is either early (its reliable content is resent once PEERS arrives) or late
+            // from a peer that already left; adopting it would resurrect departed peers.
+            ++m_unknownPeerFrames;
+            return;
         }
         peer->lastHeardMicros = aNow;
         if (addressedToUs)
@@ -792,6 +786,7 @@ private:
             if (reader.U32(pingId) && reader.U64(sentMicros) && sentMicros <= aNow)
             {
                 aPeer.reliable.Rtt().AddSample(aNow - sentMicros);
+                ++aPeer.pongsReceived;
             }
             break;
         }
@@ -938,7 +933,8 @@ private:
             ping.U32(++m_pingCounter);
             ping.U64(aNow);
             SendToPeer(*peer, kControlChannel, 0, ping.Data());
-            peer->nextPingMicros = aNow + m_shared.config.pingIntervalMicros;
+            ++peer->pingsSent;
+            peer->nextPingMicros = aNow + m_shared.config.peerPingIntervalMicros;
         }
     }
 
@@ -1017,18 +1013,18 @@ private:
         return found == m_peers.end() ? nullptr : found->second.get();
     }
 
-    Peer& AddPeer(uint16_t aId, uint32_t aNonce, bool aConfirmed, uint64_t aNow)
+    Peer& AddPeer(uint16_t aId, uint32_t aNonce, uint64_t aNow)
     {
         auto peer = std::make_unique<Peer>();
         peer->id = aId;
         peer->nonce = aNonce;
-        peer->confirmed = aConfirmed;
         peer->createdMicros = aNow;
         peer->lastHeardMicros = aNow;
         peer->nextPingMicros = aNow;
         Peer& reference = *peer;
         m_peers[aId] = std::move(peer);
         m_shared.peerCount = static_cast<int>(m_peers.size());
+        m_statsDirty = true;
         m_shared.Log(LogLevel::Info, "peer " + std::to_string(aId) + " joined");
         m_shared.PushEvent("peer_join " + std::to_string(aId));
         return reference;
@@ -1041,6 +1037,7 @@ private:
             return;
         }
         m_shared.peerCount = static_cast<int>(m_peers.size());
+        m_statsDirty = true;
         m_shared.Log(LogLevel::Info, "peer " + std::to_string(aId) + " left (" + std::string(aReason) + ")");
         m_shared.PushEvent("peer_leave " + std::to_string(aId) + " " + std::string(aReason));
     }
@@ -1073,6 +1070,7 @@ private:
     void SetState(ConnectionState aState)
     {
         m_shared.state = static_cast<int>(aState);
+        m_statsDirty = true;
     }
 
     void Fail(std::string aReason)
@@ -1098,6 +1096,7 @@ private:
         snapshot.bytesReceived = m_bytesReceived;
         snapshot.badFrames = m_badFrames;
         snapshot.foreignDatagrams = m_foreignDatagrams;
+        snapshot.unknownPeerFrames = m_unknownPeerFrames;
         snapshot.sendErrors = m_sendErrors;
         snapshot.droppedInbound = m_droppedInbound;
         snapshot.droppedNoPeer = m_droppedNoPeer;
@@ -1109,7 +1108,6 @@ private:
             PeerStatsSnapshot entry;
             entry.id = peer.id;
             entry.nonce = peer.nonce;
-            entry.confirmed = peer.confirmed;
             entry.unresponsive = peer.reliable.Failed();
             entry.rttValid = peer.reliable.Rtt().HasSample();
             entry.rttMs = peer.reliable.Rtt().SmoothedMs();
@@ -1124,6 +1122,8 @@ private:
             entry.unreliableReceived = peer.unreliableReceived;
             entry.unreliableStale = peer.unreliableStale;
             entry.unreliableDropped = peer.unreliableDropped;
+            entry.pingsSent = peer.pingsSent;
+            entry.pongsReceived = peer.pongsReceived;
             snapshot.peers.push_back(entry);
         }
         std::lock_guard lock(m_shared.statsMutex);
@@ -1145,6 +1145,7 @@ private:
     std::map<uint16_t, std::unique_ptr<Peer>> m_peers;
     uint16_t m_localId = 0;
     bool m_welcomed = false;
+    bool m_statsDirty = true;
 
     uint64_t m_startedMicros = 0;
     uint64_t m_nextHelloMicros = 0;
@@ -1160,6 +1161,7 @@ private:
     uint64_t m_bytesReceived = 0;
     uint64_t m_badFrames = 0;
     uint64_t m_foreignDatagrams = 0;
+    uint64_t m_unknownPeerFrames = 0;
     uint64_t m_sendErrors = 0;
     uint64_t m_droppedInbound = 0;
     uint64_t m_droppedNoPeer = 0;
@@ -1358,6 +1360,7 @@ std::string Transport::StatsJson() const
     json << ",\"txBytes\":" << stats.bytesSent << ",\"rxBytes\":" << stats.bytesReceived;
     json << ",\"inQueue\":" << inboxSize << ",\"outQueue\":" << outboxSize;
     json << ",\"badFrames\":" << stats.badFrames << ",\"foreign\":" << stats.foreignDatagrams;
+    json << ",\"unknownPeerFrames\":" << stats.unknownPeerFrames;
     json << ",\"sendErrors\":" << stats.sendErrors << ",\"droppedIn\":" << stats.droppedInbound;
     json << ",\"droppedNoPeer\":" << stats.droppedNoPeer << ",\"droppedBacklog\":" << stats.droppedBacklog;
     json << ",\"refusedSends\":" << m_shared->refusedSends.load();
@@ -1371,7 +1374,6 @@ std::string Transport::StatsJson() const
             json << ",";
         }
         json << "{\"id\":" << peer.id << ",\"nonce\":" << peer.nonce;
-        json << ",\"confirmed\":" << (peer.confirmed ? "true" : "false");
         json << ",\"unresponsive\":" << (peer.unresponsive ? "true" : "false");
         json << ",\"rttMs\":" << (peer.rttValid ? FormatDouble(peer.rttMs) : "null");
         json << ",\"rttVarMs\":" << FormatDouble(peer.rttVariationMs);
@@ -1383,7 +1385,8 @@ std::string Transport::StatsJson() const
         json << ",\"relRecv\":" << peer.reliable.received << ",\"relDup\":" << peer.reliable.duplicates;
         json << ",\"relOutOfWindow\":" << peer.reliable.outOfWindow << ",\"relDelivered\":" << peer.reliable.delivered;
         json << ",\"unrelSent\":" << peer.unreliableSent << ",\"unrelRecv\":" << peer.unreliableReceived;
-        json << ",\"unrelStale\":" << peer.unreliableStale << ",\"unrelDropped\":" << peer.unreliableDropped << "}";
+        json << ",\"unrelStale\":" << peer.unreliableStale << ",\"unrelDropped\":" << peer.unreliableDropped;
+        json << ",\"pings\":" << peer.pingsSent << ",\"pongs\":" << peer.pongsReceived << "}";
     }
     json << "]}";
     return json.str();

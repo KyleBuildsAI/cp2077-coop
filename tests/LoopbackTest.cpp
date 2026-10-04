@@ -219,7 +219,18 @@ int main(int argc, char** argv)
                 bravoReceived.snapshots, bravoReceived.snapshotOrderOk ? 1 : 0);
     ok = ok && forwardOk && backOk && bravoReceived.snapshotOrderOk && bravoReceived.snapshots > 0;
 
-    std::printf("A stats: %s\n", alpha.StatsJson().c_str());
+    // Idle for a few ping rounds so the RTT estimate settles, then show the final counters.
+    for (int second = 0; second < 3; ++second)
+    {
+        const auto idleUntil = Clock::now() + std::chrono::seconds(1);
+        while (Clock::now() < idleUntil)
+        {
+            Drain(alpha, alphaReceived, "A", false);
+            Drain(bravo, bravoReceived, "B", false);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        std::printf("idle %ds: A %s\n", second + 1, alpha.StatsJson().c_str());
+    }
     std::printf("B stats: %s\n", bravo.StatsJson().c_str());
 
     // Disconnect A; B must see it leave (BYE -> relay -> PEERS without A).

@@ -51,9 +51,9 @@ struct TransportConfig
     size_t maxInbox = 8192;          // messages waiting for Poll
     size_t maxOutbox = 4096;         // Send requests waiting for the network thread
     uint64_t helloIntervalMicros = 500'000;
-    uint64_t pingIntervalMicros = 1'000'000;
+    uint64_t pingIntervalMicros = 1'000'000;   // relay keepalive and relay RTT
+    uint64_t peerPingIntervalMicros = 500'000; // peer RTT samples, which drive the resend timeout
     uint64_t relayTimeoutMicros = 5'000'000;
-    uint64_t peerGraceMicros = 3'000'000; // implicit peers survive a PEERS list that predates them
     uint64_t statsIntervalMicros = 200'000;
 };
 
