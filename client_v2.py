@@ -12,6 +12,13 @@ the results can be checked exactly:
   including a 30-message burst
 * rendering at 60 Hz through the interpolation buffer, measuring the error
   against the sender's ground truth, plus the v1 "latest packet" model
+* a drain at the end: events stop DRAIN_S before --duration and a final
+  "<name> done" chat marks the end of each reliable stream. After --duration
+  the client stops sending snapshots and rendering, keeps acking and resending,
+  and quits once the relay has acked all of its events and the other player's
+  marker has arrived (everything before it has then arrived too), or after
+  LINGER_MAX_S. A short run can therefore never cut off a stream that is still
+  being repaired, and a reliable violation means a real loss or reordering.
 
 Every link impairment is simulated in-process on the uplink and downlink.
 The run ends with a JSON report consumed by run_demo.py.
@@ -45,6 +52,9 @@ EVENT_INTERVAL_S = 0.15
 CHAT_INTERVAL_S = 1.2
 BURST_SIZE = 30
 DRAIN_S = 4.0
+LINGER_MAX_S = 20.0
+ACK_FLUSH_S = 0.05
+DONE_SUFFIX = " done"
 PLAYER_TARGET_BASE = 0xFF00
 HANDSHAKE_TIMEOUT_S = 10.0
 
@@ -173,6 +183,10 @@ class CoopClient:
         self.next_event = 0.0
         self.next_chat = 0.0
         self.burst_done = False
+        self.done_sent = False
+        self.other_done = False
+        self.linger_s = 0.0
+        self.linger_timed_out = False
         self.teleport_sent = False
         self.deaths_sent = set()
         self.sent_events = []
@@ -288,9 +302,14 @@ class CoopClient:
         last_frame = now
         for data in self.backlog:  # session DATA that arrived in the same batch as the WELCOME
             self.on_datagram(data, now)
-        while now < end and self.disconnected is None:
+        while self.disconnected is None and not self.finished(now, end):
             for data in self.endpoint.pump(now):
                 self.on_datagram(data, now)
+            if now >= end:
+                self.linger(now)
+                time.sleep(0.0005)
+                now = clock()
+                continue
             if now >= next_time_req:
                 fast = now - self.start < 3.0
                 self.pending.append((proto.MsgType.TIME_REQ, proto.PEER_RELAY,
@@ -308,8 +327,29 @@ class CoopClient:
                 self.flush(now)
             time.sleep(0.0005)
             now = clock()
+        self.linger_s = max(0.0, now - end)
         bye = proto.encode_disconnect(self.conn.token, proto.DisconnectReason.QUIT)
         self.endpoint._sendto(bye)
+
+    def finished(self, now: float, end: float) -> bool:
+        """After --duration: done once the streams are drained (see the module notes) or at the cap."""
+        if now < end:
+            return False
+        if now >= end + LINGER_MAX_S:
+            self.linger_timed_out = True
+            return True
+        if self.conn.rel_pending:
+            return False
+        other_id, _ = self.other_peer()
+        return other_id is None or not self.events_started or self.other_done
+
+    def linger(self, now: float) -> None:
+        """Past --duration: no snapshots, frames or events; resend and ack until drained."""
+        if self.pending or self.conn.reliable_due(now):
+            self.flush(now)
+        elif self.conn.ack_pending and now - (self.conn.last_send or 0.0) >= ACK_FLUSH_S:
+            for packet in self.conn.build_packets(now, [], force=True):
+                self.endpoint.send(now, packet)
 
     def flush(self, now: float) -> None:
         for packet in self.conn.build_packets(now, self.pending):
@@ -362,6 +402,8 @@ class CoopClient:
                 self.remote[values["peer_id"]].role = values["role"]
         elif mtype == proto.MsgType.PEER_LEFT:
             self.peers.pop(values["peer_id"], None)
+        elif mtype == proto.MsgType.CHAT and src == self.other_peer()[0] and values["text"].endswith(DONE_SUFFIX):
+            self.other_done = True
         elif mtype == proto.MsgType.LINK_STATS:
             self.link_stats[values["peer_id"]] = values
         elif mtype == proto.MsgType.PLAYER_SNAPSHOT:
@@ -523,6 +565,10 @@ class CoopClient:
             if other_id is not None and self.clock_sync.synced:
                 self.ready_at = now + 0.3
             return
+        if self.events_started and not self.done_sent and now > self.start + self.args.duration - DRAIN_S:
+            self.done_sent = True  # the last event of this stream
+            self.send_event(now, proto.MsgType.CHAT, proto.PEER_BROADCAST,
+                            {"channel": 0, "text": f"{self.args.name}{DONE_SUFFIX}"})
         if now < self.ready_at or now > self.start + self.args.duration - DRAIN_S or other_id is None:
             return
         relay_ms = self.relay_ms(now)
@@ -707,6 +753,8 @@ class CoopClient:
             "snapshots_sent": self.snapshots_sent, "remote_players": remotes,
             "sent_events": self.sent_events, "received_events": self.received_events,
             "events_started": self.events_started,
+            "drain": {"done_sent": self.done_sent, "other_done": self.other_done, "linger_s": round(self.linger_s, 3),
+                      "timed_out": self.linger_timed_out, "pending_reliable": len(self.conn.rel_pending)},
             "entity": {
                 "encoder": self.encoder.stats, "bytes": summarize(self.entity_bytes),
                 "host_view_hashes": {str(k): v for k, v in self.host_view_hashes.items()},

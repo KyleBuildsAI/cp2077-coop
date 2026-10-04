@@ -89,6 +89,7 @@ SCENARIOS = {
 DEFAULT_ORDER = ["clean", "realistic", "stress", "brutal", "bridge", "course-clean", "course-us",
                  "course-transatlantic"]
 COURSE_CLOCK_LIMIT_MS = 5.0
+LINGER_MAX_S = 20.0  # client_v2.py LINGER_MAX_S
 
 THRESHOLDS = {
     # p95 of interpolated remote-player error (m) and NPC alignment error (m)
@@ -127,7 +128,10 @@ def run_scenario(name: str, spec: dict, out_dir: str, duration_override: float |
     for path in files.values():
         if os.path.exists(path):
             os.remove(path)
-    relay = subprocess.Popen([PYTHON, "relay_v2.py", "--port", str(port), "--duration", str(duration + 4),
+    # The clients linger past --duration until their reliable streams are drained (client_v2.py), so the
+    # relay runs until the last v2 client has left, at most LINGER_MAX_S longer than before.
+    relay = subprocess.Popen([PYTHON, "relay_v2.py", "--port", str(port), "--duration",
+                              str(duration + 4 + LINGER_MAX_S), "--exit-when-idle", "1.0",
                               "--stats-json", files["relay"], "--log", os.path.join(out_dir, "relay.log"),
                               "--quiet"], cwd=HERE)
     time.sleep(0.6)
@@ -155,8 +159,8 @@ def run_scenario(name: str, spec: dict, out_dir: str, duration_override: float |
                                            v1_duration, "--flags", "2", "--center", "-1300", "300",
                                            "--report", files["v1b"]], cwd=HERE, stdout=subprocess.DEVNULL))
     for proc in procs:
-        proc.wait(timeout=duration + 60)
-    relay.wait(timeout=30)
+        proc.wait(timeout=duration + LINGER_MAX_S + 60)
+    relay.wait(timeout=LINGER_MAX_S + 30)
     reports = {}
     for key, path in files.items():
         if os.path.exists(path):
@@ -282,6 +286,14 @@ def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Che
         checks.add("clock instances agree", gap < COURSE_CLOCK_LIMIT_MS,
                    f"|host - joiner| relay clock {gap:.2f} ms (limit {COURSE_CLOCK_LIMIT_MS} ms)")
         metrics["clock_instances_ms"] = round(gap, 3)
+    for client, label in ((host, "host"), (joiner, "joiner")):
+        drain = client.get("drain")
+        metrics[f"drain_{label}"] = drain
+        checks.add(f"stream drained ({label})", drain is not None and not drain["timed_out"]
+                   and drain["pending_reliable"] == 0 and drain["other_done"],
+                   "no drain report" if drain is None else
+                   f"lingered {drain['linger_s']:.2f} s after the run, other stream complete {drain['other_done']}, "
+                   f"own events unacked {drain['pending_reliable']}, timed out {drain['timed_out']}")
     for client, label in ((joiner, "joiner sees host"), (host, "host sees joiner")):
         metrics[f"render_{label}"] = client["render"]
     player_limit, npc_limit = THRESHOLDS.get(spec["name"], (1.0, 1.0))
