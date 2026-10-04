@@ -21,9 +21,12 @@ D10 the history CSV locked by Excel gives a WARN, not a crash; a header change
     starts a new file (the D1/D10 runs write their history to a temp folder)
 D11 Codeware and the coop DLL count as loaded only by RED4ext's success line;
     a Codeware version other than 1.18.0 is a WARN
+D12 server.ini saved with a UTF-8 BOM still gives the relay IP (and a WARN),
+    UTF-16 and missing keys are reported, devkit reads it too
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
+import codecs
 import math
 import os
 import random
@@ -652,6 +655,54 @@ def test_plugin_load_lines():
     )
 
 
+# ------------------------------------------------------------------ D12
+
+def test_server_ini_encodings():
+    import devkit
+    game, mod_dir = make_game_dir()
+    ini = os.path.join(game, monitor.SERVER_INI)
+    plain = "server_ip=51.68.153.130\r\nserver_port=11778\r\n"
+    cases = {
+        "plain": plain.encode("utf-8"),
+        "UTF-8 BOM": codecs.BOM_UTF8 + plain.encode("utf-8"),
+        "UTF-16 (Notepad 'Unicode')": plain.encode("utf-16"),
+        "comments and spaces": b"; relay\r\n server_ip = 51.68.153.130 \r\n#port\r\nserver_port= 11778\r\n",
+        "no port": b"server_ip=51.68.153.130\r\n",
+    }
+    results = {}
+    try:
+        for name, raw in cases.items():
+            with open(ini, "wb") as handle:
+                handle.write(raw)
+            results[name] = (monitor.read_server_address(game), devkit.read_server(game))
+            print(f"  {name}: monitor {results[name][0]}, devkit {results[name][1]}")
+        address = ("51.68.153.130", "11778")
+        reads_ok = (
+            results["plain"] == (address + (None,), address)
+            and results["comments and spaces"] == (address + (None,), address)
+            and results["UTF-8 BOM"][0][:2] == address and results["UTF-8 BOM"][0][2][0] == monitor.WARN
+            and "BOM" in results["UTF-8 BOM"][0][2][1] and results["UTF-8 BOM"][1] == address
+            and results["UTF-16 (Notepad 'Unicode')"][0][2][0] == monitor.BAD
+            and "UTF-16" in results["UTF-16 (Notepad 'Unicode')"][0][2][1]
+            and results["no port"][0] == ("51.68.153.130", None, (monitor.BAD, f"server_port missing in {monitor.SERVER_INI}"))
+        )
+
+        # no relay IP: the dashboard says why instead of 'None:None' / 'ICMP blocked'
+        with open(ini, "wb") as handle:
+            handle.write(b"server_port=11778\r\n")
+        run = subprocess.run([sys.executable, os.path.join(TOOLS, "coop_monitor.py"), "--once", "--no-geo", "--game", game,
+                              "--history", os.path.join(game, "history.csv")],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        rows = [line.strip() for line in run.stdout.splitlines() if "server.ini" in line or "relay" in line]
+        print(f"  no server_ip: exit {run.returncode}, rows {rows}")
+        dashboard_ok = (run.returncode == 1 and "None" not in run.stdout and "ICMP" not in run.stdout
+                        and any("server_ip missing" in line for line in rows)
+                        and any("not checked - no relay IP" in line for line in rows))
+        return reads_ok and dashboard_ok
+    finally:
+        shutil.rmtree(game, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -665,6 +716,7 @@ if __name__ == "__main__":
         "D9 panel drops relay values once the monitor stops; status file swapped in whole": test_monitor_status_staleness,
         "D10 history CSV open in Excel: monitor warns and keeps running; new columns start a new file": test_history_locked_by_excel,
         "D11 Codeware / coop DLL graded by their RED4ext success line and version": test_plugin_load_lines,
+        "D12 server.ini with a BOM, as UTF-16 or without a key is read or reported": test_server_ini_encodings,
     }
     results = {}
     for name, test in tests.items():

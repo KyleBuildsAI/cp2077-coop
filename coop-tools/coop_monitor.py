@@ -21,6 +21,7 @@ skipped (shown as a WARN) and writing resumes once it is closed.
 Only the Python standard library is used.
 """
 import argparse
+import codecs
 import datetime
 import glob
 import json
@@ -85,18 +86,42 @@ def parse_args():
     return parser.parse_args()
 
 
-def read_server_address(game_dir):
-    path = os.path.join(game_dir, SERVER_INI)
+def parse_ini_text(text):
+    """key=value lines; ';' and '#' start a comment line."""
     values = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith((";", "#")) or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def read_server_address(game_dir):
+    """(ip, port, problem): problem is None or (level, text) for the server.ini row.
+
+    Editors save server.ini in ways the coop DLL may not read: a UTF-8 BOM
+    (PowerShell 5 Set-Content -Encoding UTF8, old Notepad) glues three bytes to the
+    first key, and Notepad's 'Unicode' is UTF-16.
+    """
+    path = os.path.join(game_dir, SERVER_INI)
     try:
-        with open(path, encoding="utf-8") as handle:
-            for line in handle:
-                if "=" in line:
-                    key, value = line.strip().split("=", 1)
-                    values[key.strip()] = value.strip()
+        with open(path, "rb") as handle:
+            raw = handle.read()
     except OSError as error:
-        return None, None, f"cannot read {SERVER_INI}: {error}"
-    return values.get("server_ip"), values.get("server_port"), None
+        return None, None, (BAD, f"cannot read {SERVER_INI}: {error}")
+    if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return None, None, (BAD, f"{SERVER_INI} is saved as UTF-16 ('Unicode'): save it as UTF-8 without BOM")
+    values = parse_ini_text(raw.decode("utf-8-sig", errors="replace"))
+    ip, port = values.get("server_ip"), values.get("server_port")
+    missing = [key for key, value in (("server_ip", ip), ("server_port", port)) if not value]
+    if missing:
+        return ip or None, port or None, (BAD, f"{' and '.join(missing)} missing in {SERVER_INI}")
+    if raw.startswith(codecs.BOM_UTF8):
+        return ip, port, (WARN, f"{SERVER_INI} starts with a UTF-8 BOM, which the coop DLL may not read: save it as "
+                                "UTF-8 without BOM (or run: python coop-tools/devkit.py server <game folder> IP:PORT)")
+    return ip, port, None
 
 
 def ping_ms(host):
@@ -422,11 +447,11 @@ def run(args):
     except (ImportError, OSError) as error:
         print(f"could not refresh modlist.txt: {error}")
 
-    ip, port, ini_error = read_server_address(game_dir)
+    ip, port, ini_problem = read_server_address(game_dir)
     location = None if args.no_geo or not ip else relay_location(ip)
 
     try:
-        return monitor_loop(args, game_dir, mod_dir, history_path, (ip, port, ini_error, location))
+        return monitor_loop(args, game_dir, mod_dir, history_path, (ip, port, ini_problem, location))
     except KeyboardInterrupt:
         remove_panel_status(mod_dir)
         print("\nmonitor stopped")
@@ -435,17 +460,20 @@ def run(args):
 
 def monitor_loop(args, game_dir, mod_dir, history_path, server):
     """Check, render, write history and the panel status every REFRESH_SECONDS."""
-    ip, port, ini_error, location = server
+    ip, port, ini_problem, location = server
     while True:
         checks = [(INFO, "game folder", game_dir)]
-        if ini_error:
-            checks.append((BAD, "server.ini", ini_error))
+        if ini_problem:
+            checks.append((ini_problem[0], "server.ini", ini_problem[1]))
         server_ping = ping_ms(ip) if ip else None
-        checks.append((INFO, "relay server", f"{ip}:{port}" + (f"  {location}" if location else "")))
-        checks.append((grade(server_ping, EXPECT["server_ping_ms"]) if server_ping is not None else BAD,
-                       "your ping to relay", f"{server_ping:.0f} ms" if server_ping is not None else "no reply (ICMP blocked or offline)"))
         if ip:
+            checks.append((INFO, "relay server", f"{ip}:{port}" + (f"  {location}" if location else "")))
+            checks.append((grade(server_ping, EXPECT["server_ping_ms"]) if server_ping is not None else BAD,
+                           "your ping to relay", f"{server_ping:.0f} ms" if server_ping is not None else "no reply (ICMP blocked or offline)"))
             write_panel_status(mod_dir, f"{ip}:{port}", server_ping, location)
+        else:
+            checks.append((BAD, "relay server", f"unknown (see {SERVER_INI})"))
+            checks.append((INFO, "your ping to relay", "not checked - no relay IP"))
 
         checks.extend(check_startup_logs(game_dir))
 

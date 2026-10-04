@@ -167,14 +167,22 @@ def write_modlist(game):
 
 
 def read_server(game):
+    """(ip, port) from server.ini (either may be None), or None when the file is unreadable.
+
+    utf-8-sig: a BOM (PowerShell 5 Set-Content -Encoding UTF8, old Notepad) would
+    otherwise glue itself to the first key and hide server_ip.
+    """
     values = {}
     try:
-        with open(os.path.join(game, SERVER_INI), encoding="utf-8") as handle:
+        with open(os.path.join(game, SERVER_INI), encoding="utf-8-sig", errors="replace") as handle:
             for line in handle:
-                if "=" in line:
-                    key, value = line.strip().split("=", 1)
-                    values[key] = value
-    except OSError:
+                line = line.strip()
+                if line.startswith((";", "#")) or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                values[key.strip()] = value.strip()
+    except OSError as error:
+        print(f"  cannot read {SERVER_INI} in {game}: {error}")
         return None
     return values.get("server_ip"), values.get("server_port")
 
@@ -220,7 +228,7 @@ def status(games):
         except OSError:
             role = "(init.lua default)"
         autoload = os.path.exists(os.path.join(game, "r6", "scripts", "CP2077Coop", "autoload.reds"))
-        print(f"{os.path.basename(game):<34} mod={mod_version(game):<10} server={':'.join(server) if server else '?':<22} role={role:<8} autoload={'on' if autoload else 'off'}")
+        print(f"{os.path.basename(game):<34} mod={mod_version(game):<10} server={':'.join(server) if server and all(server) else '?':<22} role={role:<8} autoload={'on' if autoload else 'off'}")
 
 
 def main():
