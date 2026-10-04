@@ -64,6 +64,8 @@ local function makeNpc(x, y, z)
     function ctrl:CancelCommand(cmd) n.target = nil end
     function n:GetAIControllerComponent() return ctrl end
     function n:GetWorldPosition() return { x = n.x, y = n.y, z = n.z, w = 1 } end
+    function n:IsAttached() return true end
+    function n:IsDead() return n.dead == true end
     return n
 end
 

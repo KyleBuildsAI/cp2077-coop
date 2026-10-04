@@ -1309,6 +1309,9 @@ local Sync = {
     SPAWN_PLACE_WAIT = 3.0,
     -- tyle s po spawnie / wyjściu z auta teleport nie liczy się jako korekta
     SPAWN_GRACE = 3.0,
+    -- nowy avatar zamiast martwego / odpiętego najwyżej co tyle s
+    AVATAR_RESPAWN_COOLDOWN = 10.0,
+    lastAvatarDropAt = -100.0,
 
     clock = 0.0,
 
@@ -3166,6 +3169,20 @@ function Steer.hardCorrectAllowed(current, errorDistance, snapNow)
                     Steer.HARD_CORRECT_BACKOFF
                 )
             )
+
+            -- martwy albo odpięty (usunięty przez DES) avatar nie wykona
+            -- żadnej komendy: zamiast prób co sekundę do końca sesji
+            -- nowy spawn przy drugim graczu (raz na stan "nie reaguje")
+            local gone =
+                Sync.avatarGone()
+
+            if gone ~= nil
+                and Sync.clock - Sync.lastAvatarDropAt >=
+                    Sync.AVATAR_RESPAWN_COOLDOWN
+            then
+                Sync.dropAvatar(Game.GetPlayer(), "remote avatar " .. gone)
+                return false
+            end
         end
     end
 
@@ -5001,6 +5018,93 @@ end
 ------------------------------------------------------------
 -- REMOTE VEHICLE (co klatkę)
 ------------------------------------------------------------
+
+-- "dead" / "detached" / nil (żyje albo nie wiadomo). Wywołanie na
+-- uchwycie encji, której już nie ma, rzuca błąd: też "detached".
+function Sync.avatarGone()
+
+    local avatar = S.remoteHandle
+
+    if avatar == nil then
+        return "detached"
+    end
+
+    local okAttached, attached =
+        pcall(function()
+            return avatar:IsAttached()
+        end)
+
+    if not okAttached or attached == false then
+        return "detached"
+    end
+
+    local okDead, dead =
+        pcall(function()
+            return avatar:IsDead()
+        end)
+
+    if okDead and dead == true then
+        return "dead"
+    end
+
+    return nil
+end
+
+
+-- Avatar znika (DespawnRemote); następny pakiet spawnuje nowy przy
+-- drugim graczu (Sync.requestSpawn, Sync.spawnPoint).
+function Sync.dropAvatar(player, why)
+
+    if player ~= nil then
+
+        -- broń avatara to osobny obiekt (nie znika z avatarem)
+        if Sync.appliedFlags >= 0
+            and Sync.hasScripts(player)
+            and Sync.hasFlag(Sync.appliedFlags, Sync.FLAG_WEAPON_DRAWN)
+        then
+            pcall(function()
+                player:CP2077Coop_ApplyRemoteWeapon(
+                    Sync.weaponClass(Sync.appliedFlags),
+                    false
+                )
+            end)
+        end
+
+        -- ukryte części avatara (auto) czyszczą listę w redscripcie
+        if S.avatarParked or S.avatarUnhidePending then
+            Sync.setAvatarVisible(player, true)
+        end
+    end
+
+    cancelMoveCommand()
+    Steer.reset()
+    Steer.resetHardCorrect()
+    Steer.resetSettle()
+
+    if player ~= nil
+        and player.CP2077Coop_DespawnRemote ~= nil
+    then
+        player:CP2077Coop_DespawnRemote()
+    end
+
+    S.remoteHandle = nil
+    S.remoteInitialized = false
+    S.avatarParked = false
+    S.avatarUnhidePending = false
+    S.spawnSnapPending = false
+    S.lastCommandX = nil
+    S.lastCommandY = nil
+    S.lastCommandZ = nil
+    S.spawnAttempts = 0
+    -- kolejny spawn po SPAWN_CALL_INTERVAL (DeleteTagged musi się wykonać)
+    S.spawnRequestedAt = Sync.clock
+    Sync.appliedFlags = -1
+    Sync.lastAvatarDropAt = Sync.clock
+    Diag.avatarError = nil
+
+    Diag.log("[CP2077Coop] EVENT avatar despawned: " .. why .. " - a new one spawns at the partner")
+end
+
 
 function Sync.updateRemoteVehicle(player, delta)
 

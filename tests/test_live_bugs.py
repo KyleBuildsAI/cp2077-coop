@@ -330,6 +330,47 @@ def test_unresponsive_avatar_backs_off():
     return calls <= 15 and len(warned) == 1
 
 
+# the avatar dies (stray fire, a fall): DespawnRemote removes it, the next spawn is a new, live NPC
+DEAD_MOCK = r"""
+despawns = 0
+function player:CP2077Coop_DespawnRemote()
+    despawns = despawns + 1
+    npc = nil
+    spawnAt = nil
+    pendingTeleport = nil
+    teleportsIgnored = false
+    npcFrozen = false
+    wrappedController = false
+end
+"""
+
+
+def test_dead_avatar_respawned():
+    receiver = make_receiver(extra=DEAD_MOCK)
+    remote = ScriptedRemote(receiver, straight_path(4.5, start=(40.0, 0.0), fast_from=0.0), loss=0.0)
+    g = receiver.globals()
+    marks = {}
+
+    def on_frame(t):
+        if t >= 3.0 and "dead" not in marks:
+            marks["dead"] = g.npc
+            g.npc.dead = True
+            g.teleportsIgnored = True
+            g.npcFrozen = True
+
+    run(receiver, remote, 15.0, 60, on_frame)
+    lines = logs(receiver)
+    dropped = [l for l in lines if "avatar despawned" in l]
+    spawns = [l for l in lines if "remote spawn requested" in l]
+    npc = g.npc
+    x, y = straight_path(4.5, start=(40.0, 0.0), fast_from=0.0)(15.0)[:2]
+    error = math.hypot(npc.x - x, npc.y - y) if npc is not None else None
+    print(f"  avatar dies at 3 s: despawns {int(g.despawns)}, {dropped}, spawn requests {len(spawns)}, "
+          f"new avatar {error if error is None else round(error, 2)} m from the partner at 15 s")
+    return (int(g.despawns) == 1 and len(dropped) == 1 and "dead" in dropped[0] and len(spawns) == 2
+            and npc is not None and npc is not marks["dead"] and error < 3.0)
+
+
 # ------------------------------------------------------------------ LIVE-3
 
 def test_sender_sends_vehicle_origin():
@@ -639,6 +680,7 @@ if __name__ == "__main__":
         "LIVE-1 join teleport passes EulerAngles, joiner faces host, test area uses it too": test_join_teleport_uses_euler_angles,
         "LIVE-2 fast follow: teleport per packet, no AIMoveTo, avatar keeps up (60/144 fps)": test_fast_follow_teleport_only,
         "LIVE-2 unresponsive avatar: teleport retries back off": test_unresponsive_avatar_backs_off,
+        "LIVE-2 dead avatar: despawned once at NOT RESPONDING, a new one follows the partner": test_dead_avatar_respawned,
         "LIVE-3 sender sends the car origin and heading while mounted": test_sender_sends_vehicle_origin,
         "LIVE-3 receiver extrapolates the car to now every frame": test_car_extrapolated_every_frame,
         "LIVE-3 avatar parked hidden while the remote drives, snaps back on exit": test_avatar_parked_while_driving,
