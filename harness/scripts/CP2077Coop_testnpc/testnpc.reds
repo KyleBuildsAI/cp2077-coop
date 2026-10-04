@@ -63,6 +63,12 @@ public func CP2077Coop_TestNpcSpawn(x: Float, y: Float, z: Float, yaw: Float) ->
     if !IsDefined(TweakDBInterface.GetCharacterRecord(record)) {
         return false;
     }
+    // Instantiate the lifecycle system only for an explicitly requested actor.
+    // Its BeforeEnd callback must exist before this temporary entity is created.
+    let lifecycle = GameInstance.GetScriptableSystemsContainer(this.GetGame()).Get(n"CP2077CoopTestNpcLifecycle");
+    if !IsDefined(lifecycle) {
+        return false;
+    }
     let angles: EulerAngles;
     angles.Yaw = yaw;
     let spec = new DynamicEntitySpec();
