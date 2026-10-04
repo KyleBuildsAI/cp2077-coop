@@ -227,6 +227,152 @@ S.joinForwardY = nil
 
 
 ------------------------------------------------------------
+-- LOG
+--
+-- Diag stoi tutaj, przed resztą kodu, żeby każda funkcja mogła
+-- logować przez Diag.log (funkcje panelu i statystyk: sekcja
+-- DIAGNOSTICS niżej).
+------------------------------------------------------------
+
+local Diag = {
+    VERSION = "0.0.31",
+
+    STATS_INTERVAL = 5.0,
+    MONITOR_READ_INTERVAL = 2.0,
+
+    -- progi stanu połączenia (sekundy bez nowego pakietu)
+    STALE_AFTER = 1.5,
+    LOST_AFTER = 5.0,
+
+    -- restart drugiej gry (numery od 1): starszy numer po ciszy
+    -- >= STALE_AFTER albo tyle różnych starszych numerów z rzędu
+    -- (spóźniony pakiet UDP przychodzi pojedynczo)
+    RESTART_OLDER_STREAK = 10,
+
+    -- odczyt slotu DLL przerwany nowym pakietem (pominięty, patrz onUpdate)
+    tornReads = 0,
+
+    ROLE_FILE = "role.txt",
+    MONITOR_FILE = "monitor_status.txt",
+
+    -- print() CET trafia do bin/x64/plugins/cyber_engine_tweaks/scripting.log:
+    -- wspólny dla wszystkich modów i buforowany (linie lądują na dysku
+    -- z opóźnieniem). Dla coop_monitor.py piszemy osobno, z zamknięciem
+    -- pliku od razu: ostatnia linia [STATS] -> coop_stats_<rola>.txt,
+    -- wszystkie linie [CP2077Coop] -> coop_events.log (najwyżej
+    -- EVENTS_MAX_LINES, potem zostaje EVENTS_KEEP_LINES ostatnich).
+    STATS_FILE_PREFIX = "coop_stats_",
+    EVENTS_FILE = "coop_events.log",
+    EVENTS_MAX_LINES = 400,
+    EVENTS_KEEP_LINES = 200,
+    eventLines = {},
+    eventsStarted = false,
+    -- pliki, których zapis się nie udał (ostrzeżenie raz na plik)
+    writeFailed = {},
+
+    visible = true,
+
+    packetsReceived = 0,
+    packetsSent = 0,
+    missed = 0,
+    ignored = 0,
+
+    windowReceived = 0,
+    windowSent = 0,
+    windowTimer = 0.0,
+    ppsIn = 0.0,
+    ppsOut = 0.0,
+
+    lastPacketClock = nil,
+    lastState = "WAITING",
+
+    statsTimer = 0.0,
+    monitorTimer = 0.0,
+    monitor = {},
+
+    avatarError = nil,
+
+    -- dryf avatara w oknie STATS_INTERVAL (średnia i maksimum)
+    driftSum = 0.0,
+    driftCount = 0,
+    driftMax = 0.0,
+    driftAvgLast = nil,
+    driftMaxLast = nil,
+
+    teleportRequested = false,
+    roleChanged = false,
+    botToggleRequested = false,
+    testAreaRequested = false,
+
+    -- pusty, płaski teren do testów (AMM: "The Oil Fields", Badlands)
+    TEST_AREA = { name = "Oil Fields (Badlands)", x = -1818.82, y = 3858.03, z = 7.16 }
+}
+
+
+-- Zapis całego tekstu i zamknięcie pliku od razu (bez bufora CET).
+-- Nieudany zapis: jedno ostrzeżenie na plik, potem cicho dalej.
+function Diag.writeFile(path, mode, text)
+
+    local file, err =
+        io.open(path, mode)
+
+    if file == nil then
+
+        if not Diag.writeFailed[path] then
+
+            Diag.writeFailed[path] = true
+            print("[CP2077Coop] could not write " .. path .. ": " .. tostring(err))
+        end
+
+        return false
+    end
+
+    file:write(text)
+    file:close()
+
+    return true
+end
+
+
+-- Każda linia logu moda: konsola CET (scripting.log) + coop_events.log.
+function Diag.log(message)
+
+    print(message)
+
+    local line =
+        os.date("%H:%M:%S ") .. message
+
+    local lines = Diag.eventLines
+    lines[#lines + 1] = line
+
+    local mode = "a"
+    local text = line .. "\n"
+
+    -- pierwsza linia sesji gry: plik od nowa
+    if not Diag.eventsStarted then
+
+        Diag.eventsStarted = true
+        mode = "w"
+    end
+
+    if #lines > Diag.EVENTS_MAX_LINES then
+
+        local kept = {}
+
+        for index = #lines - Diag.EVENTS_KEEP_LINES + 1, #lines do
+            kept[#kept + 1] = lines[index]
+        end
+
+        Diag.eventLines = kept
+        mode = "w"
+        text = table.concat(kept, "\n") .. "\n"
+    end
+
+    Diag.writeFile(Diag.EVENTS_FILE, mode, text)
+end
+
+
+------------------------------------------------------------
 -- MATH
 ------------------------------------------------------------
 
@@ -601,7 +747,7 @@ function Mods.load()
 
     if file == nil then
 
-        print("[CP2077Coop] no modlist.txt - run coop-tools/devkit.py modlist or coop_monitor.py")
+        Diag.log("[CP2077Coop] no modlist.txt - run coop-tools/devkit.py modlist or coop_monitor.py")
         return
     end
 
@@ -626,7 +772,7 @@ function Mods.load()
 
     file:close()
 
-    print(string.format("[CP2077Coop] mod list loaded: %d mods", #Mods.names))
+    Diag.log(string.format("[CP2077Coop] mod list loaded: %d mods", #Mods.names))
 end
 
 
@@ -791,7 +937,7 @@ function Mods.logComparison()
         return
     end
 
-    print(
+    Diag.log(
         string.format(
             "[CP2077Coop] EVENT mods compared: you=%d partner=%d shared=%d only_you=%d only_partner=%d",
             #Mods.hashes,
@@ -803,7 +949,7 @@ function Mods.logComparison()
     )
 
     for _, name in ipairs(onlyMine) do
-        print("[CP2077Coop] MOD only you: " .. name)
+        Diag.log("[CP2077Coop] MOD only you: " .. name)
     end
 end
 
@@ -934,7 +1080,7 @@ function Sync.reportMissingScripts()
 
     Sync.scriptsReported = true
 
-    print(
+    Diag.log(
         "[CP2077Coop] redscript not compiled - remote avatar and state sync disabled (check r6/logs/redscript_rCURRENT.log; an error in any mod's .reds breaks the whole compile)"
     )
 end
@@ -1614,7 +1760,7 @@ function Sync.applyRemoteTime(player, delta)
     )
 
     -- duży krok wstecz (np. host wczytał save) widać w logu
-    print(
+    Diag.log(
         string.format(
             "[CP2077Coop] time synced to host %02d:%02d (%+d min)",
             math.floor(Sync.remoteTimeMinutes / 60),
@@ -1643,7 +1789,7 @@ function Sync.releaseWeather(player, reason)
     local released =
         player:CP2077Coop_ReleaseWeather()
 
-    print(
+    Diag.log(
         string.format(
             "[CP2077Coop] weather released to the game (%s)%s",
             reason,
@@ -1696,7 +1842,7 @@ function Sync.applyRemoteWeather(player, delta)
 
             Sync.weatherRefusedIndex = Sync.remoteWeather
 
-            print(
+            Diag.log(
                 string.format(
                     "[CP2077Coop] weather index %d refused by the game, retrying every %.0f s",
                     Sync.remoteWeather,
@@ -1712,7 +1858,7 @@ function Sync.applyRemoteWeather(player, delta)
     Sync.weatherForced = true
     Sync.weatherRefusedIndex = nil
 
-    print(
+    Diag.log(
         "[CP2077Coop] weather synced to host, index "
         .. tostring(Sync.remoteWeather)
     )
@@ -1825,7 +1971,7 @@ function Sync.requestSpawn(player)
 
             S.spawnDeferredLogged = true
 
-            print("[CP2077Coop] remote spawn deferred: entity system not ready")
+            Diag.log("[CP2077Coop] remote spawn deferred: entity system not ready")
         end
 
         return
@@ -1837,7 +1983,7 @@ function Sync.requestSpawn(player)
     -- pierwsze sprawdzenie GetTagged jeszcze w tej klatce
     S.handlePollAccumulator = Sync.HANDLE_POLL_INTERVAL
 
-    print(
+    Diag.log(
         string.format(
             "[CP2077Coop] remote spawn requested @ %.2f %.2f %.2f",
             S.targetX,
@@ -1876,7 +2022,7 @@ function Sync.checkSpawnTimeout(player)
         player:CP2077Coop_DespawnRemote()
     end
 
-    print(
+    Diag.log(
         string.format(
             "[CP2077Coop] remote avatar not found %.1f s after spawn request %d%s, requesting again",
             waited,
@@ -2200,7 +2346,7 @@ function Steer.hardCorrectAllowed(current, errorDistance, snapNow)
             Steer.HARD_CORRECT_MAX_FAILS
         then
 
-            print(
+            Diag.log(
                 string.format(
                     "[CP2077Coop] REMOTE AVATAR NOT RESPONDING TO TELEPORT error=%.2f - retrying every %.1f s",
                     errorDistance,
@@ -2429,7 +2575,7 @@ function Combat.findNearestNPCAt(player, x, y, z)
 
     if not ok then
 
-        print("[CP2077Coop] COMBAT scan error: " .. tostring(err))
+        Diag.log("[CP2077Coop] COMBAT scan error: " .. tostring(err))
         return nil, nil
     end
 
@@ -2481,7 +2627,7 @@ function Combat.applyRemoteHit(player, hitX, hitY, hitZ, rawDamage)
         Combat.hitsUnmatched =
             Combat.hitsUnmatched + 1
 
-        print(
+        Diag.log(
             string.format(
                 "[CP2077Coop] COMBAT HIT no NPC match @ %.2f %.2f %.2f dmg=%.2f",
                 hitX, hitY, hitZ, damage
@@ -2520,13 +2666,13 @@ function Combat.applyRemoteHit(player, hitX, hitY, hitZ, rawDamage)
 
     if not ok then
 
-        print("[CP2077Coop] COMBAT damage error: " .. tostring(err))
+        Diag.log("[CP2077Coop] COMBAT damage error: " .. tostring(err))
         return
     end
 
     if not applied then
 
-        print("[CP2077Coop] COMBAT target invulnerable")
+        Diag.log("[CP2077Coop] COMBAT target invulnerable")
         return
     end
 
@@ -2535,7 +2681,7 @@ function Combat.applyRemoteHit(player, hitX, hitY, hitZ, rawDamage)
 
     Combat.tryHitReaction(target)
 
-    print(
+    Diag.log(
         string.format(
             "[CP2077Coop] COMBAT HIT applied dmg=%.2f match=%.2fm",
             damage,
@@ -2617,7 +2763,7 @@ function Bot.start()
     Bot.distance = 0.0
     Bot.phaseIndex = 0
 
-    print("[CP2077Coop] EVENT test pattern started")
+    Diag.log("[CP2077Coop] EVENT test pattern started")
 end
 
 
@@ -2631,7 +2777,7 @@ function Bot.stop()
     Sync.flagsOverride = nil
     Sync.vehicleIndexOverride = nil
 
-    print("[CP2077Coop] EVENT test pattern stopped")
+    Diag.log("[CP2077Coop] EVENT test pattern stopped")
 end
 
 
@@ -2668,7 +2814,7 @@ function Bot.update(delta, player)
         Bot.distance = 0.0
         Bot.phaseIndex = 0
 
-        print(
+        Diag.log(
             string.format(
                 "[CP2077Coop] BOT anchored @ %.2f %.2f %.2f",
                 Bot.anchor.x,
@@ -2692,7 +2838,7 @@ function Bot.update(delta, player)
 
         Bot.phaseIndex = index
 
-        print(
+        Diag.log(
             string.format(
                 "[CP2077Coop] BOT phase=%s speed=%.1f flags=%d",
                 phase[1],
@@ -2758,69 +2904,8 @@ end
 --
 -- Panel: okno "CP2077 Coop" (widoczne zawsze, klikalne przy
 -- otwartym overlayu CET). Skrót: Bindings -> "Toggle coop panel".
--- Log: linia [STATS] co STATS_INTERVAL s w CP2077Coop.log,
--- czytana przez tools/coop_monitor.py.
+-- Tabela Diag i Diag.log: na początku pliku (sekcja LOG).
 ------------------------------------------------------------
-
-local Diag = {
-    VERSION = "0.0.31",
-
-    STATS_INTERVAL = 5.0,
-    MONITOR_READ_INTERVAL = 2.0,
-
-    -- progi stanu połączenia (sekundy bez nowego pakietu)
-    STALE_AFTER = 1.5,
-    LOST_AFTER = 5.0,
-
-    -- restart drugiej gry (numery od 1): starszy numer po ciszy
-    -- >= STALE_AFTER albo tyle różnych starszych numerów z rzędu
-    -- (spóźniony pakiet UDP przychodzi pojedynczo)
-    RESTART_OLDER_STREAK = 10,
-
-    -- odczyt slotu DLL przerwany nowym pakietem (pominięty, patrz onUpdate)
-    tornReads = 0,
-
-    ROLE_FILE = "role.txt",
-    MONITOR_FILE = "monitor_status.txt",
-
-    visible = true,
-
-    packetsReceived = 0,
-    packetsSent = 0,
-    missed = 0,
-    ignored = 0,
-
-    windowReceived = 0,
-    windowSent = 0,
-    windowTimer = 0.0,
-    ppsIn = 0.0,
-    ppsOut = 0.0,
-
-    lastPacketClock = nil,
-    lastState = "WAITING",
-
-    statsTimer = 0.0,
-    monitorTimer = 0.0,
-    monitor = {},
-
-    avatarError = nil,
-
-    -- dryf avatara w oknie STATS_INTERVAL (średnia i maksimum)
-    driftSum = 0.0,
-    driftCount = 0,
-    driftMax = 0.0,
-    driftAvgLast = nil,
-    driftMaxLast = nil,
-
-    teleportRequested = false,
-    roleChanged = false,
-    botToggleRequested = false,
-    testAreaRequested = false,
-
-    -- pusty, płaski teren do testów (AMM: "The Oil Fields", Badlands)
-    TEST_AREA = { name = "Oil Fields (Badlands)", x = -1818.82, y = 3858.03, z = 7.16 }
-}
-
 
 function Diag.recordDrift(distance)
 
@@ -2881,7 +2966,7 @@ function Diag.saveRole(isHost)
 
     if file == nil then
 
-        print("[CP2077Coop] could not save role.txt")
+        Diag.log("[CP2077Coop] could not save role.txt")
         return
     end
 
@@ -2905,7 +2990,7 @@ function Diag.setRole(isHost)
     Diag.saveRole(isHost)
     Diag.roleChanged = true
 
-    print(
+    Diag.log(
         "[CP2077Coop] EVENT role changed to "
         .. (isHost and "HOST" or "JOINER")
     )
@@ -3094,6 +3179,20 @@ function Diag.statsLine()
 end
 
 
+-- Linia [STATS]: konsola CET + coop_stats_<rola>.txt (nadpisywany co
+-- STATS_INTERVAL; coop_monitor.py ocenia świeżość po czasie zapisu).
+function Diag.writeStats(line)
+
+    print(line)
+
+    Diag.writeFile(
+        Diag.STATS_FILE_PREFIX .. (IS_HOST and "host" or "joiner") .. ".txt",
+        "w",
+        line .. "\n"
+    )
+end
+
+
 -- Monitor (tools/coop_monitor.py) zapisuje tu IP serwera i ping.
 function Diag.readMonitorStatus()
 
@@ -3153,7 +3252,7 @@ function Diag.tick(delta)
 
     if state ~= Diag.lastState then
 
-        print(
+        Diag.log(
             "[CP2077Coop] EVENT connection "
             .. Diag.lastState
             .. " -> "
@@ -3171,7 +3270,7 @@ function Diag.tick(delta)
 
         Diag.statsTimer = 0.0
         Diag.closeDriftWindow()
-        print(Diag.statsLine())
+        Diag.writeStats(Diag.statsLine())
     end
 
 
@@ -3515,7 +3614,7 @@ function Diag.draw()
     ImGui.SameLine()
 
     if ImGui.Button("Log stats now") then
-        print(Diag.statsLine())
+        Diag.writeStats(Diag.statsLine())
     end
 
 
@@ -3576,7 +3675,7 @@ function Sync.updateRemoteVehicle(player, delta)
             Sync.hideRemoteVehicle(player)
 
             if lost then
-                print("[CP2077Coop] EVENT remote vehicle hidden: connection lost")
+                Diag.log("[CP2077Coop] EVENT remote vehicle hidden: connection lost")
             end
         end
 
@@ -3705,7 +3804,7 @@ function Sync.parkAvatar(player)
 
             Sync.setAvatarVisible(player, false)
 
-            print("[CP2077Coop] EVENT remote is driving: avatar parked")
+            Diag.log("[CP2077Coop] EVENT remote is driving: avatar parked")
         end
 
         return true
@@ -4030,7 +4129,7 @@ local function teleportLocalPlayer(
 
     if not ok then
 
-        print(
+        Diag.log(
             "[CP2077Coop] PLAYER TELEPORT ERROR: "
             .. tostring(err)
         )
@@ -4122,7 +4221,7 @@ local function beginJoinWorldSync(
         JOIN_SYNC_INTERVAL
 
 
-    print(
+    Diag.log(
         string.format(
             "[CP2077Coop] P2 WORLD SYNC -> %.2f %.2f %.2f",
             S.joinTargetX,
@@ -4267,7 +4366,7 @@ registerForEvent(
         Diag.loadRole()
         Mods.load()
 
-        print(
+        Diag.log(
             "[CP2077Coop] bridge v" .. Diag.VERSION .. " loaded, role="
             .. (IS_HOST and "host" or "joiner")
         )
@@ -4337,7 +4436,7 @@ registerForEvent(
                 S.worldJoinComplete = false
                 S.joinAttempts = 0
 
-                print("[CP2077Coop] EVENT manual teleport to host requested")
+                Diag.log("[CP2077Coop] EVENT manual teleport to host requested")
             end
         end
 
@@ -4357,7 +4456,7 @@ registerForEvent(
 
             if S.syncActive then
 
-                print(
+                Diag.log(
                     "[CP2077Coop] sync ON"
                 )
 
@@ -4365,7 +4464,7 @@ registerForEvent(
 
             else
 
-                print(
+                Diag.log(
                     "[CP2077Coop] sync OFF"
                 )
 
@@ -4398,13 +4497,13 @@ registerForEvent(
 
             if IS_HOST then
 
-                print(
+                Diag.log(
                     "[CP2077Coop] ROLE = HOST"
                 )
 
             else
 
-                print(
+                Diag.log(
                     "[CP2077Coop] ROLE = JOINER"
                 )
             end
@@ -4435,7 +4534,7 @@ registerForEvent(
 
             if teleportLocalPlayer(player, area.x, area.y, area.z) then
 
-                print("[CP2077Coop] EVENT teleported to test area: " .. area.name)
+                Diag.log("[CP2077Coop] EVENT teleported to test area: " .. area.name)
 
                 -- trasa bota przy celu (teleport kończy się dopiero
                 -- w kolejnych klatkach, pozycja gracza jest jeszcze stara)
@@ -4621,7 +4720,7 @@ registerForEvent(
 
                 Diag.onPacket(sequence, -1)
 
-                print(
+                Diag.log(
                     string.format(
                         "[CP2077Coop] EVENT peer restart detected: sequence %d after %d",
                         sequence,
@@ -5008,7 +5107,7 @@ registerForEvent(
                 S.joinSyncPending = false
                 S.worldJoinComplete = true
 
-                print(
+                Diag.log(
                     string.format(
                         "[CP2077Coop] WORLD SYNC OK error=%.2f",
                         joinError
@@ -5024,7 +5123,7 @@ registerForEvent(
                 S.joinAttempts =
                     S.joinAttempts + 1
 
-                print(
+                Diag.log(
                     string.format(
                         "[CP2077Coop] WORLD SYNC FAILED error=%.2f attempt=%d/%d",
                         joinError,
@@ -5042,7 +5141,7 @@ registerForEvent(
 
                     S.worldJoinComplete = true
 
-                    print(
+                    Diag.log(
                         "[CP2077Coop] WORLD SYNC GAVE UP - use 'Teleport to host' in the coop panel"
                     )
                 end
@@ -5082,7 +5181,7 @@ registerForEvent(
 
             if S.remoteHandle ~= nil then
 
-                print(
+                Diag.log(
                     "[CP2077Coop] remote entity acquired"
                 )
 
@@ -5098,7 +5197,7 @@ registerForEvent(
                         GetWorldPosition()
 
 
-                print(
+                Diag.log(
                     string.format(
                         "[CP2077Coop] LOCAL %.2f %.2f %.2f",
                         playerPos.x,
@@ -5107,7 +5206,7 @@ registerForEvent(
                     )
                 )
 
-                print(
+                Diag.log(
                     string.format(
                         "[CP2077Coop] REMOTE TARGET %.2f %.2f %.2f",
                         S.targetX,
@@ -5116,7 +5215,7 @@ registerForEvent(
                     )
                 )
 
-                print(
+                Diag.log(
                     string.format(
                         "[CP2077Coop] JUDY BEFORE SNAP %.2f %.2f %.2f",
                         remotePos.x,
@@ -5207,7 +5306,7 @@ registerForEvent(
 
                 S.spawnSnapPending = false
 
-                print(
+                Diag.log(
                     string.format(
                         "[CP2077Coop] REMOTE SNAP OK error=%.2f",
                         snapError
@@ -5220,7 +5319,7 @@ registerForEvent(
 
                 S.spawnSnapPending = false
 
-                print(
+                Diag.log(
                     string.format(
                         "[CP2077Coop] REMOTE SNAP FAILED error=%.2f target=%.2f %.2f %.2f",
                         snapError,
@@ -5476,7 +5575,7 @@ registerForEvent(
 
                     elseif settleStep == "teleport" then
 
-                        print(
+                        Diag.log(
                             string.format(
                                 "[CP2077Coop] EVENT avatar cannot walk to the remote spot: teleport, error=%.2f",
                                 errorDistance
@@ -5496,7 +5595,7 @@ registerForEvent(
 
                     elseif settleStep == "done" then
 
-                        print(
+                        Diag.log(
                             string.format(
                                 "[CP2077Coop] EVENT avatar cannot reach the remote spot: stays %.2f m away",
                                 errorDistance

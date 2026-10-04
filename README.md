@@ -39,8 +39,15 @@ Checks compile and crash logs, plugin loading, your ping to the relay and the in
 against expected ranges every 5 s, and appends to `coop-tools/coop_monitor_history.csv`.
 It also feeds the relay address and ping into the in-game panel. Requires Python 3.
 
-Logs: `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/CP2077Coop.log` (a `[STATS]` line every 5 s
-plus `EVENT` lines) and `r6/logs/redscript_rCURRENT.log`.
+Logs, all in `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/` unless noted:
+
+- `coop_stats_host.txt` / `coop_stats_joiner.txt`: the latest `[STATS]` line, rewritten every 5 s
+- `coop_events.log`: every `[CP2077Coop]` line (events, world sync, errors) with the time; restarts
+  with each game launch and keeps at most the last 400 lines
+- `CP2077Coop.log`: Lua runtime errors only (written by CET)
+- `bin/x64/plugins/cyber_engine_tweaks/scripting.log`: CET console output, including the mod's lines;
+  CET buffers it, so recent lines can be missing until the game exits
+- `r6/logs/redscript_rCURRENT.log`: script compile errors
 
 ## Source layout
 

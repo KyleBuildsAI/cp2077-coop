@@ -1,7 +1,13 @@
 """CP2077 Coop live monitor.
 
-Watches the coop mod's logs and the relay server, checks every value against
-expected ranges, prints a dashboard and keeps a history log.
+Watches the coop mod's stats and event files and the relay server, checks every
+value against expected ranges, prints a dashboard and keeps a history log.
+
+The mod writes (in bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop):
+    coop_stats_<role>.txt   the latest [STATS] line, rewritten every 5 s
+    coop_events.log         every [CP2077Coop] log line with the time
+CET's own print() output (bin/x64/plugins/cyber_engine_tweaks/scripting.log)
+is buffered and shared by all mods, so the monitor does not read it.
 
 Usage (from the game folder):
     python coop-tools/coop_monitor.py
@@ -12,6 +18,7 @@ Only the Python standard library is used.
 """
 import argparse
 import datetime
+import glob
 import json
 import os
 import re
@@ -23,6 +30,13 @@ import urllib.request
 MOD_DIR = os.path.join("bin", "x64", "plugins", "cyber_engine_tweaks", "mods", "CP2077Coop")
 SERVER_INI = os.path.join("red4ext", "plugins", "CP2077Coop", "server.ini")
 REDSCRIPT_LOG = os.path.join("r6", "logs", "redscript_rCURRENT.log")
+STATS_FILE_PATTERN = "coop_stats_*.txt"
+EVENTS_FILE = "coop_events.log"
+# CET writes the mod's Lua runtime errors here
+LUA_ERROR_LOG = "CP2077Coop.log"
+LUA_ERROR_RECENT_SECONDS = 600.0
+EVENT_KEYWORDS = ("EVENT", "WORLD SYNC", "synced", "ERROR", "FAILED", "GAVE UP", "disabled", "loaded",
+                  "sync ON", "sync OFF", "not compiled")
 RED4EXT_LOG_DIR = os.path.join("red4ext", "logs")
 
 REFRESH_SECONDS = 5.0
@@ -110,6 +124,38 @@ def parse_stats(line):
     return dict(re.findall(r"(\w+)=(\S+)", line.split("[STATS]", 1)[1]))
 
 
+def read_stats_files(mod_dir):
+    """[(role, age_seconds, stats)] for every fresh coop_stats_<role>.txt."""
+    blocks = []
+    for path in sorted(glob.glob(os.path.join(mod_dir, STATS_FILE_PATTERN))):
+        age = file_age_seconds(path)
+        if age is None or age > STATS_STALE_SECONDS:
+            continue
+        stats_lines = [line for line in tail_lines(path) if "[STATS]" in line]
+        if not stats_lines:
+            continue  # caught mid-rewrite; the next refresh reads it
+        role = os.path.basename(path)[len("coop_stats_"):-len(".txt")]
+        blocks.append((role, age, parse_stats(stats_lines[-1])))
+    return blocks
+
+
+def recent_events(mod_dir):
+    lines = tail_lines(os.path.join(mod_dir, EVENTS_FILE))
+    return [line for line in lines if "[STATS]" not in line and any(word in line for word in EVENT_KEYWORDS)]
+
+
+def check_lua_errors(mod_dir):
+    """Lua runtime errors CET logged for the mod during this game session."""
+    path = os.path.join(mod_dir, LUA_ERROR_LOG)
+    age = file_age_seconds(path)
+    if age is None or age > LUA_ERROR_RECENT_SECONDS:
+        return []
+    errors = [line for line in tail_lines(path) if "stack traceback" in line or "attempt to" in line or "error" in line.lower()]
+    if not errors:
+        return []
+    return [(WARN, "lua errors", f"{len(errors)} in {LUA_ERROR_LOG}, last: {errors[-1].strip()[-110:]}")]
+
+
 def as_float(value):
     try:
         return float(value)
@@ -184,13 +230,35 @@ def render(checks, events):
     if events:
         print("\n  recent events:")
         for line in events[-8:]:
-            print("   ", line.split("[CP2077Coop] ", 1)[-1][:110])
+            print("   ", line.replace("[CP2077Coop] ", "")[:120])
+
+
+def grade_stats(stats):
+    """Dashboard rows for one [STATS] line."""
+    checks = []
+    rtt = as_float(stats.get("rtt_ms"))
+    missed = as_float(stats.get("missed_pct"))
+    age = as_float(stats.get("age_ms"))
+    err = as_float(stats.get("avatar_err_m"))
+    pps = as_float(stats.get("pps_in"))
+    state = stats.get("state", "?")
+    checks.append((GOOD if state == "OK" else (WARN if state in ("WAITING", "STALE") else BAD), "connection", f"{state}  role={stats.get('role')}"))
+    checks.append((GOOD if state == "OK" else WARN, "players", "2 / 2" if state == "OK" else "1 / 2 (no live partner)"))
+    checks.append((grade(rtt, EXPECT["rtt_ms"]), "player round trip", f"{stats.get('rtt_ms')} ms  (min {stats.get('rtt_min')} / max {stats.get('rtt_max')}, {stats.get('rtt_n')} samples)"))
+    checks.append((grade(pps, (MIN_PPS, MIN_PPS), higher_is_bad=False), "packets in / out", f"{stats.get('pps_in')} / {stats.get('pps_out')} per s"))
+    checks.append((grade(missed, EXPECT["missed_pct"]), "missed packets", f"{stats.get('missed_pct')} %  (late {stats.get('ignored')})"))
+    checks.append((grade(age, EXPECT["age_ms"]), "last packet age", f"{stats.get('age_ms')} ms"))
+    checks.append((grade(err, EXPECT["avatar_err_m"]), "avatar drift", f"{stats.get('avatar_err_m')} m"))
+    if stats.get("conflict") == "true":
+        checks.append((BAD, "roles", "BOTH players have the same role - one must switch in the coop panel"))
+    if stats.get("peer_old") == "true":
+        checks.append((WARN, "partner version", "no ping replies - partner probably on an older mod version"))
+    return checks
 
 
 def run(args):
     game_dir = os.path.abspath(args.game)
     mod_dir = os.path.join(game_dir, MOD_DIR)
-    mod_log = os.path.join(mod_dir, "CP2077Coop.log")
     history_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "coop_monitor_history.csv")
 
     if not os.path.isdir(mod_dir):
@@ -219,32 +287,16 @@ def run(args):
 
         checks.extend(check_startup_logs(game_dir))
 
-        lines = tail_lines(mod_log)
-        stats_lines = [l for l in lines if "[STATS]" in l]
-        events = [l for l in lines if "EVENT" in l or "WORLD SYNC" in l or "synced" in l or "ERROR" in l or "disabled" in l or "loaded" in l]
-        log_age = file_age_seconds(mod_log)
+        checks.extend(check_lua_errors(mod_dir))
+        events = recent_events(mod_dir)
 
-        stats = parse_stats(stats_lines[-1]) if stats_lines else {}
-        if not stats or (log_age is not None and log_age > STATS_STALE_SECONDS):
-            checks.append((WARN, "in-game stats", "none recent - game closed, still loading, or mod not running v0.0.28+"))
-        else:
-            rtt = as_float(stats.get("rtt_ms"))
-            missed = as_float(stats.get("missed_pct"))
-            age = as_float(stats.get("age_ms"))
-            err = as_float(stats.get("avatar_err_m"))
-            pps = as_float(stats.get("pps_in"))
-            state = stats.get("state", "?")
-            checks.append((GOOD if state == "OK" else (WARN if state in ("WAITING", "STALE") else BAD), "connection", f"{state}  role={stats.get('role')}"))
-            checks.append((GOOD if state == "OK" else WARN, "players", "2 / 2" if state == "OK" else "1 / 2 (no live partner)"))
-            checks.append((grade(rtt, EXPECT["rtt_ms"]), "player round trip", f"{stats.get('rtt_ms')} ms  (min {stats.get('rtt_min')} / max {stats.get('rtt_max')}, {stats.get('rtt_n')} samples)"))
-            checks.append((grade(pps, (MIN_PPS, MIN_PPS), higher_is_bad=False), "packets in / out", f"{stats.get('pps_in')} / {stats.get('pps_out')} per s"))
-            checks.append((grade(missed, EXPECT["missed_pct"]), "missed packets", f"{stats.get('missed_pct')} %  (late {stats.get('ignored')})"))
-            checks.append((grade(age, EXPECT["age_ms"]), "last packet age", f"{stats.get('age_ms')} ms"))
-            checks.append((grade(err, EXPECT["avatar_err_m"]), "avatar drift", f"{stats.get('avatar_err_m')} m"))
-            if stats.get("conflict") == "true":
-                checks.append((BAD, "roles", "BOTH players have the same role - one must switch in the coop panel"))
-            if stats.get("peer_old") == "true":
-                checks.append((WARN, "partner version", "no ping replies - partner probably on an older mod version"))
+        stats_blocks = read_stats_files(mod_dir)
+        if not stats_blocks:
+            checks.append((WARN, "in-game stats", f"none in the last {STATS_STALE_SECONDS:.0f} s - game closed, still loading, "
+                                                  "or an older mod build (it printed stats only to cyber_engine_tweaks/scripting.log)"))
+        for role, stats_age, stats in stats_blocks:
+            checks.append((INFO, "in-game stats", f"{role}, written {stats_age:.0f} s ago"))
+            checks.extend(grade_stats(stats))
             append_history(history_path, {
                 "time": datetime.datetime.now().isoformat(timespec="seconds"),
                 "server_ping_ms": f"{server_ping:.0f}" if server_ping is not None else "",

@@ -28,5 +28,6 @@ bin/x64/global.ini
 # Runtime files written by the mod and monitor
 role.txt
 monitor_status.txt
+coop_stats_*.txt
 coop-tools/coop_monitor_history.csv
 modlist.txt

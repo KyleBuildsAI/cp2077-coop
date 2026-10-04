@@ -33,7 +33,8 @@ HARDLINK_DIRS = [os.path.join("archive", "pc", "content"), os.path.join("archive
 HARDLINK_EXTENSIONS = {".cache"}  # engine/shader caches
 
 # Never copied into a new instance: per-instance runtime output.
-SKIP_NAMES = {"role.txt", "monitor_status.txt", "coop_monitor_history.csv", "coop_relay.log"}
+SKIP_NAMES = {"role.txt", "monitor_status.txt", "coop_monitor_history.csv", "coop_relay.log",
+              "coop_stats_host.txt", "coop_stats_joiner.txt", "coop_events.log"}
 SKIP_DIRS = {os.path.join("r6", "logs"), os.path.join("red4ext", "logs")}
 
 SCRIPTS_DIR = os.path.join("r6", "scripts", "CP2077Coop")
