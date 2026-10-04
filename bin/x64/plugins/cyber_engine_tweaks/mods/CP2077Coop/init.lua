@@ -2978,8 +2978,27 @@ local Combat = {
 
     hitsReceived = 0,
     hitsApplied = 0,
-    hitsUnmatched = 0
+    hitsUnmatched = 0,
+
+    -- rodzaje błędów już zapisanych do coop_events.log (scan, damage)
+    errorLogged = {}
 }
+
+
+-- Linie per trafienie idą tylko do print() (scripting.log): przy serii
+-- z SMG (~10/s) Diag.log otwierałby i zamykał coop_events.log przy każdym
+-- trafieniu i wypychał zdarzenia sesji z podglądu monitora. Liczniki są
+-- w [STATS]. Błąd danego rodzaju trafia do pliku tylko raz.
+function Combat.logError(kind, text)
+
+    if Combat.errorLogged[kind] then
+        print(text)
+        return
+    end
+
+    Combat.errorLogged[kind] = true
+    Diag.log(text)
+end
 
 
 function Combat.isPacket(rawForwardY)
@@ -3054,7 +3073,7 @@ function Combat.findNearestNPCAt(player, x, y, z)
 
     if not ok then
 
-        Diag.log("[CP2077Coop] COMBAT scan error: " .. tostring(err))
+        Combat.logError("scan", "[CP2077Coop] COMBAT scan error: " .. tostring(err))
         return nil, nil
     end
 
@@ -3106,7 +3125,7 @@ function Combat.applyRemoteHit(player, hitX, hitY, hitZ, rawDamage)
         Combat.hitsUnmatched =
             Combat.hitsUnmatched + 1
 
-        Diag.log(
+        print(
             string.format(
                 "[CP2077Coop] COMBAT HIT no NPC match @ %.2f %.2f %.2f dmg=%.2f",
                 hitX, hitY, hitZ, damage
@@ -3145,13 +3164,13 @@ function Combat.applyRemoteHit(player, hitX, hitY, hitZ, rawDamage)
 
     if not ok then
 
-        Diag.log("[CP2077Coop] COMBAT damage error: " .. tostring(err))
+        Combat.logError("damage", "[CP2077Coop] COMBAT damage error: " .. tostring(err))
         return
     end
 
     if not applied then
 
-        Diag.log("[CP2077Coop] COMBAT target invulnerable")
+        print("[CP2077Coop] COMBAT target invulnerable")
         return
     end
 
@@ -3160,7 +3179,7 @@ function Combat.applyRemoteHit(player, hitX, hitY, hitZ, rawDamage)
 
     Combat.tryHitReaction(target)
 
-    Diag.log(
+    print(
         string.format(
             "[CP2077Coop] COMBAT HIT applied dmg=%.2f match=%.2fm",
             damage,

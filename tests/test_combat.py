@@ -1,4 +1,5 @@
 """A combat packet (forwardY=9999) must damage the NPC nearest the hit, not move the avatar or corrupt state."""
+import os
 import sys
 
 import test_two_players as harness
@@ -69,6 +70,14 @@ Game.CreateForceRagdollEvent = function(reason) return { reason = reason } end
 """
 
 
+def event_lines():
+    """coop_events.log in the working folder (Diag.EVENTS_FILE is relative, like in CET)."""
+    if not os.path.exists("coop_events.log"):
+        return []
+    with open("coop_events.log", encoding="utf-8", errors="replace") as handle:
+        return handle.read().splitlines()
+
+
 def main():
     joiner = harness.make_instance("joiner", (0.0, 0.0))
     g = joiner.globals()
@@ -111,6 +120,29 @@ def main():
     after = (npc.x, npc.y)
     combat_logs = [l for l in harness.logs(joiner) if "COMBAT" in l]
     calls = [g.statCalls[i] for i in range(1, len(g.statCalls) + 1)]
+    scan_radii = [g.tsqQueries[i].maxDistance for i in range(1, len(g.tsqQueries) + 1)]
+    ragdolls = g.ragdollEvents
+
+    # an SMG burst: 30 hits, each applied; per-hit lines go to print() only, so
+    # coop_events.log (opened and closed per line) is not written per hit
+    events_before = event_lines()
+    printed_before = sum("COMBAT HIT applied" in l for l in harness.logs(joiner))
+    for _ in range(30):
+        frame((90.0, 0.0, 0.0, 42.0, 9999.0))
+        frame(move)
+    events_after = event_lines()
+    printed_after = sum("COMBAT HIT applied" in l for l in harness.logs(joiner))
+    burst_in_file = [l for l in events_after if "COMBAT HIT" in l]
+    print(f"  30-hit burst: coop_events.log {len(events_before)} -> {len(events_after)} lines, "
+          f"COMBAT HIT lines in it {len(burst_in_file)}; printed 'HIT applied' {printed_before} -> {printed_after}")
+
+    # a broken targeting API errors on every hit: the file gets the first error only
+    joiner.execute('Game["TSQ_NPC;"] = nil')
+    for _ in range(5):
+        frame((90.0, 0.0, 0.0, 42.0, 9999.0))
+    scan_errors_file = sum("COMBAT scan error" in l for l in event_lines())
+    scan_errors_printed = sum("COMBAT scan error" in l for l in harness.logs(joiner))
+    print(f"  5 hits with no targeting query: scan errors in coop_events.log {scan_errors_file}, printed {scan_errors_printed}")
     moved = abs(after[0] - before[0]) + abs(after[1] - before[1])
     print("combat logs:", combat_logs)
     print("stat pool calls:", [(c.id, c.pool, c.delta) for c in calls])
@@ -118,8 +150,7 @@ def main():
     checks = {
         "remote avatar handle acquired before the hits": acquired,
         "no scan or damage error logged": not any("error" in l for l in combat_logs),
-        "scan uses SCAN_RADIUS 220 m": len(g.tsqQueries) == 2 and all(
-            g.tsqQueries[i].maxDistance == 220.0 for i in (1, 2)),
+        "scan uses SCAN_RADIUS 220 m": scan_radii == [220.0, 220.0],
         "hit 1 matched the nearest live NPC (1.00 m)": any(
             "COMBAT HIT applied dmg=42.00 match=1.00m" in l for l in combat_logs),
         "exactly one damage request: target, Health, -42, instigator = player": len(calls) == 1
@@ -127,9 +158,13 @@ def main():
             and calls[0].delta == -42.0 and calls[0].byPlayer,
         "hit 2 skipped the remote avatar (no NPC match)": any(
             "COMBAT HIT no NPC match" in l and "dmg=30.00" in l for l in combat_logs),
-        "hit reaction queued on the target": g.ragdollEvents == 1,
+        "hit reaction queued on the target": ragdolls == 1,
         "avatar did not jump to the hit position": moved < 0.5 and after[0] < 50,
         "crouch state not reset by the hit packet": g.stancesApplied == 1,
+        "30-hit burst printed per hit, coop_events.log not written per hit": printed_after - printed_before == 30
+            and not burst_in_file and len(events_after) - len(events_before) <= 1,
+        "repeated scan error: first one in coop_events.log, every one printed": scan_errors_file == 1
+            and scan_errors_printed == 5,
     }
     for name, passed in checks.items():
         print(f"{'PASS' if passed else 'FAIL'}  {name}")
