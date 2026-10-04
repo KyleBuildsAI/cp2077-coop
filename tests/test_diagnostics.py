@@ -23,6 +23,8 @@ D11 Codeware and the coop DLL count as loaded only by RED4ext's success line;
     a Codeware version other than 1.18.0 is a WARN
 D12 server.ini saved with a UTF-8 BOM still gives the relay IP (and a WARN),
     UTF-16 and missing keys are reported, devkit reads it too
+D13 the relay ping is parsed from ping.exe in any language (Russian, also
+    mis-decoded), and from Linux/macOS ping
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
@@ -703,6 +705,53 @@ def test_server_ini_encodings():
         shutil.rmtree(game, ignore_errors=True)
 
 
+# ------------------------------------------------------------------ D13
+
+RUSSIAN_PING = ("Обмен пакетами с 51.68.153.130 по с 32 байтами данных:\r\n"
+                "Ответ от 51.68.153.130: число байт=32 время=41мс TTL=52\r\n\r\n"
+                "Статистика Ping для 51.68.153.130:\r\n"
+                "    Пакетов: отправлено = 1, получено = 1, потеряно = 0\r\n"
+                "Приблизительное время приема-передачи в мс:\r\n"
+                "    Минимальное = 41мсек, Максимальное = 41 мсек, Среднее = 41 мсек\r\n")
+PING_SAMPLES = [
+    # (name, output, windows, expected ms)
+    ("English", "Reply from 51.68.153.130: bytes=32 time=41ms TTL=52\r\n"
+                "    Minimum = 41ms, Maximum = 41ms, Average = 41ms\r\n", True, 41.0),
+    ("English LAN", "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\r\n", True, 1.0),
+    ("English IPv6", "Reply from ::1: time<1ms \r\n", True, 1.0),
+    ("German", "Antwort von 51.68.153.130: Bytes=32 Zeit=41ms TTL=52\r\n", True, 41.0),
+    ("French", "Réponse de 51.68.153.130 : octets=32 temps=41 ms TTL=52\r\n", True, 41.0),
+    ("Polish", "Odpowiedź z 51.68.153.130: bajtów=32 czas=41ms TTL=52\r\n", True, 41.0),
+    ("Japanese", "51.68.153.130 からの応答: バイト数 =32 時間 =41ms TTL=52\r\n", True, 41.0),
+    ("Russian", RUSSIAN_PING, True, 41.0),
+    # the old monitor decoded the OEM (cp866) bytes with the ANSI code page
+    ("Russian read as cp1251", RUSSIAN_PING.encode("cp866").decode("cp1251", errors="replace"), True, 41.0),
+    ("Russian read as cp437", RUSSIAN_PING.encode("cp866").decode("cp437", errors="replace"), True, 41.0),
+    ("English timeout", "Request timed out.\r\n    Packets: Sent = 1, Received = 0, Lost = 1 (100% loss),\r\n", True, None),
+    ("Russian timeout", "Превышен интервал ожидания для запроса.\r\n", True, None),
+    ("unreachable", "Reply from 192.168.1.1: Destination host unreachable.\r\n", True, None),
+    ("Linux", "64 bytes from 51.68.153.130: icmp_seq=1 ttl=52 time=41.2 ms\n"
+              "rtt min/avg/max/mdev = 41.200/41.200/41.200/0.000 ms\n", False, 41.2),
+    ("macOS", "64 bytes from 51.68.153.130: icmp_seq=0 ttl=52 time=41.234 ms\n", False, 41.234),
+]
+
+
+def test_ping_any_language():
+    wrong = []
+    for name, output, windows, expected in PING_SAMPLES:
+        got = monitor.parse_ping_output(output, windows)
+        if got != expected:
+            wrong.append((name, got, expected))
+    # decoding the raw bytes can never raise, whatever the OEM code page of this machine
+    raw = RUSSIAN_PING.encode("cp866")
+    decoded = monitor.decode_ping_output(raw, os.name == "nt")
+    from_bytes = monitor.parse_ping_output(decoded, True)
+    print(f"  {len(PING_SAMPLES)} ping outputs, wrong: {wrong}; Russian bytes through this machine's decoder -> {from_bytes} ms")
+    live = monitor.ping_ms("127.0.0.1")
+    print(f"  live ping to 127.0.0.1 on this machine: {live} ms")
+    return not wrong and from_bytes == 41.0 and live is not None
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -717,6 +766,7 @@ if __name__ == "__main__":
         "D10 history CSV open in Excel: monitor warns and keeps running; new columns start a new file": test_history_locked_by_excel,
         "D11 Codeware / coop DLL graded by their RED4ext success line and version": test_plugin_load_lines,
         "D12 server.ini with a BOM, as UTF-16 or without a key is read or reported": test_server_ini_encodings,
+        "D13 relay ping parsed in any Windows language (TTL= anchor) and on Linux/macOS": test_ping_any_language,
     }
     results = {}
     for name, test in tests.items():

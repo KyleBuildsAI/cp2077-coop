@@ -124,15 +124,39 @@ def read_server_address(game_dir):
     return ip, port, None
 
 
+# Windows ping.exe, any language: the reply line ends "<= or <><number><localized unit> TTL="
+# ("время=41мс TTL=52", "Zeit=41ms TTL=52", "temps=41 ms TTL=52"); only TTL= is not translated.
+WINDOWS_PING_REPLY = re.compile(r"[=<]\s*(\d+(?:[.,]\d+)?)\s*[^\s\d=]*\s+TTL=")
+# Windows IPv6 replies carry no TTL ("Reply from ::1: time<1ms"): English unit only
+WINDOWS_PING_REPLY_IPV6 = re.compile(r"[=<]\s*(\d+(?:[.,]\d+)?)\s*ms\b")
+# Linux/macOS: "icmp_seq=1 ttl=52 time=41.2 ms" (ttl BEFORE time, so never anchor on it)
+UNIX_PING_REPLY = re.compile(r"time[=<]\s*(\d+(?:\.\d+)?)\s*ms")
+
+
+def decode_ping_output(raw, windows):
+    """ping.exe writes to a pipe in the OEM code page (cp866 on Russian Windows), not the
+    ANSI one Python's text mode would use; errors='replace' so a wrong guess never raises."""
+    return raw.decode("oem" if windows else "utf-8", errors="replace")
+
+
+def parse_ping_output(output, windows):
+    """Round trip in ms from one ping reply, or None (timeout, unreachable, no reply)."""
+    if windows:
+        match = WINDOWS_PING_REPLY.search(output) or WINDOWS_PING_REPLY_IPV6.search(output)
+    else:
+        match = UNIX_PING_REPLY.search(output)
+    return float(match.group(1).replace(",", ".")) if match else None
+
+
 def ping_ms(host):
     """One ICMP ping via the OS tool; returns milliseconds or None."""
-    command = ["ping", "-n", "1", "-w", "1500", host] if os.name == "nt" else ["ping", "-c", "1", "-W", "2", host]
+    windows = os.name == "nt"
+    command = ["ping", "-n", "1", "-w", "1500", host] if windows else ["ping", "-c", "1", "-W", "2", host]
     try:
-        output = subprocess.run(command, capture_output=True, text=True, timeout=5).stdout
+        raw = subprocess.run(command, capture_output=True, timeout=5).stdout
     except (OSError, subprocess.TimeoutExpired):
         return None
-    match = re.search(r"[=<]\s*(\d+(?:\.\d+)?)\s*ms", output)
-    return float(match.group(1)) if match else None
+    return parse_ping_output(decode_ping_output(raw, windows), windows)
 
 
 def relay_location(ip):
