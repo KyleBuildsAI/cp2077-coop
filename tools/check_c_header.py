@@ -1,7 +1,9 @@
 """Compiles include/coop_proto_v2.h with MSVC and checks it against coopnet/proto.py.
 
 For every wire struct it compares sizeof and each field's offset and size with
-the Python struct layout, then has the compiled probe decode a PlayerSnapshot
+the Python struct layout, compares every protocol constant and enum value
+(packet and message types, roles, reasons, flags, entity mask and extension
+bits, limits), then has the compiled probe decode a PlayerSnapshot
 (+ VehicleBlock) that Python encoded, to prove both sides read the same values.
 
 Usage: python tools/check_c_header.py [--vcvars PATH]
@@ -28,6 +30,7 @@ CODEC_STRUCTS = {
     "VEHICLE_EXIT": "VehicleExit", "HIT": "Hit", "DEATH": "Death", "TIME_WEATHER": "TimeWeather",
     "CHAT": "ChatFixed", "TELEPORT_REQ": "TeleportReq", "TELEPORT_RESP": "TeleportResp",
     "WORLD_FACT": "WorldFact", "MOD_LIST": "ModListFixed", "SESSION_CONFIG": "SessionConfig",
+    "SCRIPT_MSG": "ScriptMsgFixed",
 }
 SAMPLE = {"snap_seq": 513, "sample_time": 123456789, "x": -1450.25, "y": 180.5, "z": 22.125, "yaw": 40000,
           "pitch": -350, "vx": 600, "vy": -200, "vz": 5, "move_state": 10, "health": 230,
@@ -35,6 +38,50 @@ SAMPLE = {"snap_seq": 513, "sample_time": 123456789, "x": -1450.25, "y": 180.5, 
               "vehicle_net": 0x8002, "px": -1450.25, "py": 180.5, "pz": 22.125, "quat": 0xC0FFEE11,
               "lvx": 1400, "lvy": -3, "lvz": 0, "avx": 1, "avy": -2, "avz": 120, "steer": -20, "throttle": 70,
               "brake": 3, "vflags": 1}}
+
+
+# (C++ expression, Python value) for every constant the plugin codec relies on.
+SCALARS = [
+    ("kProtoMajor", proto.PROTO_MAJOR), ("kProtoMinor", proto.PROTO_MINOR),
+    ("kMinSupportedMinor", proto.MIN_SUPPORTED_MINOR), ("kMaxPacket", proto.MAX_PACKET),
+    ("kHelloMinPacket", proto.HELLO_MIN_PACKET), ("kReliableBit", proto.RELIABLE_BIT),
+    ("kPeerRelay", proto.PEER_RELAY), ("kPeerBroadcast", proto.PEER_BROADCAST),
+    ("kMagic0", proto.MAGIC[0]), ("kMagic1", proto.MAGIC[1]),
+    ("kMaxScriptBytes", proto.MAX_SCRIPT_BYTES), ("kScriptFirstChannel", proto.SCRIPT_FIRST_CHANNEL),
+    ("kScriptFirstReliableChannel", proto.SCRIPT_FIRST_RELIABLE_CHANNEL),
+    ("kScriptLastChannel", proto.SCRIPT_LAST_CHANNEL),
+    ("kWorldXYLimit", proto.WORLD_XY_LIMIT_M), ("kWorldZLimit", proto.WORLD_Z_LIMIT_M),
+    ("kMaskSpawn", proto.M_SPAWN), ("kMaskPos", proto.M_POS), ("kMaskPosDelta", proto.M_POS_DELTA),
+    ("kMaskYaw", proto.M_YAW), ("kMaskQuat", proto.M_QUAT), ("kMaskVel", proto.M_VEL),
+    ("kMaskState", proto.M_STATE), ("kMaskExt", proto.M_EXT),
+    ("kExtRemove", proto.X_REMOVE), ("kExtTarget", proto.X_TARGET), ("kExtWeapon", proto.X_WEAPON),
+    ("kExtWorldId", proto.X_WORLD_ID),
+    ("kPlayerWeaponClassShift", proto.WEAPON_CLASS_SHIFT), ("kPlayerWeaponClassMask", proto.WEAPON_CLASS_MASK),
+]
+# Python enum -> (C++ scoped enum or None for a plain enum, C++ name prefix for plain enums)
+ENUMS = [
+    (proto.PacketType, "PacketType", ""), (proto.Role, "Role", ""), (proto.RejectReason, "RejectReason", ""),
+    (proto.DisconnectReason, "DisconnectReason", ""), (proto.MsgType, "MsgType", ""),
+    (proto.MoveState, "MoveState", ""), (proto.EntityKind, "EntityKind", ""),
+    (proto.JoinFlag, None, "kJoin"), (proto.Cap, None, "kCap"), (proto.PlayerFlag, None, "kPlayer"),
+    (proto.EntityFlag, None, "kEntity"),
+]
+
+
+def camel(name: str) -> str:
+    return "".join(part.capitalize() for part in name.lower().split("_"))
+
+
+def constants() -> list:
+    """[(label, C++ expression, Python value)]"""
+    rows = [(name, name, value) for name, value in SCALARS]
+    for enum_type, scoped, prefix in ENUMS:
+        for member in enum_type:
+            if scoped:
+                rows.append((f"{scoped}::{camel(member.name)}", f"{scoped}::{camel(member.name)}", int(member)))
+            else:
+                rows.append((prefix + camel(member.name), prefix + camel(member.name), int(member)))
+    return rows
 
 
 def layout(fmt: str, names) -> list:
@@ -72,9 +119,20 @@ def table() -> list:
     return [(name, layout_struct.size, layout(layout_struct.format, fields.split())) for name, layout_struct, fields in rows]
 
 
-def probe_source(rows) -> str:
+def constant_expression(expression: str, value) -> str:
+    if isinstance(value, float):
+        return f"static_cast<double>({expression})"
+    return f"static_cast<unsigned long long>({expression})"
+
+
+def probe_source(rows, consts) -> str:
     lines = ["#include <cstdio>", "#include <cstddef>", "#include <cstring>", '#include "coop_proto_v2.h"',
              "using namespace coopv2;", "int main(int argc, char** argv) {"]
+    for label, expression, value in consts:
+        if isinstance(value, float):
+            lines.append(f'    std::printf("K {label} %.6f\\n", {constant_expression(expression, value)});')
+        else:
+            lines.append(f'    std::printf("K {label} %llu\\n", {constant_expression(expression, value)});')
     for name, _, fields in rows:
         lines.append(f'    std::printf("S {name} %zu\\n", sizeof({name}));')
         for field, _, _ in fields:
@@ -125,8 +183,9 @@ def main(argv=None) -> int:
     build_dir = os.path.join(ROOT, "build", "cheader")
     os.makedirs(build_dir, exist_ok=True)
     rows = table()
+    consts = constants()
     with open(os.path.join(build_dir, "probe.cpp"), "w", encoding="ascii") as handle:
-        handle.write(probe_source(rows))
+        handle.write(probe_source(rows, consts))
     probe = compile_probe(build_dir, args.vcvars)
     sample_path = os.path.join(build_dir, "sample.bin")
     with open(sample_path, "wb") as handle:
@@ -134,10 +193,13 @@ def main(argv=None) -> int:
     output = subprocess.run([probe, sample_path], capture_output=True, text=True, check=True).stdout.splitlines()
     measured = {}
     values = {}
+    constant_values = {}
     for line in output:
         kind, key, *rest = line.split()
         if kind == "V":
             values[key] = rest[0]
+        elif kind == "K":
+            constant_values[key] = rest[0]
         else:
             measured[key] = tuple(int(v) for v in rest)
     problems = []
@@ -157,12 +219,18 @@ def main(argv=None) -> int:
         checked += 1
         if values.get(key) != expected:
             problems.append(f"decoded {key}: C {values.get(key)} != Python {expected}")
+    for label, _, value in consts:
+        checked += 1
+        expected = f"{value:.6f}" if isinstance(value, float) else str(value)
+        if constant_values.get(label) != expected:
+            problems.append(f"constant {label}: C {constant_values.get(label)} != Python {expected}")
     for name, size, fields in rows:
         print(f"  {name:<22} {size:>3} bytes, {len(fields):>2} fields")
     if problems:
         print("MISMATCHES:\n  " + "\n  ".join(problems))
         return 1
-    print(f"OK: {len(rows)} structs, {checked} size/offset/value checks match between C++ (MSVC) and Python")
+    print(f"OK: {len(rows)} structs and {len(consts)} constants, {checked} size/offset/constant/value checks "
+          f"match between C++ (MSVC) and Python")
     return 0
 
 

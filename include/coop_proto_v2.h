@@ -14,6 +14,10 @@
 // MessageHeader (4) [+ uint16 reliable sequence when type & kReliableBit] + payload.
 // Text fields follow their fixed struct as uint8 length + UTF-8 bytes
 // (no control characters): PeerJoined.name, Chat.text, ModList.text, Reject.text.
+// ScriptMsg.text uses a uint16 length (<= kMaxScriptBytes) and only forbids NUL.
+//
+// Minor 1 (v2.1) adds MsgType::ScriptMsg and the kExtWorldId entity extension. The relay
+// only delivers either to peers whose negotiated minor (Welcome.minor, PeerJoined.minor) >= 1.
 
 #include <cstdint>
 
@@ -22,7 +26,7 @@ namespace coopv2
 constexpr uint8_t kMagic0 = 0xCB;
 constexpr uint8_t kMagic1 = 0x77;
 constexpr uint8_t kProtoMajor = 2;
-constexpr uint8_t kProtoMinor = 0;
+constexpr uint8_t kProtoMinor = 1;
 constexpr uint8_t kMinSupportedMinor = 0;
 constexpr uint16_t kMaxPacket = 1200;
 constexpr uint16_t kHelloMinPacket = 240;     // HELLO is zero-padded to at least this size
@@ -33,6 +37,10 @@ constexpr uint8_t kLegacyPeerBase = 200;      // bridged v1 players use peer ids
 constexpr uint16_t kPlayerTargetBase = 0xFF00; // entity target field: 0xFF00 + peer id = a player
 constexpr float kWorldXYLimit = 20000.0f;
 constexpr float kWorldZLimit = 5000.0f;
+constexpr uint16_t kMaxScriptBytes = 1000;    // ScriptMsg text
+constexpr uint8_t kScriptFirstChannel = 1;    // ScriptMsg channels 1..15 unreliable,
+constexpr uint8_t kScriptFirstReliableChannel = 16; // 16..31 reliable (the reliable bit must match)
+constexpr uint8_t kScriptLastChannel = 31;
 
 enum class PacketType : uint8_t
 {
@@ -97,7 +105,8 @@ enum Cap : uint32_t
     kCapQuestFacts = 0x100,
 };
 
-// Delivery is fixed per type: the relay drops a message whose reliable bit disagrees.
+// Delivery is fixed per type, except ScriptMsg whose channel decides. The relay drops a message
+// whose reliable bit disagrees.
 enum class MsgType : uint8_t
 {
     TimeReq = 0x01,        // unreliable, client -> relay
@@ -121,6 +130,7 @@ enum class MsgType : uint8_t
     WorldFact = 0x29,      // host only, cached
     ModList = 0x2A,        // text "name@version;name@version" in chunks of <= 255 bytes
     SessionConfig = 0x2B,  // host only, cached
+    ScriptMsg = 0x30,      // minor 1: script text, reliable iff channel >= 16, -> MessageHeader.peer or broadcast
 };
 
 enum class MoveState : uint8_t
@@ -169,6 +179,7 @@ enum EntityFlag : uint8_t
 
 // Entity record: net_id:u16 mask:u8 [ext:u8] [Spawn 20] [pos i32x3 mm | pos_delta i16x3 mm]
 // [yaw u16 | quat u32] [vel i16x3 cm/s] [state u8 move, u8 flags, u8 health] [target u16] [weapon u64]
+// [world_id u64 (minor 1)]
 enum EntityMask : uint8_t
 {
     kMaskSpawn = 0x01,
@@ -186,6 +197,7 @@ enum EntityExt : uint8_t
     kExtRemove = 0x01, // alone: the entity left the snapshot (despawn / out of interest)
     kExtTarget = 0x02,
     kExtWeapon = 0x04,
+    kExtWorldId = 0x08, // minor 1: u64 static world id (EntityID hash) of a placed entity
 };
 
 #pragma pack(push, 1)
@@ -465,6 +477,12 @@ struct SessionConfig
     uint16_t flags;
 };
 
+struct ScriptMsgFixed // minor 1; then u16 text_len + text (UTF-8, no NUL, <= kMaxScriptBytes)
+{
+    uint8_t channel; // 1..31; 16..31 must be sent reliable, 1..15 unreliable
+    uint8_t flags;   // none defined yet; relayed unchanged
+};
+
 struct EntitySnapshotHeader
 {
     uint32_t tick;
@@ -512,6 +530,7 @@ static_assert(sizeof(TeleportResp) == 18, "TeleportResp");
 static_assert(sizeof(WorldFact) == 12, "WorldFact");
 static_assert(sizeof(ModListFixed) == 2, "ModListFixed");
 static_assert(sizeof(SessionConfig) == 8, "SessionConfig");
+static_assert(sizeof(ScriptMsgFixed) == 2, "ScriptMsgFixed");
 static_assert(sizeof(EntitySnapshotHeader) == 14, "EntitySnapshotHeader");
 static_assert(sizeof(EntitySpawn) == 20, "EntitySpawn");
 } // namespace coopv2

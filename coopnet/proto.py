@@ -19,6 +19,14 @@ Conventions
 
 Packet = 20-byte header + body. DATA bodies hold a list of messages, each with
 a 4-byte header (6 bytes when reliable). See ``encode_message``.
+
+Minor versions
+--------------
+* 2.0: the original message set.
+* 2.1: ``SCRIPT_MSG`` (0x30), a script-level text message for bring-up that is
+  sent reliable (channels 16..31) or unreliable (channels 1..15), and the
+  ``X_WORLD_ID`` entity extension (a u64 static world id for mirror binding).
+  The relay only delivers them to peers whose negotiated minor is at least 1.
 """
 from __future__ import annotations
 
@@ -30,7 +38,7 @@ import struct
 
 MAGIC = b"\xcb\x77"
 PROTO_MAJOR = 2
-PROTO_MINOR = 0
+PROTO_MINOR = 1
 MIN_SUPPORTED_MINOR = 0
 MAX_PACKET = 1200
 
@@ -59,6 +67,10 @@ MAX_NAME_BYTES = 24
 MAX_ROOM_BYTES = 32
 MAX_CHAT_BYTES = 200
 MAX_MODLIST_BYTES = 1000
+MAX_SCRIPT_BYTES = 1000
+SCRIPT_FIRST_CHANNEL = 1
+SCRIPT_FIRST_RELIABLE_CHANNEL = 16
+SCRIPT_LAST_CHANNEL = 31
 MAX_ENTITY_RECORDS = 255
 ROOM_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
 
@@ -162,6 +174,8 @@ class MsgType(enum.IntEnum):
     WORLD_FACT = 0x29
     MOD_LIST = 0x2A
     SESSION_CONFIG = 0x2B
+    # script-level text (minor 1): reliable or unreliable, chosen by the channel
+    SCRIPT_MSG = 0x30
 
 
 class MoveState(enum.IntEnum):
@@ -243,7 +257,9 @@ M_EXT = 0x80
 X_REMOVE = 0x01
 X_TARGET = 0x02
 X_WEAPON = 0x04
-X_KNOWN = X_REMOVE | X_TARGET | X_WEAPON
+X_WORLD_ID = 0x08   # minor 1: u64 static world id (EntityID hash) for mirror binding
+X_KNOWN = X_REMOVE | X_TARGET | X_WEAPON | X_WORLD_ID
+X_FIELDS = X_TARGET | X_WEAPON | X_WORLD_ID
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +393,25 @@ def decode_text(raw: bytes, limit: int, what: str) -> str:
         if code < 0x20 or 0x7F <= code < 0xA0 or code in (0x2028, 0x2029):
             raise ProtocolError(f"{what}: control character U+{code:04X}")
     return text
+
+
+def decode_script_text(raw: bytes, limit: int, what: str) -> str:
+    """Script text: valid UTF-8 without NUL (it becomes a game String). Other control
+    characters are allowed, so scripts can send JSON or multi-line text."""
+    if len(raw) > limit:
+        raise ProtocolError(f"{what}: {len(raw)} bytes exceeds {limit}")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ProtocolError(f"{what}: invalid utf-8") from error
+    if "\x00" in text:
+        raise ProtocolError(f"{what}: NUL character")
+    return text
+
+
+def script_channel_reliable(channel: int) -> bool:
+    """SCRIPT_MSG channels 1..15 are unreliable, 16..31 reliable (the Net_Send channel ids)."""
+    return channel >= SCRIPT_FIRST_RELIABLE_CHANNEL
 
 
 def validate_room(room: str) -> str:
@@ -544,6 +579,13 @@ def encode_disconnect(token: int, reason: int) -> bytes:
     return encode_packet(PacketType.DISCONNECT, token=token, body=bytes([reason]))
 
 
+def decode_disconnect(body: bytes) -> int:
+    """Returns the reason byte (unknown reasons are kept for forward compatibility)."""
+    if len(body) != 1:
+        raise ProtocolError("DISCONNECT: bad size")
+    return body[0]
+
+
 # ---------------------------------------------------------------------------
 # message framing inside DATA packets
 # ---------------------------------------------------------------------------
@@ -595,7 +637,8 @@ class FixedCodec:
     """A fixed little-endian struct, optionally followed by one u8-length text field."""
 
     def __init__(self, name: str, fmt: str, fields: str, text: str | None = None,
-                 text_limit: int = 0, coords: tuple = (), checks=None):
+                 text_limit: int = 0, coords: tuple = (), checks=None, text_length: str = "B",
+                 text_decoder=None):
         self.name = name
         self.struct = struct.Struct("<" + fmt)
         self.fields = tuple(fields.split())
@@ -606,6 +649,8 @@ class FixedCodec:
         self.text_limit = text_limit
         self.coords = coords
         self.checks = checks
+        self.text_length = struct.Struct("<" + text_length)   # u8 (default) or u16 length prefix
+        self.text_decoder = text_decoder or decode_text
 
     @property
     def fixed_size(self) -> int:
@@ -618,7 +663,8 @@ class FixedCodec:
             raise ProtocolError(f"{self.name}: cannot encode: {error}") from error
         if self.text is not None:
             raw = values[self.text].encode("utf-8")
-            data += bytes([min(len(raw), 255)]) + raw
+            longest = (1 << (8 * self.text_length.size)) - 1
+            data += self.text_length.pack(min(len(raw), longest)) + raw
         self.decode(data)  # the encoder must never emit what a receiver would reject
         return data
 
@@ -628,15 +674,15 @@ class FixedCodec:
         values = dict(zip(self.fields, self.struct.unpack_from(body)))
         offset = self.struct.size
         if self.text is not None:
-            if offset >= len(body):
+            if len(body) - offset < self.text_length.size:
                 raise ProtocolError(f"{self.name}: missing text length")
-            length = body[offset]
-            offset += 1
+            length = self.text_length.unpack_from(body, offset)[0]
+            offset += self.text_length.size
             raw = body[offset:offset + length]
             if len(raw) != length:
                 raise ProtocolError(f"{self.name}: truncated text")
             offset += length
-            values[self.text] = decode_text(raw, self.text_limit, self.name)
+            values[self.text] = self.text_decoder(raw, self.text_limit, self.name)
         if offset != len(body):
             raise ProtocolError(f"{self.name}: {len(body) - offset} trailing bytes")
         for field in self.float_fields:
@@ -701,6 +747,10 @@ def _check_session_config(values: dict) -> None:
     _require(1 <= values["entity_hz"] <= 30, "SESSION_CONFIG: entity rate out of range")
 
 
+def _check_script_msg(values: dict) -> None:
+    _require(SCRIPT_FIRST_CHANNEL <= values["channel"] <= SCRIPT_LAST_CHANNEL, "SCRIPT_MSG: bad channel")
+
+
 def _check_mod_list(values: dict) -> None:
     _require(values["chunk"] < values["chunks"] <= 16, "MOD_LIST: bad chunk index")
 
@@ -749,6 +799,9 @@ MOD_LIST = FixedCodec("MOD_LIST", "BB", "chunk chunks", text="text", text_limit=
 SESSION_CONFIG = FixedCodec("SESSION_CONFIG", "HHBBH",
                             "npc_radius_m vehicle_radius_m entity_hz joiner_population flags",
                             checks=_check_session_config)
+# SCRIPT_MSG (minor 1): channel u8, flags u8 (passed through), u16 text length + UTF-8 text (<= 1000 B).
+SCRIPT_MSG = FixedCodec("SCRIPT_MSG", "BB", "channel flags", text="text", text_limit=MAX_SCRIPT_BYTES,
+                        checks=_check_script_msg, text_length="H", text_decoder=decode_script_text)
 
 
 class PlayerSnapshotCodec:
@@ -789,9 +842,10 @@ class EntitySnapshotCodec:
     """ENTITY_SNAPSHOT: 14-byte header + count self-describing entity records.
 
     Record = net_id:u16 mask:u8 [ext:u8] [SPAWN 20] [POS 12 | POS_DELTA 6]
-             [YAW 2 | QUAT 4] [VEL 6] [STATE 3] [TARGET 2] [WEAPON 8]
+             [YAW 2 | QUAT 4] [VEL 6] [STATE 3] [TARGET 2] [WEAPON 8] [WORLD_ID 8]
     Records are dicts with optional keys: spawn, pos, pos_delta, yaw, quat, vel,
-    state, remove, target, weapon. Absent entity = unchanged since the baseline.
+    state, remove, target, weapon, world_id (minor 1). Absent entity = unchanged
+    since the baseline.
     """
 
     name = "ENTITY_SNAPSHOT"
@@ -799,7 +853,7 @@ class EntitySnapshotCodec:
     @staticmethod
     def record_size(record: dict) -> int:
         size = RECORD_HEAD.size
-        if record.get("remove") or "target" in record or "weapon" in record:
+        if record.get("remove") or "target" in record or "weapon" in record or "world_id" in record:
             size += 1
         size += SPAWN_BLOCK.size if "spawn" in record else 0
         size += POS_BLOCK.size if "pos" in record else 0
@@ -810,6 +864,7 @@ class EntitySnapshotCodec:
         size += STATE_BLOCK.size if "state" in record else 0
         size += 2 if "target" in record else 0
         size += 8 if "weapon" in record else 0
+        size += 8 if "world_id" in record else 0
         return size
 
     def encode_record(self, record: dict) -> bytes:
@@ -821,6 +876,8 @@ class EntitySnapshotCodec:
             ext |= X_TARGET
         if "weapon" in record:
             ext |= X_WEAPON
+        if "world_id" in record:
+            ext |= X_WORLD_ID
         parts = []
         if "spawn" in record:
             mask |= M_SPAWN
@@ -849,6 +906,8 @@ class EntitySnapshotCodec:
             parts.append(struct.pack("<H", record["target"]))
         if "weapon" in record:
             parts.append(struct.pack("<Q", record["weapon"]))
+        if "world_id" in record:
+            parts.append(struct.pack("<Q", record["world_id"]))
         if ext:
             mask |= M_EXT
         head = RECORD_HEAD.pack(record["net_id"], mask) + (bytes([ext]) if ext else b"")
@@ -905,7 +964,7 @@ class EntitySnapshotCodec:
             return record, offset
         _require(not (mask & M_POS and mask & M_POS_DELTA), "ENTITY_SNAPSHOT: POS and POS_DELTA")
         _require(not (mask & M_YAW and mask & M_QUAT), "ENTITY_SNAPSHOT: YAW and QUAT")
-        _require((mask & ~M_EXT) != 0 or (ext & (X_TARGET | X_WEAPON)) != 0, "ENTITY_SNAPSHOT: empty record")
+        _require((mask & ~M_EXT) != 0 or (ext & X_FIELDS) != 0, "ENTITY_SNAPSHOT: empty record")
         if mask & M_SPAWN:
             _require(mask & M_POS and mask & (M_YAW | M_QUAT), "ENTITY_SNAPSHOT: spawn needs POS + rotation")
             (kind, spawn_flags, attitude, _, record_id, appearance), offset = self._take(body, offset, SPAWN_BLOCK)
@@ -932,6 +991,8 @@ class EntitySnapshotCodec:
             (record["target"],), offset = self._take(body, offset, struct.Struct("<H"))
         if ext & X_WEAPON:
             (record["weapon"],), offset = self._take(body, offset, struct.Struct("<Q"))
+        if ext & X_WORLD_ID:
+            (record["world_id"],), offset = self._take(body, offset, struct.Struct("<Q"))
         return record, offset
 
 
@@ -951,15 +1012,21 @@ class Route(enum.Enum):
     HOST = "host"             # the room host
     TARGET = "target"         # the peer named in the message header
     HIT = "hit"               # host for entities, the victim for players
+    PEER = "peer"             # the peer named in the header, or everybody for PEER_BROADCAST
 
 
 class MsgSpec:
-    def __init__(self, mtype: MsgType, reliable: bool, sender: Sender, route: Route, codec):
+    """``reliable`` None = each message chooses (SCRIPT_MSG: by channel, see ``delivery_ok``).
+    ``min_minor`` = lowest negotiated minor that may send or receive the type."""
+
+    def __init__(self, mtype: MsgType, reliable: bool | None, sender: Sender, route: Route, codec,
+                 min_minor: int = 0):
         self.mtype = mtype
         self.reliable = reliable
         self.sender = sender
         self.route = route
         self.codec = codec
+        self.min_minor = min_minor
 
 
 SPECS = {spec.mtype: spec for spec in (
@@ -984,7 +1051,25 @@ SPECS = {spec.mtype: spec for spec in (
     MsgSpec(MsgType.WORLD_FACT, True, Sender.HOST, Route.BROADCAST, WORLD_FACT),
     MsgSpec(MsgType.MOD_LIST, True, Sender.CLIENT, Route.BROADCAST, MOD_LIST),
     MsgSpec(MsgType.SESSION_CONFIG, True, Sender.HOST, Route.BROADCAST, SESSION_CONFIG),
+    MsgSpec(MsgType.SCRIPT_MSG, None, Sender.CLIENT, Route.PEER, SCRIPT_MSG, min_minor=1),
 )}
+
+
+def delivery_ok(spec: MsgSpec, reliable: bool, values: dict) -> bool:
+    """Whether the message header's reliable bit is allowed for this decoded message."""
+    if spec.reliable is not None:
+        return spec.reliable == reliable
+    if spec.mtype == MsgType.SCRIPT_MSG:
+        return script_channel_reliable(values["channel"]) == reliable
+    return False
+
+
+def required_minor(mtype: int, values: dict) -> int:
+    """Lowest negotiated minor a peer needs to send or receive this decoded message."""
+    if mtype == MsgType.ENTITY_SNAPSHOT and any("world_id" in record for record in values["records"]):
+        return 1
+    spec = SPECS.get(mtype)
+    return spec.min_minor if spec is not None else 0
 
 
 def decode_body(mtype: int, body: bytes) -> dict:
