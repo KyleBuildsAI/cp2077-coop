@@ -30,6 +30,10 @@ J6  the host's own position must be steady too: the joiner is settled before the
     at the placed host.
 J7  the host jumps 60 m during an attempt: landing at the old point is a failed
     attempt ("host jumped"), the next one aims at the new spot and joins.
+J8  a menu freezes the world (ESC: IsGamePaused, map / inventory: "hubMenu" time
+    dilation): no attempt, failure or avatar spawn while in it, 4 s of settled play
+    after it; an attempt running when the menu opens waits and joins when the
+    teleport lands after the menu, with no failed attempt.
 
 Usage: python test_join.py path/to/init.lua
 """
@@ -70,9 +74,17 @@ GAME_MOCK = r"""
 -- loading screen until the test ends it (loadedAt = that moment)
 preGame = true
 loadedAt = nil
+-- a menu: the ESC menu pauses the game (IsGamePaused), the map / inventory dilate
+-- time under "hubMenu"; the world, and with it a queued teleport, stands still
+paused = false
+dilations = {}
 Game.GetSystemRequestsHandler = function()
-    return { IsPreGame = function() return preGame end }
+    return { IsPreGame = function() return preGame end, IsGamePaused = function() return paused end }
 end
+Game.GetTimeSystem = function()
+    return { IsTimeDilationActive = function(_, reason) return dilations[reason] == true end }
+end
+function worldFrozen() return paused or next(dilations) ~= nil end
 
 -- the game right after a save load: Teleport calls in the first tpIgnoreFor s
 -- after the load are dropped; an accepted one moves the player tpApplyDelay s
@@ -93,7 +105,14 @@ Game.GetTeleportationFacility = function()
         end
     end }
 end
+local lastStep = nil
 function stepTeleport()
+    local frame = lastStep ~= nil and simTime - lastStep or 0.0
+    lastStep = simTime
+    if worldFrozen() then
+        if tpPending ~= nil then tpPending.at = tpPending.at + frame end
+        return
+    end
     if tpPending ~= nil and simTime >= tpPending.at then
         playerPos.x, playerPos.y, playerPos.z = tpPending.x, tpPending.y, tpPending.z
         playerYaw = tpPending.yaw
@@ -561,6 +580,52 @@ def test_host_jumps_during_attempt():
     )
 
 
+# ------------------------------------------------------------------ J8
+
+def menu_session(kind, start, end, apply_delay=0.6):
+    session = Session(new_source(), standing_host, ignore_for=0.0, apply_delay=apply_delay)
+
+    def menu(s, t):
+        frozen = start <= t < end
+        if kind == "pause":
+            s.g.paused = frozen
+        else:
+            s.lua.execute("dilations = { hubMenu = true }" if frozen else "dilations = {}")
+
+    session.run(end + 8.0, menu)
+    return session
+
+
+def test_menu_freezes_join():
+    ok = True
+    for kind in ("pause", "hubMenu"):
+        start, end = LOAD_AT + 1.0, LOAD_AT + 31.0
+        session = menu_session(kind, start, end)
+        during = [(t, line) for t, line in session.stamped if start <= t < end
+                  and ("P2 WORLD SYNC ->" in line or "FAILED" in line or "remote spawn requested" in line)]
+        attempts = session.lines("P2 WORLD SYNC ->")
+        joined = session.lines("WORLD SYNC OK")
+        frozen_logs = session.lines("local world frozen") + session.lines("local world running again")
+        print(f"  {kind}: menu {start:.0f}-{end:.0f} s, attempts/failures/spawns during it {during}; first attempt "
+              f"{attempts[0][0] if attempts else None}; joined {[line for _, line in joined]}; {len(frozen_logs)} frozen/running logs")
+        ok = ok and (not during and attempts and attempts[0][0] >= end + SETTLE - 0.2
+                     and len(joined) == 1 and "attempt=1/3" in joined[0][1] and len(frozen_logs) == 2
+                     and session.g.updateErrors == 0)
+
+    # the menu opens 0.2 s after the Teleport call; the game moves the player 0.6 s of
+    # running world later, i.e. 0.4 s after the menu closes
+    first_call = LOAD_AT + SETTLE
+    session = menu_session("pause", first_call + 0.2, first_call + 10.2)
+    calls = session.calls()
+    failed = session.lines("WORLD SYNC FAILED")
+    joined = session.lines("WORLD SYNC OK")
+    print(f"  attempt running when the menu opens: calls at {[round(c['t'], 2) for c in calls]}, failed {len(failed)}, "
+          f"joined {[(round(t, 2), line) for t, line in joined]}")
+    show(session, JOIN_LINES + ("local world",))
+    return (ok and len(calls) == 1 and not failed and len(joined) == 1 and "attempt=1/3" in joined[0][1]
+            and joined[0][0] >= first_call + 10.2 and not session.lines("GAVE UP"))
+
+
 if __name__ == "__main__":
     tests = {
         "J1 slow game: settle, one Teleport per attempt, measured at the teleport point, joins; old logic gives up": test_slow_game_joins,
@@ -570,6 +635,7 @@ if __name__ == "__main__":
         "J5 panel 'Join' row through settle, teleport, retry, done, vehicle, gave up; host has none": test_panel_rows,
         "J6 host still loading (silent, then a 60 m placement jump): no join at the stale point, joins the placed host": test_host_loads_late,
         "J7 host jumps during the attempt: landing at the old point fails the attempt, the next one joins the new spot": test_host_jumps_during_attempt,
+        "J8 a menu (ESC pause or map) holds the join: no attempt or failure in it, a running attempt joins after it": test_menu_freezes_join,
     }
     results = {}
     for name, test in tests.items():

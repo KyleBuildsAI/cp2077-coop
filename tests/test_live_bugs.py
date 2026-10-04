@@ -488,6 +488,62 @@ def test_car_hidden_on_lost_and_reset():
     return lost_hidden and shown_again and shown_before and reset_hidden and reset_shown
 
 
+FIND_DIAG = r"""
+function findDiag(onUpdate)
+    local index = 1
+    while true do
+        local name, value = debug.getupvalue(onUpdate, index)
+        if name == nil then return nil end
+        if name == "Diag" then return value end
+        index = index + 1
+    end
+end
+"""
+MENU_MOCK = r"""
+paused = false
+Game.GetSystemRequestsHandler = function()
+    return { IsPreGame = function() return false end, IsGamePaused = function() return paused end }
+end
+"""
+
+
+def jog_path(t):
+    """The other player jogs north at 5 m/s from (20, 0) (host bit set)."""
+    return 20.0, 5.0 * t, 0.0, 0.0, 1.0, 256
+
+
+def test_menu_holds_corrections():
+    # the receiver spends a minute in the ESC menu while the partner jogs on: the frozen
+    # world takes no teleports, so none are sent, counted or reported as not responding
+    receiver = make_receiver(role="joiner", position=(18.0, 0.0), extra=MENU_MOCK + FIND_DIAG)
+    remote = ScriptedRemote(receiver, jog_path, loss=0.0)
+    g = receiver.globals()
+    diag = receiver.eval("findDiag")(g.events["onUpdate"])
+    t = run(receiver, remote, 8.0, 60)
+    hard_before = int(diag.hardTotal)
+    g.paused = True
+    dt = 1.0 / 60
+    while t < 68.0:  # frozen world: the NPC and the AI do not move
+        g.simTime = t
+        remote.tick(t)
+        g.events["onUpdate"](dt)
+        remote.read_outbox(t)
+        t += dt
+    hard_frozen = int(diag.hardTotal) - hard_before
+    g.paused = False
+    run(receiver, remote, 72.0, 60, start=t)
+    npc = g.npc
+    x, y = jog_path(72.0)[:2]
+    after_error = math.hypot(npc.x - x, npc.y - y) if npc is not None else None
+    bad = [l for l in logs(receiver) if "NOT RESPONDING" in l or "SNAP FAILED" in l or "not found" in l]
+    frozen_logs = [l for l in logs(receiver) if "local world" in l]
+    print(f"  60 s in the menu while the partner jogs: hard corrections in it {hard_frozen}, after it "
+          f"{int(diag.hardTotal) - hard_before - hard_frozen}; avatar {after_error if after_error is None else round(after_error, 2)} m "
+          f"from the partner 4 s after; bad logs {bad[:3]}; {frozen_logs}")
+    return (hard_frozen == 0 and not bad and after_error is not None and after_error < 3.0
+            and len(frozen_logs) == 2)
+
+
 def test_car_kept_through_long_local_frame():
     # one 5.5 s local frame (window drag, autosave) while the remote drives:
     # packets kept arriving, so the car stays and the avatar stays parked
@@ -523,6 +579,7 @@ if __name__ == "__main__":
         "LIVE-3 avatar parked hidden while the remote drives, snaps back on exit": test_avatar_parked_while_driving,
         "LIVE-3 car hidden on connection LOST and on reset": test_car_hidden_on_lost_and_reset,
         "LIVE-3 one 5.5 s local frame while the remote drives keeps the car (no false LOST)": test_car_kept_through_long_local_frame,
+        "LIVE-4 a minute in the ESC menu: no teleports, hard corrections or NOT RESPONDING into the frozen world": test_menu_holds_corrections,
     }
     results = {}
     for name, test in tests.items():

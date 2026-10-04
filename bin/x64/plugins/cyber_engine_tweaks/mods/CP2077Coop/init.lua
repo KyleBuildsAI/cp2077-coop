@@ -120,6 +120,8 @@ S.joinStartZ = 0.0
 -- wynik ostatniej próby (panel): błąd do punktu teleportu i opis porażki
 S.joinError = nil
 S.joinFailure = nil
+-- s tej próby spędzone w menu (świat stał, teleport nie mógł się wykonać)
+S.joinPausedFor = 0.0
 -- host też może się jeszcze wczytywać albo właśnie szybko podróżować:
 -- s czasu jego pakietów bez skoku pozycji i Sync.clock przy ostatnim skoku
 S.hostSettled = 0.0
@@ -2270,6 +2272,117 @@ function Sync.tick(delta)
 end
 
 
+-- Lokalna pauza. CET wywołuje onUpdate także w menu ESC, na mapie
+-- i w ekwipunku, z deltą czasu rzeczywistego, a IsPreGame zostaje false.
+-- Świat wtedy stoi: teleport i komendy AI czekają, więc próby joina,
+-- snap po spawnie i korekty liczyłyby się na pusto (WORLD SYNC GAVE UP
+-- w menu, fałszywe NOT RESPONDING, zawyżone hard_per_min).
+-- Menu ESC i shardy: PauseGame() -> IsGamePaused(). Hub (mapa,
+-- ekwipunek, dziennik), koło broni, radio, smart frame i okna samouczka:
+-- dylatacja czasu pod tymi powodami (time.tweak), IsGamePaused = false.
+Sync.FROZEN_REASONS = { "hubMenu", "radial", "vehicleRadioMenu", "smartFrameMenu", "UI_TutorialPopup" }
+Sync.FROZEN_CHECK_INTERVAL = 0.1
+-- nil = świat działa, inaczej opis ("in the pause menu", "in a menu (...)")
+Sync.frozen = nil
+Sync.frozenCheckIn = 0.0
+Sync.frozenNames = nil
+Sync.frozenErrorLogged = false
+
+
+function Sync.frozenReason()
+
+    local requests =
+        Game.GetSystemRequestsHandler()
+
+    if requests ~= nil
+        and requests.IsGamePaused ~= nil
+        and requests:IsGamePaused()
+    then
+        return "in the pause menu"
+    end
+
+    if Game.GetTimeSystem == nil then
+        return nil
+    end
+
+    local timeSystem =
+        Game.GetTimeSystem()
+
+    if timeSystem == nil
+        or timeSystem.IsTimeDilationActive == nil
+    then
+        return nil
+    end
+
+    if Sync.frozenNames == nil then
+
+        Sync.frozenNames = {}
+
+        for index, name in ipairs(Sync.FROZEN_REASONS) do
+            Sync.frozenNames[index] = CName.new(name)
+        end
+    end
+
+    for index, name in ipairs(Sync.frozenNames) do
+
+        if timeSystem:IsTimeDilationActive(name) then
+            return "in a menu (" .. Sync.FROZEN_REASONS[index] .. ")"
+        end
+    end
+
+    return nil
+end
+
+
+-- Co klatkę (sprawdzenie co FROZEN_CHECK_INTERVAL): zmiana stanu do
+-- logu; czas w menu nie liczy się do limitu czekania na spawn.
+function Sync.updateFrozen(delta)
+
+    Sync.frozenCheckIn =
+        Sync.frozenCheckIn -
+        delta
+
+    if Sync.frozenCheckIn <= 0.0 then
+
+        Sync.frozenCheckIn =
+            Sync.FROZEN_CHECK_INTERVAL
+
+        local ok, reason =
+            pcall(Sync.frozenReason)
+
+        if not ok then
+
+            if not Sync.frozenErrorLogged then
+
+                Sync.frozenErrorLogged = true
+                Diag.log("[CP2077Coop] pause check failed, treated as running: " .. tostring(reason))
+            end
+
+            reason = nil
+        end
+
+        if reason ~= Sync.frozen then
+
+            if reason ~= nil then
+                Diag.log("[CP2077Coop] EVENT local world frozen: you are " .. reason)
+            else
+                Diag.log("[CP2077Coop] EVENT local world running again")
+            end
+
+            Sync.frozen = reason
+        end
+    end
+
+    if Sync.frozen ~= nil
+        and S.spawnRequestedAt ~= nil
+    then
+        S.spawnRequestedAt =
+            S.spawnRequestedAt +
+            delta
+    end
+end
+
+
 function Sync.hasFlag(flags, flag)
 
     return
@@ -4417,7 +4530,7 @@ function Diag.joinStatus()
             string.format(
                 "attempt %s: waiting for the game to move you (%.1f / %.1f s)",
                 attempt,
-                math.max(0.0, Sync.clock - S.joinCalledAt),
+                math.max(0.0, Sync.clock - S.joinCalledAt - S.joinPausedFor),
                 Sync.JOIN_APPLY_TIMEOUT
             ),
             "warn"
@@ -4838,7 +4951,9 @@ end
 
 function Sync.updateRemoteVehicle(player, delta)
 
-    if player.CP2077Coop_ShowRemoteVehicle == nil then
+    if player.CP2077Coop_ShowRemoteVehicle == nil
+        or Sync.frozen ~= nil
+    then
         return
     end
 
@@ -5382,6 +5497,7 @@ function Sync.joinReady()
             Sync.JOIN_SETTLE_SECONDS
         and S.hostSettled >=
             Sync.JOIN_SETTLE_SECONDS
+        and Sync.frozen == nil
 end
 
 
@@ -5633,6 +5749,7 @@ function Sync.beginJoinAttempt(
     S.joinPhase = "teleport"
     S.joinPhaseTime = 0.0
     S.joinCalledAt = Sync.clock
+    S.joinPausedFor = 0.0
 
     local away =
         distance3(
@@ -5696,6 +5813,23 @@ end
 function Sync.updateJoin(player, delta)
 
     if IS_HOST then
+        return
+    end
+
+    -- świat stoi (menu): czekanie na nasz teleport stoi razem z nim,
+    -- przerwa przed kolejną próbą też; po menu znowu
+    -- JOIN_SETTLE_SECONDS spokojnej gry (mapa = może szybka podróż)
+    if Sync.frozen ~= nil then
+
+        if not S.worldJoinComplete
+            and S.joinPhase == "teleport"
+        then
+            S.joinPausedFor =
+                S.joinPausedFor +
+                delta
+        end
+
+        S.joinSettled = 0.0
         return
     end
 
@@ -5765,7 +5899,7 @@ function Sync.updateJoin(player, delta)
             )
 
         elseif phase == "teleport"
-            and Sync.clock - S.joinCalledAt >=
+            and Sync.clock - S.joinCalledAt - S.joinPausedFor >=
                 Sync.JOIN_APPLY_TIMEOUT
         then
 
@@ -5980,6 +6114,7 @@ local function resetRemote()
     S.joinFailure = nil
     S.hostSettled = 0.0
     S.hostJumpAt = -100.0
+    S.joinPausedFor = 0.0
 
     S.worldJoinComplete = IS_HOST
 
@@ -6137,6 +6272,9 @@ registerForEvent(
         if player == nil then
             return
         end
+
+        -- menu / mapa / ekwipunek: świat stoi (Sync.frozen)
+        Sync.updateFrozen(delta)
 
 
         ----------------------------------------------------
@@ -6708,6 +6846,7 @@ registerForEvent(
             -- które gracz zaraz opuści; patrz Sync.joinAllowsSpawn)
             if not S.remoteInitialized
                 and Sync.joinAllowsSpawn()
+                and Sync.frozen == nil
             then
 
                 Sync.requestSpawn(
@@ -6727,6 +6866,13 @@ registerForEvent(
         if not S.worldJoinComplete
             and S.joinPhase == "teleport"
         then
+            return
+        end
+
+        -- świat stoi (menu): bez szukania avatara, snapu, korekt i
+        -- komend ruchu; cel i prędkość idą dalej z pakietów, więc po
+        -- menu jedna zwykła korekta dogania drugiego gracza
+        if Sync.frozen ~= nil then
             return
         end
 
