@@ -78,6 +78,7 @@ class Peer:
         self.token = token
         self.address = address
         self.info = info
+        self.minor = min(info["minor"], proto.PROTO_MINOR)   # negotiated, as sent in WELCOME
         self.client_nonce = info["client_nonce"]
         self.conn = Connection(token)
         self.joined = now
@@ -107,7 +108,7 @@ class Peer:
 
     def joined_body(self) -> bytes:
         return proto.PEER_JOINED.encode({
-            "peer_id": self.peer_id, "role": self.role, "minor": self.info["minor"], "peer_flags": 0,
+            "peer_id": self.peer_id, "role": self.role, "minor": self.minor, "peer_flags": 0,
             "caps": self.info["caps"], "mod_hash": self.info["mod_hash"], "mod_count": self.info["mod_count"],
             "mod_major": self.info["mod_major"], "mod_minor": self.info["mod_minor"],
             "mod_patch": self.info["mod_patch"], "name": self.info["name"]})
@@ -204,7 +205,8 @@ class Relay:
         self.counters = {key: 0 for key in (
             "datagrams_in", "datagrams_out", "bytes_in", "bytes_out", "unknown_datagrams", "malformed_v2",
             "malformed_v1", "version_rejects", "hellos", "auths", "welcomes", "rejects", "unknown_token",
-            "rebinds", "violations", "rate_dropped", "handshake_limited", "kicked", "slow_consumers")}
+            "rebinds", "violations", "rate_dropped", "handshake_limited", "kicked", "slow_consumers",
+            "minor_filtered")}
         self.reject_reasons = {}
 
     # ------------------------------------------------------------------ time
@@ -396,9 +398,8 @@ class Relay:
             room.host_id = peer_id
         self.peers_by_token[token] = peer
         self.peers_by_addr[address] = peer
-        minor = min(info["minor"], proto.PROTO_MINOR)
         peer.welcome = proto.encode_welcome({
-            "minor": minor, "peer_id": peer_id, "role": role, "room_flags": room.flags, "token": token,
+            "minor": peer.minor, "peer_id": peer_id, "role": role, "room_flags": room.flags, "token": token,
             "relay_time_ms": self.relay_ms(now), "player_hz": PLAYER_HZ, "entity_hz": ENTITY_HZ,
             "max_packet": proto.MAX_PACKET, "room_caps": self.room_caps(room)})
         self.counters["welcomes"] += 1
@@ -489,8 +490,12 @@ class Relay:
 
     def route(self, peer: Peer, mtype: int, dest: int, reliable: bool, body: bytes, now: float) -> None:
         spec = proto.SPECS.get(mtype)
-        if spec is None or spec.reliable != reliable or spec.sender == proto.Sender.RELAY:
+        if spec is None or spec.sender == proto.Sender.RELAY or (spec.reliable is not None
+                                                                 and spec.reliable != reliable):
             self.violation(peer, f"message 0x{mtype:02x} not allowed from clients", now)
+            return
+        if spec.min_minor > peer.minor:
+            self.violation(peer, f"{proto.MsgType(mtype).name} needs protocol minor {spec.min_minor}", now)
             return
         if spec.sender == proto.Sender.HOST and peer.role != proto.Role.HOST:
             self.violation(peer, f"{proto.MsgType(mtype).name} is host-only", now)
@@ -502,6 +507,13 @@ class Relay:
             values = spec.codec.decode(body)
         except proto.ProtocolError as error:
             self.violation(peer, f"invalid {proto.MsgType(mtype).name}: {error}", now)
+            return
+        if not proto.delivery_ok(spec, reliable, values):
+            self.violation(peer, f"{proto.MsgType(mtype).name}: reliable bit does not match the channel", now)
+            return
+        needed = proto.required_minor(mtype, values)
+        if needed > peer.minor:
+            self.violation(peer, f"{proto.MsgType(mtype).name} content needs protocol minor {needed}", now)
             return
         if reliable and not peer.buckets["reliable"].take(now):
             self.counters["rate_dropped"] += 1
@@ -520,6 +532,9 @@ class Relay:
             return
         self.cache_state(peer, mtype, values, body)
         for target in self.targets(peer, spec, dest, values):
+            if target.minor < needed:
+                self.counters["minor_filtered"] += 1
+                continue
             if reliable:
                 self.queue_reliable(target, mtype, peer.peer_id, body, now)
             else:
@@ -537,7 +552,9 @@ class Relay:
         if spec.route == proto.Route.HOST or (spec.route == proto.Route.HIT and values["target_kind"] == 0):
             host = room.peers.get(room.host_id) if room.host_id is not None else None
             return [host] if host is not None and host is not peer else []
-        wanted = dest if spec.route == proto.Route.TARGET else values["target_net"]
+        if spec.route == proto.Route.PEER and dest == proto.PEER_BROADCAST:
+            return [other for other in room.peers.values() if other is not peer]
+        wanted = dest if spec.route in (proto.Route.TARGET, proto.Route.PEER) else values["target_net"]
         target = room.peers.get(wanted)
         return [target] if target is not None and target is not peer else []
 

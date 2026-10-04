@@ -43,11 +43,12 @@ class Harness:
 class Client:
     counter = 0
 
-    def __init__(self, harness, role=proto.Role.ANY, room="r1", password="pw", join_flags=0, mod_hash=1, name="c"):
+    def __init__(self, harness, role=proto.Role.ANY, room="r1", password="pw", join_flags=0, mod_hash=1, name="c",
+                 minor=0):
         Client.counter += 1
         self.h = harness
         self.address = (f"198.51.100.{Client.counter % 250 + 1}", 40000 + Client.counter)
-        self.info = {"minor": 0, "role": int(role), "join_flags": join_flags, "caps": proto.ALL_CAPS,
+        self.info = {"minor": minor, "role": int(role), "join_flags": join_flags, "caps": proto.ALL_CAPS,
                      "game_build": 7, "mod_major": 0, "mod_minor": 2, "mod_patch": 0, "mod_hash": mod_hash,
                      "mod_count": 3, "client_nonce": 1000 + Client.counter, "resume_token": 0, "room": room,
                      "name": name}
@@ -337,6 +338,62 @@ class RoutingTests(RelayTestCase):
         self.h.take(joiner.address)  # lost on the way to the joiner
         self.h.advance(1.0)
         self.assertEqual([m[3]["text"] for m in joiner.poll() if m[0] == M.CHAT], ["hello"])
+
+
+class MinorOneTests(RelayTestCase):
+    """SCRIPT_MSG and X_WORLD_ID (protocol 2.1) only flow between peers that negotiated minor >= 1."""
+
+    def script(self, channel, text):
+        return proto.SCRIPT_MSG.encode({"channel": channel, "flags": 0, "text": text})
+
+    def test_minor_is_negotiated_and_announced(self):
+        host = Client(self.h, proto.Role.HOST, minor=1)
+        joiner = Client(self.h, proto.Role.JOINER, minor=7)
+        self.assertTrue(host.join())
+        self.assertTrue(joiner.join())
+        self.assertEqual((host.welcome["minor"], joiner.welcome["minor"]), (1, proto.PROTO_MINOR))
+        announced = [m[3] for m in host.poll() if m[0] == M.PEER_JOINED]
+        self.assertEqual([(m["peer_id"], m["minor"]) for m in announced], [(joiner.peer_id, 1)])
+
+    def test_script_msg_unreliable_broadcast_and_reliable_to_one_peer(self):
+        host, joiner = self.pair(minor=1)
+        third = Client(self.h, proto.Role.JOINER, minor=1)
+        self.h.relay.rooms["r1"].max_size = 3
+        self.assertTrue(third.join())
+        host.poll(), joiner.poll(), third.poll()
+        joiner.send([(M.SCRIPT_MSG, proto.PEER_BROADCAST, self.script(3, "snap|x=1.5"))],
+                    [(M.SCRIPT_MSG, host.peer_id, self.script(20, "evt|only-host"))])
+        to_host = [(m[1], m[2], m[3]["channel"], m[3]["text"]) for m in host.poll() if m[0] == M.SCRIPT_MSG]
+        to_third = [(m[1], m[2], m[3]["channel"], m[3]["text"]) for m in third.poll() if m[0] == M.SCRIPT_MSG]
+        self.assertEqual(sorted(to_host), [(joiner.peer_id, False, 3, "snap|x=1.5"),
+                                           (joiner.peer_id, True, 20, "evt|only-host")])
+        self.assertEqual(to_third, [(joiner.peer_id, False, 3, "snap|x=1.5")])
+        self.assertEqual(self.h.relay.counters["violations"], 0)
+
+    def test_script_msg_reliable_bit_must_match_channel(self):
+        host, joiner = self.pair(minor=1)
+        joiner.send([(M.SCRIPT_MSG, proto.PEER_BROADCAST, self.script(20, "reliable channel sent unreliable"))],
+                    [(M.SCRIPT_MSG, proto.PEER_BROADCAST, self.script(2, "unreliable channel sent reliable"))])
+        self.assertEqual([m for m in host.poll() if m[0] == M.SCRIPT_MSG], [])
+        self.assertEqual(self.h.relay.counters["violations"], 2)
+
+    def test_minor_zero_peers_neither_send_nor_get_minor_one_content(self):
+        host = Client(self.h, proto.Role.HOST, minor=1)
+        old = Client(self.h, proto.Role.JOINER, minor=0)
+        self.assertTrue(host.join())
+        self.assertTrue(old.join())
+        host.poll(), old.poll()
+        host.send(reliable=[(M.SCRIPT_MSG, proto.PEER_BROADCAST, self.script(16, "hello"))])
+        entity = proto.EntitySnapshotCodec().encode({"tick": 1, "baseline": 0, "sample_time": 0, "records": [
+            {"net_id": 4, "spawn": {"kind": 3, "spawn_flags": 0, "attitude": 1, "record": 1, "appearance": 1},
+             "pos": (0, 0, 0), "yaw": 0, "world_id": 0x8F00000000000004}]})
+        host.send([(M.ENTITY_SNAPSHOT, proto.PEER_BROADCAST, entity)])
+        self.assertEqual([m for m in old.poll() if m[0] in (M.SCRIPT_MSG, M.ENTITY_SNAPSHOT)], [])
+        self.assertEqual(self.h.relay.counters["minor_filtered"], 2)
+        self.assertEqual(self.h.relay.counters["violations"], 0)
+        old.send([(M.SCRIPT_MSG, proto.PEER_BROADCAST, self.script(1, "from minor 0"))])
+        self.assertEqual([m for m in host.poll() if m[0] == M.SCRIPT_MSG], [])
+        self.assertEqual(self.h.relay.counters["violations"], 1)
 
 
 class LegacyTests(RelayTestCase):
