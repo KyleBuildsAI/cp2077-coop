@@ -28,6 +28,10 @@ D13 the relay ping is parsed from ping.exe in any language (Russian, also
 D14 until the partner shows it decodes payloads, only flags go out (constant
     vector length, role bit at once); a v0.0.26 partner then gets payload 0 like
     its own, so its avatar is not re-rotated every 0.1 s
+D15 [STATS] frame_p99_ms follows hitches, hard_per_min counts the avatar
+    teleports that fix drift (not fast follow) over the last minute, and
+    flags_rx_ps matches the partner's flags packets that arrived; the two roles
+    receive flags within 15 % of each other
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
@@ -805,6 +809,80 @@ def test_old_partner_sees_constant_vector():
             and changes >= 16 and host_sync.peerDecodesPayload and joiner_sync.peerDecodesPayload)
 
 
+# ------------------------------------------------------------------ D15
+
+def dash_then_stand(t):
+    """Host stands, dashes +X at 9 m/s (fast follow) from 25 to 27 s, then stands."""
+    return 100.0 + 9.0 * min(max(t - 25.0, 0.0), 2.0), 50.0
+
+
+def stats_value(line, key):
+    value = harness.stat(line, key)
+    return None if value in (None, "-") else float(value)
+
+
+def delivered_flags_per_second(sender, begin, end):
+    """Flags payloads the sender put on the wire in [begin, end) that were not lost."""
+    count = 0
+    for t, _, packet, arrive in sender.sent:
+        payload = round(math.hypot(packet[3], packet[4]) - 1.0)
+        if begin <= t < end and arrive is not None and payload // 512 == 0:
+            count += 1
+    return count / (end - begin)
+
+
+def test_frame_corrections_flags_stats():
+    rng = random.Random(15)
+    hitches = {21.0: 0.1, 21.5: 0.1, 22.0: 0.1, 22.5: 0.1}  # 4 frames of 100 ms in the 20-25 s window
+    host = timing.Peer("host", timing.make_peer("host", (100.0, 50.0)), 60.0, rng, hitches=hitches, path=dash_then_stand)
+    joiner = timing.Peer("joiner", timing.make_peer("joiner", (-900.0, 400.0)), 60.0, rng)
+    pushes = [32.0, 38.0, 44.0]  # the joiner's avatar is shoved 10 m sideways: one far correction each
+    stamped = {"host": [], "joiner": []}
+
+    def on_frame(peer, t):
+        if peer is joiner and pushes and t >= pushes[0] and joiner.g.npc is not None:
+            pushes.pop(0)
+            joiner.g.npc.y = joiner.g.npc.y + 10.0
+        logs = peer.g.logs
+        lines = stamped[peer.name]
+        for index in range(len(lines) + 1, len(logs) + 1):
+            lines.append((t, logs[index]))
+
+    timing.run_pair(host, joiner, 50.5, on_frame)
+
+    def stats_at(name, at):
+        return next((line for t, line in stamped[name] if "[STATS]" in line and at - 0.5 <= t <= at + 0.5), "")
+
+    hitch_line, calm_line = stats_at("host", 25.0), stats_at("host", 30.0)
+    joiner_last, host_last = stats_at("joiner", 50.0), stats_at("host", 50.0)
+    p99_hitch, p99_calm = stats_value(hitch_line, "frame_p99_ms"), stats_value(calm_line, "frame_p99_ms")
+    joiner_diag = upvalue(joiner.lua, "Diag")
+    teleports = joiner.g.stats.teleports
+    hard_joiner, hard_host = stats_value(joiner_last, "hard_per_min"), stats_value(host_last, "hard_per_min")
+    print(f"  host frame p99: {p99_hitch} ms in the window with 4 x 100 ms frames, {p99_calm} ms in the next")
+    print(f"  joiner avatar: {teleports} teleports, {joiner_diag.hardTotal} counted as corrections (3 pushes; the dash "
+          f"is fast follow); hard_per_min at 50 s: joiner {hard_joiner} (3 in 50 s = 3.6), host {hard_host}")
+
+    flags_in = {}
+    for name, sender in (("joiner", host), ("host", joiner)):
+        lines = [stats_at(name, at) for at in (35.0, 40.0, 45.0, 50.0)]
+        measured = sum(stats_value(line, "flags_rx_ps") for line in lines) / len(lines)
+        delivered = delivered_flags_per_second(sender, 30.0, 50.0)
+        flags_in[name] = (measured, delivered)
+        print(f"  {name} flags_rx_ps 30-50 s: {measured:.1f}/s, partner's flags packets that arrived: {delivered:.1f}/s")
+    host_in, joiner_in = flags_in["host"][0], flags_in["joiner"][0]
+    ratio = min(host_in, joiner_in) / max(host_in, joiner_in)
+    print(f"  flags received host/joiner: {host_in:.1f} / {joiner_in:.1f} per s, ratio {ratio:.2f} (plan: within 15 %)")
+    return (
+        p99_hitch is not None and abs(p99_hitch - 100.0) < 0.5
+        and p99_calm is not None and p99_calm < 20.0
+        and joiner_diag.hardTotal == 3 and teleports > 30
+        and hard_joiner == 3.6 and hard_host == 0.0
+        and all(abs(measured - delivered) <= 0.1 * delivered for measured, delivered in flags_in.values())
+        and ratio >= 0.85
+    )
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -821,6 +899,7 @@ if __name__ == "__main__":
         "D12 server.ini with a BOM, as UTF-16 or without a key is read or reported": test_server_ini_encodings,
         "D13 relay ping parsed in any Windows language (TTL= anchor) and on Linux/macOS": test_ping_any_language,
         "D14 a v0.0.26 partner gets a constant vector length (no rotate spam); current builds sync at once": test_old_partner_sees_constant_vector,
+        "D15 STATS: frame p99, hard corrections per minute (not fast follow), partner flags per second": test_frame_corrections_flags_stats,
     }
     results = {}
     for name, test in tests.items():

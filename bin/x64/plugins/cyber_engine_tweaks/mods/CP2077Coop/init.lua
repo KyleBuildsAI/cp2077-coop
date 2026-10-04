@@ -359,6 +359,21 @@ local Diag = {
 
     avatarError = nil,
 
+    -- Okno STATS_INTERVAL: czasy klatek (p99), pakiety z flagami drugiej
+    -- strony (na sekundę) i twarde korekty avatara: teleport przy błędzie
+    -- >= TELEPORT_DISTANCE i przy dojściu w bezruchu, bez podążania
+    -- teleportem przy szybkim ruchu i bez snapu po spawnie. Korekty na
+    -- minutę liczone z ostatnich HARD_WINDOWS okien (minuta).
+    frameTimes = {},
+    frameP99Last = nil,
+    statFlagsIn = 0,
+    flagsInLast = nil,
+    HARD_WINDOWS = 12,
+    hardWindow = 0,
+    hardTotal = 0,
+    hardHistory = {},
+    hardPerMinuteLast = nil,
+
     -- dryf avatara w oknie STATS_INTERVAL (średnia i maksimum)
     driftSum = 0.0,
     driftCount = 0,
@@ -1729,6 +1744,7 @@ function Sync.receivePayload(payload)
 
         Sync.remoteFlags = value
         Sync.remoteFlagsSeen = true
+        Diag.statFlagsIn = Diag.statFlagsIn + 1
 
     elseif packetType == Sync.TYPE_TIME then
 
@@ -3580,6 +3596,21 @@ function Diag.resetSession()
     Diag.driftMax = 0.0
     Diag.driftAvgLast = nil
     Diag.driftMaxLast = nil
+
+    Diag.statFlagsIn = 0
+    Diag.flagsInLast = nil
+    Diag.hardWindow = 0
+    Diag.hardTotal = 0
+    Diag.hardHistory = {}
+    Diag.hardPerMinuteLast = nil
+end
+
+
+-- Teleport avatara, który poprawia błąd (hardCorrectRemote).
+function Diag.onHardCorrection()
+
+    Diag.hardWindow = Diag.hardWindow + 1
+    Diag.hardTotal = Diag.hardTotal + 1
 end
 
 
@@ -3707,7 +3738,64 @@ function Diag.closeLossWindow()
 end
 
 
+-- Koniec okna STATS_INTERVAL (window = jego długość w s): p99 czasu
+-- klatki, flagi drugiej strony na sekundę, twarde korekty na minutę.
+function Diag.closeRateWindow(window)
+
+    local frames = Diag.frameTimes
+
+    if #frames > 0 then
+
+        table.sort(frames)
+
+        Diag.frameP99Last =
+            frames[math.ceil(#frames * 0.99)] *
+            1000.0
+    else
+        Diag.frameP99Last = nil
+    end
+
+    Diag.frameTimes = {}
+
+    Diag.flagsInLast =
+        Diag.statFlagsIn /
+        window
+
+    Diag.statFlagsIn = 0
+
+    local history = Diag.hardHistory
+
+    history[#history + 1] = { count = Diag.hardWindow, seconds = window }
+
+    if #history > Diag.HARD_WINDOWS then
+        table.remove(history, 1)
+    end
+
+    Diag.hardWindow = 0
+
+    local count = 0
+    local seconds = 0.0
+
+    for _, entry in ipairs(history) do
+
+        count = count + entry.count
+        seconds = seconds + entry.seconds
+    end
+
+    Diag.hardPerMinuteLast =
+        count * 60.0 /
+        seconds
+end
+
+
 function Diag.formatPct(value)
+
+    return Diag.formatTenths(value)
+end
+
+
+-- jedna cyfra po przecinku, "-" = brak danych
+function Diag.formatTenths(value)
 
     if value == nil then
         return "-"
@@ -3788,7 +3876,7 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f fps=%.0f peer_rate=%.1f missed_pct=%s missed_total_pct=%.1f overwritten_pct=%s out_merged_pct=%s ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d",
+            "[CP2077Coop] [STATS] state=%s sync=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f fps=%.0f peer_rate=%.1f missed_pct=%s missed_total_pct=%.1f overwritten_pct=%s out_merged_pct=%s ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d mods_you=%d mods_partner=%s mods_shared=%s conflict=%s peer_old=%s torn=%d frame_p99_ms=%s hard_per_min=%s flags_rx_ps=%s",
             Diag.lastState,
             S.syncActive and "on" or "off",
             IS_HOST and "host" or "joiner",
@@ -3821,7 +3909,10 @@ function Diag.statsLine()
             Diag.modsField(1),
             tostring(Diag.roleConflict()),
             tostring(Diag.peerLooksOutdated()),
-            Diag.tornReads
+            Diag.tornReads,
+            Diag.formatTenths(Diag.frameP99Last),
+            Diag.formatTenths(Diag.hardPerMinuteLast),
+            Diag.formatTenths(Diag.flagsInLast)
         )
 end
 
@@ -3927,6 +4018,9 @@ function Diag.tick(delta)
     Diag.windowFrames =
         Diag.windowFrames + 1
 
+    local frames = Diag.frameTimes
+    frames[#frames + 1] = delta
+
     if Diag.windowTimer >= 1.0 then
 
         Diag.ppsIn =
@@ -3958,9 +4052,12 @@ function Diag.tick(delta)
 
     if Diag.statsTimer >= Diag.STATS_INTERVAL then
 
+        local window = Diag.statsTimer
+
         Diag.statsTimer = 0.0
         Diag.closeDriftWindow()
         Diag.closeLossWindow()
+        Diag.closeRateWindow(window)
         Diag.writeStats(Diag.statsLine())
     end
 
@@ -4302,6 +4399,27 @@ function Diag.draw()
         (Diag.overwrittenPctLast or 0.0) < 10 and "neutral" or "warn"
     )
 
+    Diag.row(
+        "Partner flags",
+        string.format(
+            "%s/s received (last %.0f s)",
+            Diag.formatTenths(Diag.flagsInLast),
+            Diag.STATS_INTERVAL
+        ),
+        "neutral"
+    )
+
+    Diag.row(
+        "Frame time",
+        string.format(
+            "p99 %s ms (last %.0f s), %.0f fps",
+            Diag.formatTenths(Diag.frameP99Last),
+            Diag.STATS_INTERVAL,
+            Diag.fps
+        ),
+        "neutral"
+    )
+
 
     ImGui.Separator()
 
@@ -4377,6 +4495,17 @@ function Diag.draw()
             Diag.levelFor(Diag.avatarError, Diag.LIMITS.avatar_err_m)
         )
     end
+
+    -- cel fazy 3 (Total Sync Plan): najwyżej 1 na minutę
+    Diag.row(
+        "Hard corrections",
+        string.format(
+            "%s per min (avatar teleported to fix drift), %d this session",
+            Diag.formatTenths(Diag.hardPerMinuteLast),
+            Diag.hardTotal
+        ),
+        (Diag.hardPerMinuteLast or 0.0) <= 1.0 and "neutral" or "warn"
+    )
 
     Diag.row("Remote speed", string.format("%.1f m/s (%s)", S.remoteSpeed or 0, S.movementType or "-"), "neutral")
     Diag.row("Remote state", Diag.describeFlags(Sync.remoteFlags), "neutral")
@@ -4884,11 +5013,15 @@ end
 -- TELEPORT REMOTE AVATAR
 ------------------------------------------------------------
 
+-- isCorrection: teleport poprawia błąd (>= TELEPORT_DISTANCE, dojście
+-- w bezruchu) - liczony w STATS hard_per_min. Podążanie teleportem przy
+-- szybkim ruchu i snap po spawnie to nie korekty.
 local function hardCorrectRemote(
     player,
     x,
     y,
-    z
+    z,
+    isCorrection
 )
 
     -- bez redscriptu nie ma czym teleportować (i nie ma avatara)
@@ -4896,6 +5029,10 @@ local function hardCorrectRemote(
 
         Sync.reportMissingScripts()
         return
+    end
+
+    if isCorrection then
+        Diag.onHardCorrection()
     end
 
     cancelMoveCommand()
@@ -6571,7 +6708,8 @@ registerForEvent(
                 player,
                 S.targetX,
                 S.targetY,
-                S.targetZ
+                S.targetZ,
+                not snapNow
             )
 
             S.lastCommandX = S.targetX
@@ -6737,7 +6875,8 @@ registerForEvent(
                             player,
                             S.targetX,
                             S.targetY,
-                            S.targetZ
+                            S.targetZ,
+                            true
                         )
 
                         S.lastCommandX = S.targetX
