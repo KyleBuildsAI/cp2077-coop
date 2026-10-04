@@ -1582,12 +1582,23 @@ end
 -- Avatar biegnący dokładnie z prędkością gracza nigdy nie nadrobi
 -- opóźnienia (ping + reakcja AI) i co chwilę teleportuje się o 6 m.
 -- Gdy zostaje w tyle: o jeden bieg szybciej.
+-- Histereza: wyższy bieg aż błąd spadnie poniżej CATCH_UP_RELEASE.
+-- Bez niej błąd skakał wokół 2 m, bieg Run/Sprint zmieniał się
+-- co chwilę, a każda zmiana to nowe AIMoveTo (AI staje i rusza).
 Sync.CATCH_UP_DISTANCE = 2.0
+Sync.CATCH_UP_RELEASE = 1.0
 Sync.CATCH_UP_NEXT = { Walk = "Run", Run = "Sprint", Sprint = "Sprint" }
+Sync.catchingUp = false
 
 function Sync.catchUpMoveType(moveType, errorDistance)
 
-    if errorDistance < Sync.CATCH_UP_DISTANCE then
+    if errorDistance >= Sync.CATCH_UP_DISTANCE then
+        Sync.catchingUp = true
+    elseif errorDistance < Sync.CATCH_UP_RELEASE then
+        Sync.catchingUp = false
+    end
+
+    if not Sync.catchingUp then
         return moveType
     end
 
@@ -1621,6 +1632,7 @@ function Sync.reset()
     Sync.poseHistory = {}
     Sync.poseX = nil
     Sync.carX = nil
+    Sync.catchingUp = false
 
     Mods.resetRemote()
 end
@@ -1800,6 +1812,9 @@ end
 
 
 function Steer.reset()
+
+    -- zatrzymanie / teleport: następny bieg znowu od prędkości gracza
+    Sync.catchingUp = false
 
     Steer.endX = nil
     Steer.endY = nil
