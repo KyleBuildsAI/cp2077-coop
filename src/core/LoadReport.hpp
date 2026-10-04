@@ -3,8 +3,8 @@
 // The single startup line the plugin writes to its RED4ext log at RTTI post-register.
 // The Phase 1 bench check greps for "registered Net_* natives (N/N)".
 //
-//   CP2077CoopNet 0.1.2 proto 1: registered Net_* natives (10/10): Net_Connect, ..., Net_Version;
-//   scripts added: <plugin folder>\Scripts
+//   CP2077CoopNet 0.2.0-alpha.3 proto 2.1: registered Net_* natives (13/13): Net_Connect, ...,
+//   Net_SampleRemote; scripts added: <plugin folder>\Scripts
 //
 // (one line in the log; wrapped here.) A native counts as registered only when its parameter and
 // return types resolved in RTTI and the RTTI system returns that same function when looked up by
@@ -22,10 +22,12 @@
 
 namespace coopnet
 {
-// Every global native the plugin registers, in registration order.
-inline constexpr std::array<std::string_view, 10> kNativeNames = {
-    "Net_Connect", "Net_ConnectRoom", "Net_Disconnect", "Net_Send",  "Net_SendTo",
-    "Net_Poll",    "Net_Stats",       "Net_LocalId",    "Net_NowMs", "Net_Version",
+// Every global native the plugin registers, in registration order. The 0.1.x natives come first,
+// unchanged; 0.2.0-alpha.3 added the last three.
+inline constexpr std::array<std::string_view, 13> kNativeNames = {
+    "Net_Connect", "Net_ConnectRoom", "Net_Disconnect", "Net_Send",      "Net_SendTo",
+    "Net_Poll",    "Net_Stats",       "Net_LocalId",    "Net_NowMs",     "Net_Version",
+    "Net_ConnectV2", "Net_PushPlayer", "Net_SampleRemote",
 };
 
 inline constexpr std::string_view kRegisteredMarker = "registered Net_* natives";

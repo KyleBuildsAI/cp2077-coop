@@ -178,6 +178,7 @@ void TestLoadReport()
         return aName.starts_with("Net_");
     }));
     CHECK(unique.contains("Net_NowMs") && unique.contains("Net_Version"));
+    CHECK(unique.contains("Net_ConnectV2") && unique.contains("Net_PushPlayer") && unique.contains("Net_SampleRemote"));
 
     LoadReport complete;
     complete.registered.assign(kNativeNames.begin(), kNativeNames.end());
@@ -188,21 +189,23 @@ void TestLoadReport()
     CHECK(IsLoadComplete(complete));
     CHECK(MissingNatives(complete).empty());
     CHECK(line == std::string(kVersionString) +
-                      ": registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, "
-                      "Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: "
+                      ": registered Net_* natives (13/13): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, "
+                      "Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version, Net_ConnectV2, "
+                      "Net_PushPlayer, Net_SampleRemote; scripts added: "
                       R"(G:\Game\red4ext\plugins\CP2077CoopNet\Scripts)");
     CHECK(line.find('\n') == std::string::npos);
 
     LoadReport broken;
-    broken.registered = {"Net_Connect", "Net_ConnectRoom", "Net_Disconnect", "Net_Send", "Net_SendTo",
-                         "Net_Poll",    "Net_Stats",       "Net_LocalId",    "Net_Version"};
+    broken.registered = {"Net_Connect", "Net_ConnectRoom", "Net_Disconnect", "Net_Send",       "Net_SendTo",
+                         "Net_Poll",    "Net_Stats",       "Net_LocalId",    "Net_Version",    "Net_ConnectV2",
+                         "Net_PushPlayer", "Net_SampleRemote"};
     broken.scriptsPath = R"(G:\Game\red4ext\plugins\CP2077CoopNet\Scripts)";
     broken.scriptsError = "RED4ext refused the folder";
     const std::string brokenLine = FormatLoadReport(broken);
     std::printf("    %s\n", brokenLine.c_str());
     CHECK(!IsLoadComplete(broken));
     CHECK(MissingNatives(broken) == std::vector<std::string>{"Net_NowMs"});
-    CHECK(brokenLine.find("registered Net_* natives (9/10)") != std::string::npos);
+    CHECK(brokenLine.find("registered Net_* natives (12/13)") != std::string::npos);
     CHECK(brokenLine.find("; MISSING: Net_NowMs;") != std::string::npos);
     CHECK(brokenLine.find("; scripts NOT added: RED4ext refused the folder (G:") != std::string::npos);
 
@@ -211,16 +214,22 @@ void TestLoadReport()
     scriptsOnly.scriptsPath = "X";
     const std::string emptyLine = FormatLoadReport(scriptsOnly);
     CHECK(!IsLoadComplete(scriptsOnly));
-    CHECK(emptyLine.find("(0/10): none; MISSING: Net_Connect,") != std::string::npos);
+    CHECK(emptyLine.find("(0/13): none; MISSING: Net_Connect,") != std::string::npos);
 
     LoadReport withReason;
-    withReason.registered.assign(kNativeNames.begin(), kNativeNames.end() - 1); // all but Net_Version
+    for (const std::string_view name : kNativeNames)
+    {
+        if (name != "Net_Version")
+        {
+            withReason.registered.emplace_back(name);
+        }
+    }
     withReason.failed.push_back({"Net_Version", "RTTI lookup by name found nothing after RegisterFunction"});
     withReason.scriptsAdded = true;
     withReason.scriptsPath = "X";
     const std::string reasonLine = FormatLoadReport(withReason);
     std::printf("    %s\n", reasonLine.c_str());
-    CHECK(reasonLine.find("registered Net_* natives (9/10)") != std::string::npos);
+    CHECK(reasonLine.find("registered Net_* natives (12/13)") != std::string::npos);
     CHECK(reasonLine.find("; MISSING: Net_Version (RTTI lookup by name found nothing after RegisterFunction); "
                           "scripts added: X") != std::string::npos);
 }
@@ -232,7 +241,7 @@ void TestLoadReport()
 
 bool IsFundamentalType(std::string_view aType)
 {
-    return aType == "String" || aType == "Int32" || aType == "Bool" || aType == "Double";
+    return aType == "String" || aType == "Int32" || aType == "Bool" || aType == "Double" || aType == "Float";
 }
 
 struct FakeFunction
@@ -298,6 +307,14 @@ void TestNativeRegistration()
         CHECK(rtti.GetFunction("Net_Connect") == &connect);
         CHECK(connect.params == (std::vector<std::string>{"String host", "Int32 port"}));
         CHECK(connect.returnType == "Bool");
+        FakeFunction push{"Net_PushPlayer"};
+        CHECK(RegisterNative(rtti, push, "Net_PushPlayer",
+                             {{"Float", "x"}, {"Float", "y"}, {"Float", "z"}, {"Float", "yaw"}, {"Float", "pitch"},
+                              {"Float", "vx"}, {"Float", "vy"}, {"Float", "vz"}, {"Int32", "moveState"},
+                              {"Int32", "flags"}, {"Int32", "health"}},
+                             "Bool")
+                  .empty());
+        CHECK(push.params.size() == 11 && push.params[4] == "Float pitch" && push.params[10] == "Int32 health");
         FakeFunction disconnect{"Net_Disconnect"};
         CHECK(RegisterNative(rtti, disconnect, "Net_Disconnect", {}, nullptr).empty());
         CHECK(disconnect.returnType.empty());
@@ -364,8 +381,8 @@ void TestNativeRegistration()
         const std::string line = FormatLoadReport(report);
         std::printf("    %s\n", line.c_str());
         CHECK(!IsLoadComplete(report));
-        CHECK(report.registered.size() == 9);
-        CHECK(line.find("registered Net_* natives (9/10)") != std::string::npos);
+        CHECK(report.registered.size() == kNativeNames.size() - 1);
+        CHECK(line.find("registered Net_* natives (12/13)") != std::string::npos);
         CHECK(line.find("; MISSING: Net_NowMs (return type Float64 not set: type not in RTTI, native not "
                         "registered); scripts added: X") != std::string::npos);
     }

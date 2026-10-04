@@ -1,8 +1,9 @@
-// CP2077CoopNet: RED4ext plugin exposing a small reliable/unreliable UDP transport to redscript
-// and CET Lua as global native functions:
+// CP2077CoopNet: RED4ext plugin exposing a protocol v2 client (relay_v2.py) to redscript and CET
+// Lua as global native functions:
 //
-//   Net_Connect(host: String, port: Int32) -> Bool
-//   Net_ConnectRoom(host: String, port: Int32, room: String) -> Bool
+//   Net_Connect(host: String, port: Int32) -> Bool                  (room "default", no key, any role)
+//   Net_ConnectRoom(host: String, port: Int32, room: String) -> Bool (no key, any role)
+//   Net_ConnectV2(host: String, port: Int32, room: String, key: String, role: Int32) -> Bool
 //   Net_Disconnect() -> Void
 //   Net_Send(channel: Int32, payload: String) -> Bool
 //   Net_SendTo(peer: Int32, channel: Int32, payload: String) -> Bool
@@ -10,9 +11,15 @@
 //   Net_Stats() -> String         (JSON)
 //   Net_LocalId() -> Int32
 //   Net_NowMs() -> Double         (ms since the Unix epoch, UTC, sub-ms fraction; see core/Clock.hpp)
-//   Net_Version() -> String       ("CP2077CoopNet <semver> proto <n>", semver may carry -alpha.N)
+//   Net_Version() -> String       ("CP2077CoopNet <semver> proto 2.1", semver may carry -alpha.N)
+//   Net_PushPlayer(x, y, z, yaw, pitch, vx, vy, vz: Float, moveState, flags, health: Int32) -> Bool
+//   Net_SampleRemote(peer: Int32) -> String  (the remote player at render time, "" when unknown)
 //
-// From CET: Game.Net_Connect("127.0.0.1", 11779), Game.Net_Poll(), Game.Net_NowMs(), ...
+// Net_ConnectV2 is a new name rather than two more parameters on Net_ConnectRoom: RTTI cannot hold
+// two natives with one name, and optional native parameters omitted by CET or redscript have not
+// been tried in the game, so the 0.1.x signatures stay exactly as they were.
+//
+// From CET: Game.Net_ConnectV2("127.0.0.1", 11778, "bench", "secret", 1), Game.Net_Poll(), ...
 
 #include "core/Clock.hpp"
 #include "core/LoadReport.hpp"
@@ -125,6 +132,41 @@ void NetConnectRoom(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bool* a
     catch (const std::exception& error)
     {
         LogException("Net_ConnectRoom", error);
+    }
+    if (aOut != nullptr)
+    {
+        *aOut = connected;
+    }
+}
+
+void NetConnectV2(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t)
+{
+    RED4ext::CString host;
+    int32_t port = 0;
+    RED4ext::CString room;
+    RED4ext::CString key;
+    int32_t role = 0;
+    RED4ext::GetParameter(aFrame, &host);
+    RED4ext::GetParameter(aFrame, &port);
+    RED4ext::GetParameter(aFrame, &room);
+    RED4ext::GetParameter(aFrame, &key);
+    RED4ext::GetParameter(aFrame, &role);
+    aFrame->code++;
+
+    bool connected = false;
+    try
+    {
+        coopnet::ConnectOptions options;
+        options.host = std::string(ToView(host));
+        options.port = port;
+        options.room = std::string(ToView(room));
+        options.key = std::string(ToView(key));
+        options.role = role;
+        connected = g_transport && g_transport->Connect(options);
+    }
+    catch (const std::exception& error)
+    {
+        LogException("Net_ConnectV2", error);
     }
     if (aOut != nullptr)
     {
@@ -265,6 +307,72 @@ void NetVersion(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::CS
     }
 }
 
+// The local player for the next 30 Hz PLAYER_SNAPSHOT (newest wins; the transport paces and
+// stamps it with the relay clock). False until the session is up and the relay clock synced.
+void NetPushPlayer(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t)
+{
+    coopnet::PlayerState state;
+    RED4ext::GetParameter(aFrame, &state.x);
+    RED4ext::GetParameter(aFrame, &state.y);
+    RED4ext::GetParameter(aFrame, &state.z);
+    RED4ext::GetParameter(aFrame, &state.yaw);
+    RED4ext::GetParameter(aFrame, &state.pitch);
+    RED4ext::GetParameter(aFrame, &state.vx);
+    RED4ext::GetParameter(aFrame, &state.vy);
+    RED4ext::GetParameter(aFrame, &state.vz);
+    int32_t moveState = 0;
+    int32_t flags = 0;
+    int32_t health = 0;
+    RED4ext::GetParameter(aFrame, &moveState);
+    RED4ext::GetParameter(aFrame, &flags);
+    RED4ext::GetParameter(aFrame, &health);
+    aFrame->code++;
+
+    bool queued = false;
+    try
+    {
+        state.moveState = moveState;
+        state.flags = flags;
+        state.health = health;
+        queued = g_transport && g_transport->PushPlayer(state);
+    }
+    catch (const std::exception& error)
+    {
+        LogException("Net_PushPlayer", error);
+    }
+    if (aOut != nullptr)
+    {
+        *aOut = queued;
+    }
+}
+
+// A String rather than array<Float>: CET hands a String to Lua as a plain string, and a String
+// result uses the copy-assigned return path the other natives already use (core/ScriptString.hpp);
+// an array result would need the game's allocator for its buffer. Format: core/Transport.hpp,
+// FormatRemotePose.
+void NetSampleRemote(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::CString* aOut, int64_t)
+{
+    int32_t peer = 0;
+    RED4ext::GetParameter(aFrame, &peer);
+    aFrame->code++;
+
+    std::string text;
+    try
+    {
+        coopnet::RemotePose pose;
+        if (g_transport && g_transport->SampleRemote(peer, pose))
+        {
+            text = coopnet::FormatRemotePose(pose);
+        }
+    }
+    catch (const std::exception& error)
+    {
+        LogException("Net_SampleRemote", error);
+        text.clear();
+    }
+    ReturnString(aOut, text);
+}
+
 // ---- registration ----------------------------------------------------------------------------
 
 void RecordFailure(coopnet::LoadReport& aReport, const char* aName, std::string aReason)
@@ -325,6 +433,25 @@ void PostRegisterTypes()
         RegisterGlobal<int32_t*>(rtti, report, "Net_LocalId", &NetLocalId, {}, "Int32");
         RegisterGlobal<double*>(rtti, report, "Net_NowMs", &NetNowMs, {}, "Double");
         RegisterGlobal<RED4ext::CString*>(rtti, report, "Net_Version", &NetVersion, {}, "String");
+        RegisterGlobal<bool*>(rtti, report, "Net_ConnectV2", &NetConnectV2,
+                              {{"String", "host"}, {"Int32", "port"}, {"String", "room"}, {"String", "key"},
+                               {"Int32", "role"}},
+                              "Bool");
+        RegisterGlobal<bool*>(rtti, report, "Net_PushPlayer", &NetPushPlayer,
+                              {{"Float", "x"},
+                               {"Float", "y"},
+                               {"Float", "z"},
+                               {"Float", "yaw"},
+                               {"Float", "pitch"},
+                               {"Float", "vx"},
+                               {"Float", "vy"},
+                               {"Float", "vz"},
+                               {"Int32", "moveState"},
+                               {"Int32", "flags"},
+                               {"Int32", "health"}},
+                              "Bool");
+        RegisterGlobal<RED4ext::CString*>(rtti, report, "Net_SampleRemote", &NetSampleRemote, {{"Int32", "peer"}},
+                                          "String");
 
         // The one line the Phase 1 check greps for: every native that passed the registration
         // checks, every one that did not (with the failed step), and the Scripts folder.
