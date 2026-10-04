@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.26 WORLD SYNC
+-- v0.0.27 WORLD + STATE SYNC
 --
 -- MANUAL ROLE FOR CURRENT TEST BUILD
 -- HOST:   local IS_HOST = true
@@ -314,7 +314,8 @@ local function moveRemoteAI(
     x,
     y,
     z,
-    moveType
+    moveType,
+    crouched
 )
 
     if S.remoteHandle == nil then
@@ -380,8 +381,9 @@ local function moveRemoteAI(
     command.finishWhenDestinationReached =
         true
 
+    -- kucający gracz = avatar porusza się w przysiadzie
     command.alwaysUseStealth =
-        false
+        crouched == true
 
 
     cancelMoveCommand()
@@ -466,6 +468,354 @@ local function rotateRemote(
 
     controller:
         SendCommand(command)
+end
+
+
+------------------------------------------------------------
+-- GAMEPLAY / WORLD STATE SYNC
+--
+-- Protokół DLL przenosi tylko pozycję i kierunek (fx, fy).
+-- Kierunek to wektor o długości 1, więc jego DŁUGOŚĆ niesie
+-- dodatkową liczbę: długość = 1 + (typ * 512 + wartość).
+-- Odbiorca odzyskuje liczbę i normalizuje kierunek.
+-- Serwer przekazuje te floaty bez zmian (sprawdzone).
+--
+-- typ 0: flagi gracza (kucanie, broń, celowanie, strzał, pojazd)
+-- typ 1: godzina gry / 3 min (tylko host)
+-- typ 2: indeks pogody + 1 (tylko host, 0 = nieznana)
+--
+-- Wszystko w tabeli Sync: LuaJIT pozwala max 60 upvalues.
+------------------------------------------------------------
+
+local Sync = {
+    TYPE_FLAGS = 0,
+    TYPE_TIME = 1,
+    TYPE_WEATHER = 2,
+    TYPE_STRIDE = 512,
+
+    FLAG_CROUCH = 1,
+    FLAG_WEAPON_DRAWN = 2,
+    FLAG_AIMING = 4,
+    FLAG_FIRING = 8,
+    FLAG_IN_VEHICLE = 16,
+    WEAPON_CLASS_MULTIPLIER = 32,
+
+    TIME_STEP_MINUTES = 3,
+    -- joiner poprawia czas, gdy różnica przekracza tyle minut
+    TIME_TOLERANCE_MINUTES = 6,
+    TIME_APPLY_COOLDOWN = 5.0,
+
+    sendSlot = 0,
+
+    remoteFlags = 0,
+    appliedFlags = -1,
+
+    remoteTimeMinutes = -1,
+    timeCooldown = 0.0,
+
+    appliedWeather = -1,
+
+    scriptsReported = false
+}
+
+
+-- Czy redscript (state.reds) się skompilował.
+function Sync.hasScripts(player)
+
+    return player.CP2077Coop_GetStateFlags ~= nil
+end
+
+
+function Sync.reportMissingScripts()
+
+    if Sync.scriptsReported then
+        return
+    end
+
+    Sync.scriptsReported = true
+
+    print(
+        "[CP2077Coop] state sync disabled: state.reds not compiled (check r6/logs/redscript_rCURRENT.log)"
+    )
+end
+
+
+-- Co wysłać w tym pakiecie. Host co drugi pakiet
+-- wysyła stan świata, flagi gracza lecą zawsze co drugi.
+function Sync.buildPayload(player, isHost)
+
+    if not Sync.hasScripts(player) then
+
+        Sync.reportMissingScripts()
+        return 0
+    end
+
+    Sync.sendSlot = Sync.sendSlot + 1
+
+    if isHost
+        and Sync.sendSlot % 2 == 0
+    then
+
+        if Sync.sendSlot % 4 == 0 then
+
+            local minutes =
+                player:CP2077Coop_GetTimeOfDayMinutes()
+
+            return
+                Sync.TYPE_TIME * Sync.TYPE_STRIDE +
+                math.floor(minutes / Sync.TIME_STEP_MINUTES)
+        end
+
+        local weather =
+            player:CP2077Coop_GetWeatherIndex()
+
+        return
+            Sync.TYPE_WEATHER * Sync.TYPE_STRIDE +
+            (weather + 1)
+    end
+
+    return
+        Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
+        player:CP2077Coop_GetStateFlags()
+end
+
+
+function Sync.encodeForward(forwardX, forwardY, payload)
+
+    local scale =
+        1.0 + payload
+
+    return
+        forwardX * scale,
+        forwardY * scale
+end
+
+
+-- Zwraca znormalizowany kierunek i payload (nil = brak danych).
+function Sync.decodeForward(rawX, rawY)
+
+    local length =
+        math.sqrt(
+            rawX * rawX +
+            rawY * rawY
+        )
+
+    if length < 0.5 then
+        return 0.0, 1.0, nil
+    end
+
+    local payload =
+        math.floor(
+            length - 1.0 + 0.5
+        )
+
+    return
+        rawX / length,
+        rawY / length,
+        payload
+end
+
+
+function Sync.receivePayload(payload)
+
+    if payload == nil then
+        return
+    end
+
+    local packetType =
+        math.floor(
+            payload / Sync.TYPE_STRIDE
+        )
+
+    local value =
+        payload %
+        Sync.TYPE_STRIDE
+
+    if packetType == Sync.TYPE_FLAGS then
+
+        Sync.remoteFlags = value
+
+    elseif packetType == Sync.TYPE_TIME then
+
+        Sync.remoteTimeMinutes =
+            value *
+            Sync.TIME_STEP_MINUTES
+
+    elseif packetType == Sync.TYPE_WEATHER then
+
+        Sync.remoteWeather =
+            value - 1
+    end
+end
+
+
+function Sync.hasFlag(flags, flag)
+
+    return
+        math.floor(flags / flag) % 2 == 1
+end
+
+
+function Sync.weaponClass(flags)
+
+    return
+        math.floor(
+            flags /
+            Sync.WEAPON_CLASS_MULTIPLIER
+        )
+end
+
+
+function Sync.isRemoteCrouching()
+
+    return
+        Sync.hasFlag(
+            Sync.remoteFlags,
+            Sync.FLAG_CROUCH
+        )
+end
+
+
+-- Kucanie i broń avatara: tylko przy zmianie.
+function Sync.applyRemoteFlags(player)
+
+    if not Sync.hasScripts(player) then
+        return
+    end
+
+    local flags =
+        Sync.remoteFlags
+
+    local previous =
+        Sync.appliedFlags
+
+    if flags == previous then
+        return
+    end
+
+    Sync.appliedFlags = flags
+
+
+    local crouch =
+        Sync.hasFlag(flags, Sync.FLAG_CROUCH)
+
+    if previous < 0
+        or crouch ~= Sync.hasFlag(previous, Sync.FLAG_CROUCH)
+    then
+
+        player:CP2077Coop_ApplyRemoteStance(
+            crouch
+        )
+    end
+
+
+    local drawn =
+        Sync.hasFlag(flags, Sync.FLAG_WEAPON_DRAWN)
+
+    local weaponClass =
+        Sync.weaponClass(flags)
+
+    local weaponChanged =
+        previous < 0
+        or drawn ~= Sync.hasFlag(previous, Sync.FLAG_WEAPON_DRAWN)
+        or weaponClass ~= Sync.weaponClass(previous)
+
+    if weaponChanged then
+
+        player:CP2077Coop_ApplyRemoteWeapon(
+            weaponClass,
+            drawn
+        )
+    end
+end
+
+
+-- Joiner przejmuje godzinę i pogodę hosta.
+function Sync.applyWorldState(player, isHost, delta)
+
+    if isHost
+        or not Sync.hasScripts(player)
+    then
+        return
+    end
+
+    Sync.timeCooldown =
+        math.max(
+            0.0,
+            Sync.timeCooldown - delta
+        )
+
+    if Sync.remoteTimeMinutes >= 0
+        and Sync.timeCooldown <= 0.0
+    then
+
+        local localMinutes =
+            player:CP2077Coop_GetTimeOfDayMinutes()
+
+        -- różnica na zegarze 24h (23:59 vs 00:01 = 2 min)
+        local difference =
+            math.abs(
+                localMinutes -
+                Sync.remoteTimeMinutes
+            )
+
+        difference =
+            math.min(
+                difference,
+                1440 - difference
+            )
+
+        if difference >
+            Sync.TIME_TOLERANCE_MINUTES
+        then
+
+            player:CP2077Coop_SetTimeOfDayMinutes(
+                Sync.remoteTimeMinutes
+            )
+
+            print(
+                string.format(
+                    "[CP2077Coop] time synced to host %02d:%02d",
+                    math.floor(Sync.remoteTimeMinutes / 60),
+                    Sync.remoteTimeMinutes % 60
+                )
+            )
+        end
+
+        Sync.timeCooldown =
+            Sync.TIME_APPLY_COOLDOWN
+    end
+
+
+    if Sync.remoteWeather ~= nil
+        and Sync.remoteWeather >= 0
+        and Sync.remoteWeather ~= Sync.appliedWeather
+    then
+
+        player:CP2077Coop_SetWeatherIndex(
+            Sync.remoteWeather
+        )
+
+        Sync.appliedWeather =
+            Sync.remoteWeather
+
+        print(
+            "[CP2077Coop] weather synced to host, index "
+            .. tostring(Sync.remoteWeather)
+        )
+    end
+end
+
+
+function Sync.reset()
+
+    Sync.sendSlot = 0
+    Sync.remoteFlags = 0
+    Sync.appliedFlags = -1
+    Sync.remoteTimeMinutes = -1
+    Sync.remoteWeather = nil
+    Sync.timeCooldown = 0.0
+    Sync.appliedWeather = -1
 end
 
 
@@ -691,6 +1041,8 @@ local function resetRemote()
     S.rotateAccumulator = 0.0
 
     S.rolePrinted = false
+
+    Sync.reset()
 end
 
 
@@ -703,7 +1055,7 @@ registerForEvent(
     function()
 
         print(
-            "[CP2077Coop] bridge v0.0.26 WORLD SYNC loaded"
+            "[CP2077Coop] bridge v0.0.27 WORLD + STATE SYNC loaded"
         )
 
     end
@@ -824,13 +1176,48 @@ registerForEvent(
                     GetWorldForward()
 
 
+            -- kierunek w poziomie, długość dokładnie 1,
+            -- zanim zakodujemy w niej stan gry
+            local forwardLength =
+                distance2(
+                    forward.x,
+                    forward.y,
+                    0.0,
+                    0.0
+                )
+
+            local flatX = 0.0
+            local flatY = 1.0
+
+            if forwardLength > 0.001 then
+
+                flatX =
+                    forward.x /
+                    forwardLength
+
+                flatY =
+                    forward.y /
+                    forwardLength
+            end
+
+            local sendX, sendY =
+                Sync.encodeForward(
+                    flatX,
+                    flatY,
+                    Sync.buildPayload(
+                        player,
+                        IS_HOST
+                    )
+                )
+
+
             Game.CP2077Coop_PushPlayerState(
                 pos.x,
                 pos.y,
                 pos.z,
                 pos.w,
-                forward.x,
-                forward.y
+                sendX,
+                sendY
             )
         end
 
@@ -887,11 +1274,17 @@ registerForEvent(
                 Game.CP2077Coop_GetRemoteZ()
 
 
-            S.remoteForwardX =
-                Game.CP2077Coop_GetRemoteForwardX()
+            -- kierunek + zakodowany stan gry (patrz GAMEPLAY / WORLD STATE SYNC)
+            local forwardX, forwardY, payload =
+                Sync.decodeForward(
+                    Game.CP2077Coop_GetRemoteForwardX(),
+                    Game.CP2077Coop_GetRemoteForwardY()
+                )
 
-            S.remoteForwardY =
-                Game.CP2077Coop_GetRemoteForwardY()
+            S.remoteForwardX = forwardX
+            S.remoteForwardY = forwardY
+
+            Sync.receivePayload(payload)
 
 
             ------------------------------------------------
@@ -1372,6 +1765,15 @@ registerForEvent(
         -- REMOTE POSITION ERROR
         ----------------------------------------------------
 
+        -- stan gracza (kucanie, broń) i świata (czas, pogoda)
+        Sync.applyRemoteFlags(player)
+
+        Sync.applyWorldState(
+            player,
+            IS_HOST,
+            delta
+        )
+
         local current =
             S.remoteHandle:
                 GetWorldPosition()
@@ -1484,7 +1886,8 @@ registerForEvent(
                         S.targetX,
                         S.targetY,
                         S.targetZ,
-                        S.movementType
+                        S.movementType,
+                        Sync.isRemoteCrouching()
                     ) then
 
                         S.lastCommandX = S.targetX
@@ -1539,7 +1942,8 @@ registerForEvent(
                         S.targetX,
                         S.targetY,
                         S.targetZ,
-                        settleMoveType
+                        settleMoveType,
+                        Sync.isRemoteCrouching()
                     ) then
 
                         S.lastCommandX = S.targetX
