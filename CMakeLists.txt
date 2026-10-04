@@ -43,6 +43,8 @@ target_compile_definitions(coopnet_version INTERFACE
 add_library(coopnet_core STATIC
   src/core/Clock.cpp
   src/core/Clock.hpp
+  src/core/LoadReport.cpp
+  src/core/LoadReport.hpp
   src/core/Protocol.cpp
   src/core/Protocol.hpp
   src/core/Reliability.cpp

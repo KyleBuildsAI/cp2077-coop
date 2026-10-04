@@ -1,7 +1,8 @@
 // Deterministic tests for the frame codec and the reliability layer (no sockets, simulated clock),
-// plus the logic behind the Net_NowMs / Net_Version natives.
+// plus the logic behind the Net_NowMs / Net_Version natives and the startup summary line.
 
 #include "core/Clock.hpp"
+#include "core/LoadReport.hpp"
 #include "core/Protocol.hpp"
 #include "core/Reliability.hpp"
 #include "core/Version.hpp"
@@ -543,6 +544,52 @@ void TestVersionString()
                          std::to_string(kVersionPatch));
 }
 
+// ---- startup summary line ----------------------------------------------------------------------
+
+void TestLoadReport()
+{
+    std::puts("startup summary line");
+    std::set<std::string_view> unique(kNativeNames.begin(), kNativeNames.end());
+    CHECK(unique.size() == kNativeNames.size());
+    CHECK(std::all_of(kNativeNames.begin(), kNativeNames.end(), [](std::string_view aName) {
+        return aName.starts_with("Net_");
+    }));
+    CHECK(unique.contains("Net_NowMs") && unique.contains("Net_Version"));
+
+    LoadReport complete;
+    complete.registered.assign(kNativeNames.begin(), kNativeNames.end());
+    complete.scriptsPath = R"(G:\Game\red4ext\plugins\CP2077CoopNet\Scripts)";
+    complete.scriptsAdded = true;
+    const std::string line = FormatLoadReport(complete);
+    std::printf("    %s\n", line.c_str());
+    CHECK(IsLoadComplete(complete));
+    CHECK(MissingNatives(complete).empty());
+    CHECK(line == std::string(kVersionString) +
+                      ": registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, "
+                      "Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: "
+                      R"(G:\Game\red4ext\plugins\CP2077CoopNet\Scripts)");
+    CHECK(line.find('\n') == std::string::npos);
+
+    LoadReport broken;
+    broken.registered = {"Net_Connect", "Net_ConnectRoom", "Net_Disconnect", "Net_Send", "Net_SendTo",
+                         "Net_Poll",    "Net_Stats",       "Net_LocalId",    "Net_Version"};
+    broken.scriptsPath = R"(G:\Game\red4ext\plugins\CP2077CoopNet\Scripts)";
+    broken.scriptsError = "RED4ext refused the folder";
+    const std::string brokenLine = FormatLoadReport(broken);
+    std::printf("    %s\n", brokenLine.c_str());
+    CHECK(!IsLoadComplete(broken));
+    CHECK(MissingNatives(broken) == std::vector<std::string>{"Net_NowMs"});
+    CHECK(brokenLine.find("registered Net_* natives (9/10)") != std::string::npos);
+    CHECK(brokenLine.find("; MISSING: Net_NowMs;") != std::string::npos);
+    CHECK(brokenLine.find("; scripts NOT added: RED4ext refused the folder (G:") != std::string::npos);
+
+    LoadReport scriptsOnly;
+    scriptsOnly.scriptsAdded = true;
+    scriptsOnly.scriptsPath = "X";
+    const std::string emptyLine = FormatLoadReport(scriptsOnly);
+    CHECK(!IsLoadComplete(scriptsOnly));
+    CHECK(emptyLine.find("(0/10): none; MISSING: Net_Connect,") != std::string::npos);
+}
 } // namespace
 
 int main()
@@ -558,6 +605,7 @@ int main()
     TestClockConversion();
     TestClockNow();
     TestVersionString();
+    TestLoadReport();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

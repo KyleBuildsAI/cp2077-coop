@@ -15,6 +15,7 @@
 // From CET: Game.Net_Connect("127.0.0.1", 11779), Game.Net_Poll(), Game.Net_NowMs(), ...
 
 #include "core/Clock.hpp"
+#include "core/LoadReport.hpp"
 #include "core/Transport.hpp"
 #include "core/Version.hpp"
 
@@ -36,6 +37,7 @@ constexpr std::string_view kDefaultRoom = "default";
 RED4ext::v1::PluginHandle g_pluginHandle = nullptr;
 const RED4ext::v1::Sdk* g_sdk = nullptr;
 std::unique_ptr<coopnet::Transport> g_transport;
+coopnet::LoadReport g_loadReport; // filled at load (scripts) and at RTTI post-register (natives)
 
 void Log(coopnet::LogLevel aLevel, std::string_view aMessage)
 {
@@ -270,9 +272,11 @@ struct NativeParam
     const char* name;
 };
 
+// Registers one global native and records its name in aRegistered when RED4ext accepted it.
 template<typename TOut>
-void RegisterGlobal(RED4ext::CRTTISystem* aRtti, const char* aName, RED4ext::ScriptingFunction_t<TOut> aHandler,
-                    std::initializer_list<NativeParam> aParams, const char* aReturnType)
+void RegisterGlobal(RED4ext::CRTTISystem* aRtti, std::vector<std::string>& aRegistered, const char* aName,
+                    RED4ext::ScriptingFunction_t<TOut> aHandler, std::initializer_list<NativeParam> aParams,
+                    const char* aReturnType)
 {
     auto* function = RED4ext::CGlobalFunction::Create(aName, aName, aHandler);
     if (function == nullptr)
@@ -290,6 +294,7 @@ void RegisterGlobal(RED4ext::CRTTISystem* aRtti, const char* aName, RED4ext::Scr
         function->SetReturnType(aReturnType);
     }
     aRtti->RegisterFunction(function);
+    aRegistered.emplace_back(aName);
 }
 
 void RegisterTypes()
@@ -298,20 +303,35 @@ void RegisterTypes()
 
 void PostRegisterTypes()
 {
-    auto* rtti = RED4ext::CRTTISystem::Get();
-    RegisterGlobal<bool*>(rtti, "Net_Connect", &NetConnect, {{"String", "host"}, {"Int32", "port"}}, "Bool");
-    RegisterGlobal<bool*>(rtti, "Net_ConnectRoom", &NetConnectRoom,
-                          {{"String", "host"}, {"Int32", "port"}, {"String", "room"}}, "Bool");
-    RegisterGlobal<void*>(rtti, "Net_Disconnect", &NetDisconnect, {}, nullptr);
-    RegisterGlobal<bool*>(rtti, "Net_Send", &NetSend, {{"Int32", "channel"}, {"String", "payload"}}, "Bool");
-    RegisterGlobal<bool*>(rtti, "Net_SendTo", &NetSendTo,
-                          {{"Int32", "peer"}, {"Int32", "channel"}, {"String", "payload"}}, "Bool");
-    RegisterGlobal<RED4ext::CString*>(rtti, "Net_Poll", &NetPoll, {}, "String");
-    RegisterGlobal<RED4ext::CString*>(rtti, "Net_Stats", &NetStats, {}, "String");
-    RegisterGlobal<int32_t*>(rtti, "Net_LocalId", &NetLocalId, {}, "Int32");
-    RegisterGlobal<double*>(rtti, "Net_NowMs", &NetNowMs, {}, "Double");
-    RegisterGlobal<RED4ext::CString*>(rtti, "Net_Version", &NetVersion, {}, "String");
-    Log(coopnet::LogLevel::Info, "registered Net_* natives");
+    try
+    {
+        auto* rtti = RED4ext::CRTTISystem::Get();
+        std::vector<std::string> registered;
+        RegisterGlobal<bool*>(rtti, registered, "Net_Connect", &NetConnect, {{"String", "host"}, {"Int32", "port"}},
+                              "Bool");
+        RegisterGlobal<bool*>(rtti, registered, "Net_ConnectRoom", &NetConnectRoom,
+                              {{"String", "host"}, {"Int32", "port"}, {"String", "room"}}, "Bool");
+        RegisterGlobal<void*>(rtti, registered, "Net_Disconnect", &NetDisconnect, {}, nullptr);
+        RegisterGlobal<bool*>(rtti, registered, "Net_Send", &NetSend, {{"Int32", "channel"}, {"String", "payload"}},
+                              "Bool");
+        RegisterGlobal<bool*>(rtti, registered, "Net_SendTo", &NetSendTo,
+                              {{"Int32", "peer"}, {"Int32", "channel"}, {"String", "payload"}}, "Bool");
+        RegisterGlobal<RED4ext::CString*>(rtti, registered, "Net_Poll", &NetPoll, {}, "String");
+        RegisterGlobal<RED4ext::CString*>(rtti, registered, "Net_Stats", &NetStats, {}, "String");
+        RegisterGlobal<int32_t*>(rtti, registered, "Net_LocalId", &NetLocalId, {}, "Int32");
+        RegisterGlobal<double*>(rtti, registered, "Net_NowMs", &NetNowMs, {}, "Double");
+        RegisterGlobal<RED4ext::CString*>(rtti, registered, "Net_Version", &NetVersion, {}, "String");
+        g_loadReport.registered = std::move(registered);
+
+        // The one line the Phase 1 check greps for: every native plus the Scripts folder.
+        const coopnet::LogLevel level =
+            coopnet::IsLoadComplete(g_loadReport) ? coopnet::LogLevel::Info : coopnet::LogLevel::Error;
+        Log(level, coopnet::FormatLoadReport(g_loadReport));
+    }
+    catch (const std::exception& error)
+    {
+        LogException("PostRegisterTypes", error);
+    }
 }
 
 // ---- runtime check ---------------------------------------------------------------------------
@@ -370,6 +390,25 @@ bool IsSupportedRuntime()
 
 // ---- bundled redscript declarations ------------------------------------------------------------
 
+// RED4ext's logger takes UTF-8; std::filesystem::path::string() would use the ANSI code page and
+// can throw on characters it cannot represent.
+std::string ToUtf8(std::wstring_view aText)
+{
+    if (aText.empty())
+    {
+        return {};
+    }
+    const int inputLength = static_cast<int>(aText.size());
+    const int size = WideCharToMultiByte(CP_UTF8, 0, aText.data(), inputLength, nullptr, 0, nullptr, nullptr);
+    if (size <= 0)
+    {
+        return "<unconvertible path>";
+    }
+    std::string text(static_cast<size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, aText.data(), inputLength, text.data(), size, nullptr, nullptr);
+    return text;
+}
+
 std::filesystem::path PluginDirectory()
 {
     HMODULE module = nullptr;
@@ -390,22 +429,35 @@ std::filesystem::path PluginDirectory()
 
 // The Net_* declarations live next to the DLL (Scripts/*.reds) and are handed to the redscript
 // compiler only when this plugin actually loaded, so a missing or rejected DLL can never leave
-// the game with script declarations for natives that do not exist.
+// the game with script declarations for natives that do not exist. The outcome is recorded in
+// g_loadReport for the summary line.
 void RegisterScripts(RED4ext::v1::PluginHandle aHandle, const RED4ext::v1::Sdk* aSdk)
 {
-    const std::filesystem::path scripts = PluginDirectory() / L"Scripts";
+    const std::filesystem::path directory = PluginDirectory();
+    if (directory.empty())
+    {
+        g_loadReport.scriptsError = "could not resolve the plugin's own folder";
+        Log(coopnet::LogLevel::Error, g_loadReport.scriptsError);
+        return;
+    }
+    const std::filesystem::path scripts = directory / L"Scripts";
+    g_loadReport.scriptsPath = ToUtf8(scripts.native());
     std::error_code error;
     if (!std::filesystem::is_directory(scripts, error))
     {
-        Log(coopnet::LogLevel::Warn, "no Scripts folder next to the plugin; Net_* must be declared elsewhere");
+        g_loadReport.scriptsError = "no Scripts folder next to the plugin";
+        Log(coopnet::LogLevel::Warn, g_loadReport.scriptsError + " (" + g_loadReport.scriptsPath +
+                                         "); Net_* must be declared elsewhere");
         return;
     }
     if (aSdk->scripts == nullptr || !aSdk->scripts->Add(aHandle, scripts.c_str()))
     {
-        Log(coopnet::LogLevel::Error, "RED4ext refused the plugin's Scripts folder");
+        g_loadReport.scriptsError = "RED4ext refused the folder";
+        Log(coopnet::LogLevel::Error, g_loadReport.scriptsError + " (" + g_loadReport.scriptsPath + ")");
         return;
     }
-    Log(coopnet::LogLevel::Info, "added " + scripts.string() + " to the redscript compilation");
+    g_loadReport.scriptsAdded = true;
+    Log(coopnet::LogLevel::Info, "added " + g_loadReport.scriptsPath + " to the redscript compilation");
 }
 } // namespace
 
@@ -437,11 +489,24 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle aHandle, RED4e
             LogException("Main(Load)", error);
             return false;
         }
+        // Scripts first, so the summary line written at RTTI post-register knows the folder.
+        try
+        {
+            RegisterScripts(aHandle, aSdk);
+        }
+        catch (const std::exception& error)
+        {
+            g_loadReport.scriptsError = std::string("exception: ") + error.what();
+            LogException("RegisterScripts", error);
+        }
+        // Registered last: once these callbacks exist, returning false (unloading the DLL) is unsafe.
         auto* rtti = RED4ext::CRTTISystem::Get();
         rtti->AddRegisterCallback(RegisterTypes);
         rtti->AddPostRegisterCallback(PostRegisterTypes);
-        RegisterScripts(aHandle, aSdk);
-        Log(coopnet::LogLevel::Info, "CP2077CoopNet loaded (protocol v1)");
+        // Deliberately does not contain the "registered Net_* natives" marker: only the summary line
+        // written after the natives are really registered may match the Phase 1 grep.
+        Log(coopnet::LogLevel::Info, std::string(coopnet::kVersionString) +
+                                         " loaded; the Net_* natives are added at RTTI post-register");
         break;
     }
     case RED4ext::v1::EMainReason::Unload:

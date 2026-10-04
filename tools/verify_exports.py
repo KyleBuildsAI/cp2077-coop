@@ -2,21 +2,62 @@
 
 Checks: x64 image, DLL flag, the three RED4ext exports with undecorated names, what Supports()
 returns (decoded from its machine code), no dependency on the VC++ redistributable (static CRT),
-and that every Net_* native name is present in the image.
+that every Net_* native name is present in the image, and that the Net_Version() string in the
+image carries the version from CMakeLists.txt.
+
+The native list is read from src/core/LoadReport.hpp (kNativeNames), and the same names must be
+registered in src/plugin/Main.cpp and declared in scripts/CP2077CoopNet/Natives.reds, so the C++
+list, the redscript declarations and the DLL cannot drift apart.
 
 Usage:
     python tools/verify_exports.py build/Release/CP2077CoopNet.dll
 """
+import os
+import re
 import sys
 
 import pefile
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIRED_EXPORTS = {"Main", "Query", "Supports"}
-NATIVE_NAMES = [
-    "Net_Connect", "Net_ConnectRoom", "Net_Disconnect", "Net_Send", "Net_SendTo", "Net_Poll", "Net_Stats",
-    "Net_LocalId", "Net_NowMs", "Net_Version",
-]
 REDIST_DLLS = {"msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"}
+REGISTERED_MARKER = b"registered Net_* natives"
+
+
+def read_text(relative_path):
+    with open(os.path.join(ROOT, relative_path), encoding="utf-8") as handle:
+        return handle.read()
+
+
+def native_names():
+    """kNativeNames from src/core/LoadReport.hpp, in order."""
+    header = read_text(os.path.join("src", "core", "LoadReport.hpp"))
+    match = re.search(r"kNativeNames\s*=\s*\{(.*?)\};", header, re.S)
+    if match is None:
+        raise SystemExit("kNativeNames not found in src/core/LoadReport.hpp")
+    return re.findall(r'"(Net_\w+)"', match.group(1))
+
+
+def cmake_version():
+    match = re.search(r"project\(CP2077CoopNet\s+VERSION\s+(\d+\.\d+\.\d+)", read_text("CMakeLists.txt"))
+    if match is None:
+        raise SystemExit("project(CP2077CoopNet VERSION x.y.z) not found in CMakeLists.txt")
+    return match.group(1)
+
+
+def source_consistency(names):
+    """Every native is registered in Main.cpp and declared in Natives.reds, and nothing extra is declared."""
+    failures = []
+    main_cpp = read_text(os.path.join("src", "plugin", "Main.cpp"))
+    reds = read_text(os.path.join("scripts", "CP2077CoopNet", "Natives.reds"))
+    registered = re.findall(r'RegisterGlobal<[^>]+>\(rtti,\s*registered,\s*"(Net_\w+)"', main_cpp)
+    declared = re.findall(r"public static native func (Net_\w+)\(", reds)
+    print(f"natives: LoadReport.hpp={len(names)}, Main.cpp registers={len(registered)}, Natives.reds declares={len(declared)}")
+    if registered != names:
+        failures.append(f"Main.cpp registers {registered}, LoadReport.hpp lists {names}")
+    if sorted(declared) != sorted(names):
+        failures.append(f"Natives.reds declares {sorted(declared)}, LoadReport.hpp lists {sorted(names)}")
+    return failures
 
 
 def decode_constant_return(code):
@@ -64,11 +105,29 @@ def main(path):
     if "ws2_32.dll" not in imports:
         failures.append("WS2_32.dll not imported")
 
+    names = native_names()
+    failures.extend(source_consistency(names))
     image = pe.get_memory_mapped_image()
-    for native in NATIVE_NAMES:
+    for native in names:
         if (native.encode() + b"\x00") not in image:
             failures.append(f"native name {native} not found in image")
-    print(f"native names present: {all((n.encode() + b'\x00') in image for n in NATIVE_NAMES)}")
+    print(f"native names present ({len(names)}): {all((n.encode() + b'\x00') in image for n in names)}")
+
+    expected_version = cmake_version()
+    found = re.findall(rb"CP2077CoopNet (\d+\.\d+\.\d+) proto (\d+)\x00", image)
+    shown = [f"CP2077CoopNet {semver.decode()} proto {proto.decode()}" for semver, proto in found]
+    print(f"Net_Version strings in image: {shown}"
+          f" (CMakeLists.txt VERSION {expected_version})")
+    if not found:
+        failures.append("no 'CP2077CoopNet <semver> proto <n>' string in the image")
+    elif any(version.decode() != expected_version for version, _ in found):
+        failures.append(f"Net_Version string does not match CMakeLists.txt VERSION {expected_version}")
+
+    # The Phase 1 log grep must only ever match the summary line (kRegisteredMarker), never another string.
+    marker_count = image.count(REGISTERED_MARKER)
+    print(f"'{REGISTERED_MARKER.decode()}' occurrences in image: {marker_count} (expected 1)")
+    if marker_count != 1:
+        failures.append(f"'{REGISTERED_MARKER.decode()}' appears {marker_count} times in the image, expected 1")
 
     if failures:
         print("VERIFY FAIL:")
