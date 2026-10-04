@@ -1,14 +1,18 @@
-# CP2077CoopNet 0.2.0-alpha.4: Phase 2 install and in-game check
+# CP2077CoopNet 0.2.0-alpha.5: Phase 2 install and in-game check
 
-> **Not installed yet.** Everything in this guide was prepared and rehearsed offline only. Installing
-> needs both games closed and Kyle's go. Nothing here has been run against a game folder.
+> **Offline verification complete for alpha.5.** Kyle authorized bench deployment and potato-mode
+> live testing on 2026-10-04. Close both test games before installing. Record the actual live results
+> separately; this guide and its success checklist do not establish an in-game pass.
 
 Phase 2 moved the plugin to protocol v2 (magic 0xCB77, wire 2.1) from the relay repo. This guide
 installs the plugin next to Jakub's `CP2077Coop.dll` in the two bench games, swaps the bench relay
 for `relay_v2.py` on the same port (v1 keeps working through it), and lists the log lines and CET
 console output that show the v2 path works in the game.
 
-What this build was checked against offline (see README.md, "End-to-end demo"): every `run_demo.py`
+Alpha.5 adds the Phase 2 review repairs and passes the transport/codec tests and both UDP loopback
+suites; see README.md, "Tests (latest run)", for current hashes. Its API and wire format are unchanged.
+
+Historical alpha.4 coverage (see README.md, "End-to-end demo"): every `run_demo.py`
 scenario of the relay repo with the C++ client (the plugin's protocol modules) as the host, as the
 joiner and on both ends, including the clean, US (30 +-10 ms, 1 % loss) and transatlantic
 (115 +-20 ms, 1 % loss) link profiles: 0 reliable order violations, the relay clock of two C++
@@ -93,7 +97,7 @@ cd D:\Downloads\syncfix\coopnet\dllproto
 python tools\verify_exports.py 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Baseline\red4ext\plugins\CP2077CoopNet\CP2077CoopNet.dll'
 #   ... VERIFY PASS
 build\Release\coopnet_plugin_probe.exe 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Baseline\red4ext\plugins\CP2077CoopNet\CP2077CoopNet.dll'
-#   version=0.2.0 prerelease type=1 number=4 sdk=1.0.0 runtime=3.0.80.51928 ... PROBE PASS
+#   version=0.2.0 prerelease type=1 number=5 sdk=1.0.0 runtime=3.0.80.51928 ... PROBE PASS
 python 'D:\Downloads\syncfix\MP=Jakub\coop-tools\scc_check.py' 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077 - Baseline'
 #   OK: compiled r6\scripts, ... (the list must include red4ext\plugins\CP2077CoopNet\Scripts)
 ```
@@ -138,7 +142,7 @@ Start both instances through the main menu. `<game>` is the game folder.
 **a) RED4ext loader log**, the newest `<game>\red4ext\logs\red4ext-*.log`:
 
 ```
-... CP2077CoopNet (version: 0.2.0-alpha.4, author(s): CP2077 Coop) has been loaded
+... CP2077CoopNet (version: 0.2.0-alpha.5, author(s): CP2077 Coop) has been loaded
 ... CP2077CoopNet: '<game>\red4ext\plugins\CP2077CoopNet\Scripts'
 ```
 
@@ -149,8 +153,8 @@ The same log must still show Jakub's `CP2077Coop` plugin loaded.
 ```
 game file version 3.0.80.51928 (2.31) ok
 added <game>\red4ext\plugins\CP2077CoopNet\Scripts to the redscript compilation
-CP2077CoopNet 0.2.0-alpha.4 proto 2.1 loaded; the Net_* natives are added at RTTI post-register
-CP2077CoopNet 0.2.0-alpha.4 proto 2.1: registered Net_* natives (13/13): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version, Net_ConnectV2, Net_PushPlayer, Net_SampleRemote; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
+CP2077CoopNet 0.2.0-alpha.5 proto 2.1 loaded; the Net_* natives are added at RTTI post-register
+CP2077CoopNet 0.2.0-alpha.5 proto 2.1: registered Net_* natives (13/13): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version, Net_ConnectV2, Net_PushPlayer, Net_SampleRemote; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
 ```powershell
@@ -172,12 +176,12 @@ One line at a time in each game's CET console; the expected output follows each 
 ```lua
 print(Game.Net_Version())
 ```
-`CP2077CoopNet 0.2.0-alpha.4 proto 2.1`
+`CP2077CoopNet 0.2.0-alpha.5 proto 2.1`
 
 ```lua
 print(Game.CoopNet_SelfTest())
 ```
-`redscript ok: CP2077CoopNet 0.2.0-alpha.4 proto 2.1, Net_NowMs=<number>, clock ok, pose parse ok, Net_SampleRemote(1)=''`.
+`redscript ok: CP2077CoopNet 0.2.0-alpha.5 proto 2.1, Net_NowMs=<number>, clock ok, pose parse ok, Net_SampleRemote(1)=''`.
 This calls `Net_Version`, `Net_NowMs` and `Net_SampleRemote` from redscript and runs `StrSplit` and
 `StringToFloat` in `CoopNet_ParsePose`: the first runtime test of those in the game.
 
@@ -208,7 +212,7 @@ second host tried to join.
 print(Game.Net_Stats())
 ```
 JSON with `"state":"connected"`, `"role":"host"` (or `joiner`), `"wire":"v2.1"`,
-`"version":"CP2077CoopNet 0.2.0-alpha.4 proto 2.1"`, `"relay":"127.0.0.1:11778"`, `"room":"bench"`,
+`"version":"CP2077CoopNet 0.2.0-alpha.5 proto 2.1"`, `"relay":"127.0.0.1:11778"`, `"room":"bench"`,
 `"clock":{"synced":true,...}` and one entry in `"peers"` for the other game. With the transatlantic
 relay link, that peer's `"rttMs"` settles near 230 ms and `"relayRttMs"` near 115 ms.
 
@@ -255,7 +259,7 @@ The CET helper `lua\coopnet.lua` wraps the same calls (`CoopNet.connectV2(host, 
 
 ## 6. Success checklist
 
-- [ ] Both `red4ext-*.log`: `CP2077CoopNet (version: 0.2.0-alpha.4, ...) has been loaded`, and Jakub's
+- [ ] Both `red4ext-*.log`: `CP2077CoopNet (version: 0.2.0-alpha.5, ...) has been loaded`, and Jakub's
       `CP2077Coop` still loaded.
 - [ ] Both `cp2077coopnet-*.log`: `registered Net_* natives (13/13)` with `scripts added:`.
 - [ ] Both redscript logs: the two CP2077CoopNet `.reds` compiled, no error.

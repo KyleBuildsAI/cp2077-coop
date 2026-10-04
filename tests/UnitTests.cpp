@@ -33,6 +33,7 @@
 #include <random>
 #include <regex>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -1320,6 +1321,31 @@ void TestSessionWithFakeRelay()
     relay.Pump(250.0);
     CHECK(transport.StatsJson().find("\"interp\":{\"received\":") != std::string::npos);
 
+    // An unreliable snapshot can arrive after its reliable PEER_LEFT. It must neither recreate
+    // the departed player nor seed a later occupant of the same peer id.
+    relay.SendReliable(0, v2::Body{coopv2::PeerLeft{3, static_cast<uint8_t>(coopv2::DisconnectReason::Quit)}});
+    CHECK(WaitEvent(transport, &relay, "peer_leave 3 quit", 1000.0));
+    CHECK(!transport.SampleRemote(3, pose));
+    v2::PlayerSnapshotMsg late;
+    late.base.snap_seq = ++sequence;
+    late.base.sample_time = static_cast<uint32_t>(static_cast<uint64_t>(FakeRelay::RelayMs()));
+    late.base.x = 999.0f;
+    late.base.health = 255;
+    relay.SendUnreliable(3, v2::Body{late});
+    relay.SendUnreliable(9, v2::Body{late}); // a snapshot that overtook PEER_JOINED is also ignored
+    relay.Pump(100.0);
+    CHECK(transport.PeerCount() == 0);
+    CHECK(!transport.SampleRemote(3, pose));
+    CHECK(!transport.SampleRemote(9, pose));
+    relay.SendReliable(0, v2::Body{joined});
+    CHECK(WaitEvent(transport, &relay, "peer_join 3 host", 1000.0));
+    CHECK(!transport.SampleRemote(3, pose));
+    late.base.snap_seq = 1; // the new occupant starts its own sequence
+    late.base.x = 42.0f;
+    relay.SendUnreliable(3, v2::Body{late});
+    relay.Pump(100.0);
+    CHECK(transport.SampleRemote(3, pose) && pose.x == 42.0);
+
     // The relay shuts down: the session ends, peer 3 leaves and a fresh HELLO goes out (no resume).
     relay.SendDisconnect(coopv2::DisconnectReason::ServerShutdown);
     CHECK(WaitEvent(transport, nullptr, "peer_leave 3 relay_lost", 1000.0));
@@ -1359,6 +1385,66 @@ void TestSessionWithFakeRelay()
     PrintEvents();
 }
 
+void TestNetworkThreadExceptions()
+{
+    std::puts("network thread exceptions: clear live player state even when the error logger also throws");
+    for (const bool nonStandard : {false, true})
+    {
+        FakeRelay relay;
+        Transport transport;
+        std::atomic<bool> throwFromLog{false};
+        transport.SetLogSink([&](LogLevel, std::string_view) {
+            if (throwFromLog.load())
+            {
+                if (nonStandard)
+                {
+                    throw 42;
+                }
+                throw std::runtime_error("injected network log failure");
+            }
+        });
+        g_events.clear();
+        CHECK(transport.Connect("127.0.0.1", relay.Port(), "exceptions"));
+        CHECK(relay.Expect(coopv2::PacketType::Hello, 1000.0).has_value());
+        SendChallenge(relay, 1);
+        CHECK(relay.Expect(coopv2::PacketType::Auth, 1000.0).has_value());
+        relay.Welcome(7, 2, 0x123456789ABCDEFull);
+        CHECK(WaitEvent(transport, &relay, "welcome 7 joiner", 1000.0));
+        relay.Pump(400.0);
+        CHECK(transport.ClockSynced());
+        v2::PeerJoinedMsg joined;
+        joined.fixed.peer_id = 3;
+        joined.fixed.role = 1;
+        joined.fixed.minor = 1;
+        joined.name = "fakehost";
+        relay.SendReliable(0, v2::Body{joined});
+        CHECK(WaitEvent(transport, &relay, "peer_join 3 host", 1000.0));
+        v2::PlayerSnapshotMsg remote;
+        remote.base.snap_seq = 1;
+        remote.base.sample_time = static_cast<uint32_t>(static_cast<uint64_t>(FakeRelay::RelayMs()));
+        remote.base.health = 255;
+        relay.SendUnreliable(3, v2::Body{remote});
+        relay.Pump(100.0);
+        RemotePose pose;
+        CHECK(transport.SampleRemote(3, pose));
+
+        throwFromLog = true;
+        joined.fixed.peer_id = 4; // OnPeerJoined changes live membership, then invokes the logger
+        relay.SendReliable(0, v2::Body{joined});
+        CHECK(WaitEvent(transport, &relay, "error network thread stopped:", 1000.0));
+        transport.Disconnect(); // join the failed thread before checking its final state
+        CHECK(transport.State() == ConnectionState::Error);
+        CHECK(transport.LocalId() == 0 && transport.PeerCount() == 0);
+        CHECK(!transport.ClockSynced() && !transport.RelayNowMs());
+        CHECK(!transport.SampleRemote(3, pose));
+        CHECK(!transport.Send(16, "stale") && !transport.PushPlayer(PlayerState{}));
+        const std::string stats = transport.StatsJson();
+        CHECK(stats.find("\"clock\":{\"synced\":false") != std::string::npos);
+        CHECK(stats.find("\"peers\":[]") != std::string::npos);
+        CHECK(stats.find("\"lastError\":\"network thread stopped:") != std::string::npos);
+    }
+}
+
 } // namespace
 
 int main()
@@ -1375,6 +1461,7 @@ int main()
     TestHandshakeNoAnswer();
     TestHandshakeReject();
     TestSessionWithFakeRelay();
+    TestNetworkThreadExceptions();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

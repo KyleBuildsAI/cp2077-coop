@@ -548,6 +548,39 @@ struct SharedState
         clockReady = false;
     }
 
+    // Also used while unwinding the network thread. Do not allocate or call the log sink here.
+    void ResetSession() noexcept
+    {
+        peerCount = 0;
+        scriptPeers = 0;
+        scriptAllowed = false;
+        localId = 0;
+        clockReady = false;
+        try
+        {
+            ClearRemotes();
+            {
+                std::lock_guard lock(outboxMutex);
+                outbox.clear();
+                pendingPlayer.reset();
+            }
+            {
+                std::lock_guard lock(statsMutex);
+                stats.peers.clear();
+                stats.clockSynced = false;
+                stats.clockOffsetMs.reset();
+                stats.clockBoundMs.reset();
+                stats.clockRttMs.reset();
+                stats.reliablePending = 0;
+                stats.reliableBacklog = 0;
+            }
+        }
+        catch (...)
+        {
+            // A failed mutex acquisition must not unwind through a thread entry or destructor.
+        }
+    }
+
     const TransportConfig config;
     LogSink log;
     HANDLE wakeEvent = nullptr;
@@ -599,6 +632,7 @@ public:
     ~Session()
     {
         Close();
+        m_shared.ResetSession();
     }
 
     void Run()
@@ -615,15 +649,7 @@ public:
         {
             SetState(ConnectionState::Idle);
         }
-        m_shared.peerCount = 0;
-        m_shared.scriptPeers = 0;
-        m_shared.scriptAllowed = false;
-        m_shared.localId = 0;
-        m_shared.ClearRemotes();
-        {
-            std::lock_guard lock(m_shared.outboxMutex);
-            m_shared.pendingPlayer.reset();
-        }
+        m_shared.ResetSession();
         PublishStats(MonotonicMs());
         // A failed Open already pushed "error ..."; a stop during it (for example while the host
         // name was still resolving) ends the session like a normal disconnect.
@@ -1346,7 +1372,6 @@ private:
         if (m_peers.contains(id))
         {
             // The same id joined again (a resumed session): its streams and snapshots start over.
-            // A brand-new peer keeps snapshots that overtook its PEER_JOINED.
             RemovePeer(id, "replaced");
         }
         Peer peer;
@@ -1375,16 +1400,21 @@ private:
 
     void OnPlayerSnapshot(uint8_t aSource, const v2::PlayerSnapshotMsg& aSnapshot, double aNow)
     {
+        const auto peer = m_peers.find(aSource);
+        if (peer == m_peers.end())
+        {
+            // Unreliable snapshots can overtake PEER_JOINED or arrive after PEER_LEFT. Only the
+            // reliable membership stream may create a player; otherwise a departed peer becomes
+            // a ghost that SampleRemote keeps returning indefinitely.
+            ++m_ignoredMessages;
+            return;
+        }
         if (!m_clock.Synced())
         {
             ++m_unsyncedDropped; // sample_time cannot be placed before the relay clock is known
             return;
         }
-        const auto peer = m_peers.find(aSource);
-        if (peer != m_peers.end())
-        {
-            ++peer->second.snapshots;
-        }
+        ++peer->second.snapshots;
         const coopv2::PlayerSnapshot& base = aSnapshot.base;
         const double t = m_clock.UnwrapRelayMs(base.sample_time, aNow);
         const double arrival = m_clock.RelayMs(aNow);
@@ -1877,7 +1907,37 @@ private:
     std::string m_lastError;
 };
 
-void RunSession(SharedState& aShared, ConnectOptions aOptions, uint64_t aSeed)
+void ReportThreadFailure(SharedState& aShared, const char* aReason) noexcept
+{
+    aShared.ResetSession();
+    aShared.state = static_cast<int>(ConnectionState::Error);
+    // Either formatting, the user-supplied logger, or the inbox allocation can throw (including
+    // bad_alloc). Each diagnostic is best-effort; no exception may escape the thread entry.
+    try
+    {
+        std::lock_guard lock(aShared.statsMutex);
+        aShared.stats.lastError = std::string("network thread stopped: ") + aReason;
+    }
+    catch (...)
+    {
+    }
+    try
+    {
+        aShared.Log(LogLevel::Error, std::string("network thread stopped: ") + aReason);
+    }
+    catch (...)
+    {
+    }
+    try
+    {
+        aShared.PushEvent(std::string("error network thread stopped: ") + aReason);
+    }
+    catch (...)
+    {
+    }
+}
+
+void RunSession(SharedState& aShared, ConnectOptions aOptions, uint64_t aSeed) noexcept
 {
     try
     {
@@ -1886,10 +1946,11 @@ void RunSession(SharedState& aShared, ConnectOptions aOptions, uint64_t aSeed)
     }
     catch (const std::exception& error)
     {
-        // Never let an exception escape a thread inside the game process.
-        aShared.state = static_cast<int>(ConnectionState::Error);
-        aShared.Log(LogLevel::Error, std::string("network thread stopped: ") + error.what());
-        aShared.PushEvent(std::string("error network thread stopped: ") + error.what());
+        ReportThreadFailure(aShared, error.what());
+    }
+    catch (...)
+    {
+        ReportThreadFailure(aShared, "unknown exception");
     }
 }
 

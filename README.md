@@ -7,7 +7,7 @@ remote players rendered 100-150 ms in the past with interpolation and bounded ex
 replaces the "latest position only, extra bits squeezed into the forward vector" limit of
 `CP2077Coop.dll`.
 
-Version 0.2.0-alpha.4 (wire protocol v2.1, magic 0xCB77).
+Version 0.2.0-alpha.5 (wire protocol v2.1, magic 0xCB77).
 Status: builds, unit and integration tests pass outside the game, and every end-to-end scenario of
 the relay repo passes with C++ clients built from the plugin's protocol modules on both ends.
 0.1.0 was loaded in both bench games on 2026-10-04 (Phase 1 go: `Game.Net_*` callable from CET,
@@ -26,10 +26,26 @@ the relay repo (`coopnet/proto.py`, `include/coop_proto_v2.h`). Each milestone b
 3. alpha.3: the snapshot buffer (port of `interp.py`), the transport switch to v2 and the new
    natives `Net_ConnectV2`, `Net_PushPlayer` and `Net_SampleRemote`. See
    [Transport](#transport-protocol-v2) and [Snapshot buffer](#snapshot-buffer-srcv2).
-4. alpha.4 (this build): end to end offline. A C++ client built from the plugin's protocol modules
+4. alpha.4: end to end offline. A C++ client built from the plugin's protocol modules
    runs every `run_demo.py` scenario through `relay_v2.py` as the host, as the joiner and on both
    ends, including the clean, US and transatlantic link profiles over a scripted walk, run, sprint
    and turn course. See [End-to-end demo](#end-to-end-demo-c-client).
+
+5. alpha.5 (this build): repair the two confirmed findings from the interrupted Phase 2 review:
+   departed peers cannot be recreated by late snapshots, and network-thread exceptions release
+   session state without letting a failing diagnostic terminate the game process.
+
+0.2.0-alpha.5 in short:
+- Player snapshots are accepted only after the reliable `PEER_JOINED` event and until `PEER_LEFT`.
+  A snapshot that overtakes the join is dropped; the next 30 Hz snapshot fills the new buffer.
+  This prevents a late packet from reviving a departed player or preloading a reused peer id.
+- Session cleanup also runs during exception unwinding. Player buffers, clock readiness, peer ids,
+  pending sends and live stats are cleared. Both standard and unknown exceptions are caught;
+  logging, error events and diagnostic formatting are best-effort inside the failure handler.
+- UDP fake-relay regressions exercise leave/late-packet/rejoin and throw from a logger after player
+  state exists, including a second throw while reporting the failure.
+- Native signatures and protocol stay unchanged. This still exposes player snapshots and script
+  messages; vehicles, NPC authority, hit and equip messages are not integrated into `Transport`.
 
 0.2.0-alpha.4 in short:
 - `tests/V2DemoClient.cpp` (`coopnet_v2_demo_client`) is a drop-in for the relay's `client_v2.py`
@@ -183,13 +199,13 @@ parameter type and the return type resolved in RTTI, and looking its name up aga
 `RegisterFunction` returned the function the plugin created (`src/core/NativeRegistration.hpp`):
 
 ```
-CP2077CoopNet 0.2.0-alpha.4 proto 2.1: registered Net_* natives (13/13): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version, Net_ConnectV2, Net_PushPlayer, Net_SampleRemote; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
+CP2077CoopNet 0.2.0-alpha.5 proto 2.1: registered Net_* natives (13/13): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version, Net_ConnectV2, Net_PushPlayer, Net_SampleRemote; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
 If a native or the Scripts folder failed, the same line is logged at error level with
 `MISSING: Net_X (<failed step>)` or `scripts NOT added: <reason>`. The line does not prove that a
 call works; `print(Game.CoopNet_SelfTest())` in the CET console calls the natives from redscript and
-prints `redscript ok: CP2077CoopNet 0.2.0-alpha.4 proto 2.1, Net_NowMs=<n>, clock ok, pose parse ok,
+prints `redscript ok: CP2077CoopNet 0.2.0-alpha.5 proto 2.1, Net_NowMs=<n>, clock ok, pose parse ok,
 Net_SampleRemote(1)=''` while not connected.
 
 String results (`Net_Poll`, `Net_Stats`, `Net_Version`, `Net_SampleRemote`) are copy-assigned into
@@ -229,7 +245,7 @@ forwards `CP1,...` text packets and cannot carry protocol v2.
 | `Net_Stats() -> String` | JSON | `CoopNet.stats()` decodes it |
 | `Net_LocalId() -> Int32` | peer id, 0 until welcomed | `CoopNet.localId()` |
 | `Net_NowMs() -> Double` | ms since the Unix epoch (UTC), sub-ms fraction | `CoopNet.nowMs()` |
-| `Net_Version() -> String` | `"CP2077CoopNet 0.2.0-alpha.4 proto 2.1"` | `CoopNet.version()`, `parseVersion` |
+| `Net_Version() -> String` | `"CP2077CoopNet 0.2.0-alpha.5 proto 2.1"` | `CoopNet.version()`, `parseVersion` |
 | `Net_PushPlayer(x, y, z, yaw, pitch, vx, vy, vz: Float, moveState, flags, health: Int32) -> Bool` | 0.2.0-alpha.3 | `CoopNet.pushPlayer(state)` |
 | `Net_SampleRemote(peer: Int32) -> String` | 0.2.0-alpha.3, `""` until that player sent something | `CoopNet.sampleRemote(peer)` |
 
@@ -645,6 +661,30 @@ monotonic clock.
   linearly, the newest when extrapolating, zero without velocity).
 
 ## Tests (latest run)
+
+2026-10-04, 0.2.0-alpha.5, relay `feat/phase2-v2` at `a41a95e`: Release build with
+`tools\build.ps1 -Loopback`. The transport regression suite has 240 checks with zero failures.
+The export verification and LoadLibrary probe pass, as do the codec tests, 20,000-input plain and
+AddressSanitizer fuzz runs, cross-language golden vectors, reliability/clock/interpolation tests
+and Python trace replays. Plugin transport loopbacks pass clean, bench, lossy and relay restart;
+the separate v2 clients pass clean, jitter and lossy profiles. The LuaJIT helper passes 36 checks
+with `PYTHONPATH` pointing at the main coop repository's `tests\.deps`.
+
+Logs: `build\alpha5-verification.log` records the first run (234 transport checks); the final
+build and added diagnostic-state assertions are recorded in
+`D:\Downloads\syncfix\bench-artifacts\20261004-codex\dll-offline.log` (240 checks).
+The alpha.4 full demo and 30-minute soak below are historical evidence; they were not rerun for
+alpha.5. In-game loading and end-to-end game behavior remain to be verified by the bench owner.
+
+Current staged files (`dist\red4ext\plugins\CP2077CoopNet\`):
+
+| file | bytes | SHA256 |
+|---|---|---|
+| `CP2077CoopNet.dll` | 510976 | `2FB3A6DB6535AF1C526FE9DC7E6827BAE49AF0966B77C8CA3DB71137EB0DD5E4` |
+| `Scripts\Helpers.reds` | 6931 | `C47CBF71EB26568C2E5F5714BC78B31FEA0F0DD057B7C7A238FCCED4E57AEB45` |
+| `Scripts\Natives.reds` | 3183 | `90AF4CFB3AE4A08BD2E644D607ECCBB143C18BFB36BD36A1C81BDBD7034F1201` |
+
+## Tests (alpha.4 full demo and soak)
 
 `tools\build.ps1 -Clean -All` from a fresh build dir on 2026-10-04 for 0.2.0-alpha.4 (dllproto
 `feat/phase2-v2` at `d096946`, relay `feat/phase2-v2` at `a41a95e`): exit 0, no compiler or MSBuild

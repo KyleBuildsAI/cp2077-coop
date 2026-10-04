@@ -4,7 +4,7 @@ project(CP2077CoopNet VERSION 0.2.0 LANGUAGES CXX)
 
 # Pre-release label, bumped per Phase 2 milestone (0.2.0-alpha.N). An empty type means a release.
 set(COOPNET_PRERELEASE_TYPE "alpha") # alpha | beta | rc | ""
-set(COOPNET_PRERELEASE_NUMBER 4)
+set(COOPNET_PRERELEASE_NUMBER 5)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
