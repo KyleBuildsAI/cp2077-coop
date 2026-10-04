@@ -72,7 +72,7 @@ def main():
         function player:CP2077Coop_ApplyRemoteStance(c) applied.stance[#applied.stance + 1] = c end
         function player:CP2077Coop_ApplyRemoteWeapon(cls, drawn) applied.weapon[#applied.weapon + 1] = { cls, drawn } end
         carPose = nil
-        function player:CP2077Coop_ShowRemoteVehicle(index, x, y, z, fx, fy) applied.vehicleShow[#applied.vehicleShow + 1] = index; carPose = { x, y, fx, fy }; return true end
+        function player:CP2077Coop_ShowRemoteVehicle(index, x, y, z, fx, fy, slope) applied.vehicleShow[#applied.vehicleShow + 1] = index; carPose = { x, y, fx, fy }; return true end
         function player:CP2077Coop_HideRemoteVehicle() applied.vehicleHide = applied.vehicleHide + 1; carPose = nil end
     """)
 

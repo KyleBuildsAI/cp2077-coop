@@ -2050,6 +2050,12 @@ end
 Sync.VEHICLE_MAX_LEAD = 0.35
 -- 1/s: jak szybko pokazane auto dochodzi do pozy ekstrapolowanej
 Sync.VEHICLE_SMOOTHING = 10.0
+-- Pochylenie auta: pakiet niesie tylko kierunek w poziomie, więc spadek
+-- liczymy z prędkości (pionowa / wzdłuż maski). Poniżej tej prędkości
+-- (m/s) zostaje poprzedni (szum), a skok / zły pakiet ogranicza
+-- VEHICLE_MAX_SLOPE (~35 stopni). Przechył (roll) zostaje 0.
+Sync.VEHICLE_PITCH_MIN_SPEED = 2.0
+Sync.VEHICLE_MAX_SLOPE = 0.7
 -- dalej = teleport auta bez wygładzania (szybka podróż, restart)
 Sync.VEHICLE_SNAP_DISTANCE = 5.0
 -- m/s; szybciej = teleport gracza, nie jazda
@@ -2292,6 +2298,7 @@ function Sync.hideRemoteVehicle(player)
     Sync.vehicleShown = false
     Sync.remoteVehicleIndex = nil
     Sync.carX = nil
+    Sync.carSlope = nil
 end
 
 
@@ -2893,6 +2900,7 @@ function Sync.reset()
     Sync.poseHistory = {}
     Sync.poseX = nil
     Sync.carX = nil
+    Sync.carSlope = nil
     Sync.catchingUp = false
 
     Mods.resetRemote()
@@ -5227,6 +5235,27 @@ function Sync.updateRemoteVehicle(player, delta)
     local x, y, z, forwardX, forwardY, velX, velY, velZ, yawRate =
         Sync.extrapolateRemotePose()
 
+    -- spadek wzdłuż maski (cofanie: znak z prędkości wzdłuż kierunku);
+    -- auto stawiane płasko co klatkę wjeżdżało maską w podjazd
+    local along =
+        velX * forwardX +
+        velY * forwardY
+
+    local slope =
+        Sync.carSlope or 0.0
+
+    if math.abs(along) > Sync.VEHICLE_PITCH_MIN_SPEED then
+
+        slope =
+            math.max(
+                -Sync.VEHICLE_MAX_SLOPE,
+                math.min(
+                    Sync.VEHICLE_MAX_SLOPE,
+                    velZ / along
+                )
+            )
+    end
+
     if Sync.carX == nil
         or distance3(
             Sync.carX,
@@ -5243,6 +5272,7 @@ function Sync.updateRemoteVehicle(player, delta)
         Sync.carZ = z
         Sync.carForwardX = forwardX
         Sync.carForwardY = forwardY
+        Sync.carSlope = slope
 
     else
 
@@ -5261,6 +5291,13 @@ function Sync.updateRemoteVehicle(player, delta)
         Sync.carX = Sync.carX + (x - Sync.carX) * blend
         Sync.carY = Sync.carY + (y - Sync.carY) * blend
         Sync.carZ = Sync.carZ + (z - Sync.carZ) * blend
+
+        local previousSlope =
+            Sync.carSlope or slope
+
+        Sync.carSlope =
+            previousSlope +
+            (slope - previousSlope) * blend
 
         local headingX, headingY =
             Sync.rotate2(
@@ -5292,7 +5329,8 @@ function Sync.updateRemoteVehicle(player, delta)
             Sync.carY,
             Sync.carZ,
             Sync.carForwardX,
-            Sync.carForwardY
+            Sync.carForwardY,
+            Sync.carSlope
         ) or Sync.vehicleShown
 end
 

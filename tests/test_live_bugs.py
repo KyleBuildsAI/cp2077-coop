@@ -87,9 +87,9 @@ VEHICLE_MOCK = r"""
 carPose = nil
 carHides = 0
 carShows = 0
-function player:CP2077Coop_ShowRemoteVehicle(index, x, y, z, fx, fy)
+function player:CP2077Coop_ShowRemoteVehicle(index, x, y, z, fx, fy, slope)
     carShows = carShows + 1
-    carPose = { x = x, y = y, z = z, fx = fx, fy = fy, index = index }
+    carPose = { x = x, y = y, z = z, fx = fx, fy = fy, slope = slope, index = index }
     return true
 end
 function player:CP2077Coop_HideRemoteVehicle() carHides = carHides + 1; carPose = nil end
@@ -520,6 +520,35 @@ def test_avatar_parked_while_driving():
     )
 
 
+def slope_path(speed, rise, facing=1.0):
+    """In a car moving north at `speed` m/s on a road that climbs `rise` m per metre;
+    facing -1.0 = the car points south (reversing up the hill)."""
+    def path(t):
+        y = speed * t
+        return 0.0, y, rise * y, 0.0, facing, FLAG_IN_VEHICLE
+    return path
+
+
+def test_car_pitched_with_the_road():
+    cases = {
+        "climbing 0.1 m per m at 10 m/s": ((10.0, 0.1, 1.0), 0.1),
+        "reversing up the same hill (nose down)": ((10.0, 0.1, -1.0), -0.1),
+        "creeping at 1 m/s: no estimate, stays level": ((1.0, 0.1, 1.0), 0.0),
+        "60 degree jump ramp: clamped to 0.7": ((10.0, 1.73, 1.0), 0.7),
+    }
+    ok = True
+    for name, (args, want) in cases.items():
+        receiver = make_receiver(extra=VEHICLE_MOCK)
+        remote = ScriptedRemote(receiver, slope_path(*args), loss=0.0)
+        run(receiver, remote, 4.0, 60)
+        pose = receiver.globals().carPose
+        slope = pose.slope if pose is not None else None
+        passed = slope is not None and abs(slope - want) <= 0.02
+        print(f"  {name}: slope {slope if slope is None else round(slope, 3)} (want {want}) {'ok' if passed else 'WRONG'}")
+        ok = ok and passed
+    return ok
+
+
 def test_car_hidden_on_lost_and_reset():
     # LOST: the remote drives, then goes silent
     receiver = make_receiver(extra=VEHICLE_MOCK)
@@ -762,6 +791,7 @@ if __name__ == "__main__":
         "LIVE-3 sender sends the car origin and heading while mounted": test_sender_sends_vehicle_origin,
         "LIVE-3 receiver extrapolates the car to now every frame": test_car_extrapolated_every_frame,
         "LIVE-3 avatar parked hidden while the remote drives; 117 m later it respawns next to the remote": test_avatar_parked_while_driving,
+        "LIVE-3 car pitched with the road from the climb rate (reversing, slow, clamped)": test_car_pitched_with_the_road,
         "LIVE-3 car hidden on connection LOST and on reset": test_car_hidden_on_lost_and_reset,
         "LIVE-3 one 5.5 s local frame while the remote drives keeps the car (no false LOST)": test_car_kept_through_long_local_frame,
         "LIVE-4 a minute in the ESC menu: no teleports, hard corrections or NOT RESPONDING into the frozen world": test_menu_holds_corrections,

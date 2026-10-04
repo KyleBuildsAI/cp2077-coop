@@ -149,7 +149,9 @@ private func CP2077Coop_GetRemoteVehicle() -> ref<VehicleObject> {
 // Spawns (if needed) and moves the remote player's vehicle.
 // Returns true once the vehicle exists and was moved.
 @addMethod(PlayerPuppet)
-public func CP2077Coop_ShowRemoteVehicle(index: Int32, x: Float, y: Float, z: Float, forwardX: Float, forwardY: Float) -> Bool {
+// slope: rise per metre along the heading (forwardX/forwardY is a horizontal
+// unit vector), so the car is pitched with the road instead of placed level.
+public func CP2077Coop_ShowRemoteVehicle(index: Int32, x: Float, y: Float, z: Float, forwardX: Float, forwardY: Float, slope: Float) -> Bool {
     let system = GameInstance.GetDynamicEntitySystem();
 
     if !IsDefined(system) || !system.IsReady() {
@@ -158,7 +160,7 @@ public func CP2077Coop_ShowRemoteVehicle(index: Int32, x: Float, y: Float, z: Fl
 
     let recordID = this.CP2077Coop_VehicleRecordFor(index);
     let position = new Vector4(x, y, z, 1.0);
-    let rotation = Vector4.ToRotation(new Vector4(forwardX, forwardY, 0.0, 0.0));
+    let rotation = Vector4.ToRotation(new Vector4(forwardX, forwardY, slope, 0.0));
     let vehicle = this.CP2077Coop_GetRemoteVehicle();
 
     if IsDefined(vehicle) {
