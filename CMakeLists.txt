@@ -123,3 +123,33 @@ target_link_libraries(coopnet_plugin_probe PRIVATE RED4ext::SDK coopnet_version)
 target_compile_options(coopnet_plugin_probe PRIVATE ${COOPNET_WARNINGS})
 add_dependencies(coopnet_plugin_probe CP2077CoopNet)
 
+# v2 codec: unit tests, golden vectors against proto.py (tools/v2_golden.py) and the fuzzer.
+set(COOPNET_V2_TEST_SUPPORT tests/V2TestSupport.cpp tests/V2TestSupport.hpp)
+foreach(name IN ITEMS tests golden fuzz)
+  if(name STREQUAL "tests")
+    set(source tests/V2Tests.cpp)
+  elseif(name STREQUAL "golden")
+    set(source tests/V2Golden.cpp)
+  else()
+    set(source tests/V2Fuzz.cpp)
+  endif()
+  add_executable(coopnet_v2_${name} ${source} ${COOPNET_V2_TEST_SUPPORT})
+  target_link_libraries(coopnet_v2_${name} PRIVATE coopnet_v2)
+  target_compile_options(coopnet_v2_${name} PRIVATE ${COOPNET_WARNINGS} /WX)
+endforeach()
+
+# The fuzzer again, codec included, under AddressSanitizer: every input sits in a heap block of
+# exactly its size, so any over-read is reported. Needs the MSVC ASan runtime next to cl.exe.
+get_filename_component(COOPNET_MSVC_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+set(COOPNET_ASAN_DLL "${COOPNET_MSVC_BIN}/clang_rt.asan_dynamic-x86_64.dll")
+if(EXISTS "${COOPNET_ASAN_DLL}")
+  add_executable(coopnet_v2_fuzz_asan tests/V2Fuzz.cpp ${COOPNET_V2_TEST_SUPPORT} ${COOPNET_V2_SOURCES})
+  target_include_directories(coopnet_v2_fuzz_asan PRIVATE "${PROJECT_SOURCE_DIR}/src")
+  target_compile_options(coopnet_v2_fuzz_asan PRIVATE ${COOPNET_WARNINGS} /WX /fsanitize=address /Zi)
+  target_link_options(coopnet_v2_fuzz_asan PRIVATE /INCREMENTAL:NO /DEBUG)
+  add_custom_command(TARGET coopnet_v2_fuzz_asan POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${COOPNET_ASAN_DLL}" "$<TARGET_FILE_DIR:coopnet_v2_fuzz_asan>")
+  message(STATUS "AddressSanitizer fuzz target enabled (${COOPNET_ASAN_DLL})")
+else()
+  message(STATUS "AddressSanitizer runtime not found next to ${CMAKE_CXX_COMPILER}; coopnet_v2_fuzz_asan skipped")
+endif()
