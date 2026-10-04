@@ -16,11 +16,17 @@ P3  long mod lists (30 / 28, as test_mods): the burst ends, flags >= 85% after i
     the panel's comparison exact (the share over the whole run is printed: the
     one-time burst counts against it)
 P4  vehicle index: only after a flags slot that says "in a vehicle", within
-    3 slots of it, once more 0.2 s later, then 1 +- 0.1 Hz while mounted, none
-    after leaving
+    3 slots of it, once more 0.2 s later, then at least 0.5 Hz while mounted
+    (time, weather, index and ping share the non-flag budget), none after
+    leaving; flags in >= 85% of the slots while mounted
 P5  partner reloads (6 s silent) and resets without a pause: the other side sends
     its list again, the reloaded side compares again, the panel ends exact, and
     both go back to one pair every 10 s (no endless re-send)
+P7  host at 20 fps (20 slots/s), on foot and mounted: player flags still in >= 85%
+    of the slots after the mod burst (at most EXTRA_SHARE 14.5% non-flag slots),
+    ping >= 0.75 Hz, time and weather (and the index) repeat at >= 0.5 Hz on foot,
+    >= 0.3 Hz mounted, never more than 6 s between two time packets, and a time
+    change still goes out within 0.2 s
 P6  car entry with no random loss: the joiner shows the host's car within 0.3 s,
     also when the first "in a vehicle" flags packet is lost, within 0.5 s when the
     first vehicle index packet is lost (sent again after 0.2 s) or the joiner runs
@@ -375,7 +381,7 @@ def test_vehicle_index():
           f"{share(mounted):.1f} %; joiner saw index {sorted(seen)}")
     return (bool(vehicle) and first_flag < vehicle[0] <= first_flag + 3
             and resend is not None and 0.15 <= resend <= 0.35
-            and abs(rate(times[1:]) - 1.0) <= 0.1 and not late and not wrong and seen == {VEHICLE_INDEX})
+            and rate(times[1:]) >= 0.5 and share(mounted) >= FLAG_SHARE_MIN and not late and not wrong and seen == {VEHICLE_INDEX})
 
 
 # ------------------------------------------------------------------ P6
@@ -452,6 +458,62 @@ def test_car_entry_under_loss():
     return ok
 
 
+# ------------------------------------------------------------------ P7
+
+def slow_host(mounted, seconds=120.0, seed=35):
+    """Host at 20 fps (20 slots/s), joiner at 60; mounted from 20 s when asked."""
+    host, joiner = make_pair(SHARED + HOST_ONLY, SHARED + JOINER_ONLY, seed=seed)
+    host.peer.dt = 1.0 / 20.0
+
+    def on_frame(peer, t):
+        if mounted and peer is host.peer and t >= 20.0 and host.lua.globals().localFlags != IN_VEHICLE:
+            host.set_flags(t, IN_VEHICLE)
+
+    timing.run_pair(host.peer, joiner.peer, seconds, on_frame)
+    return host
+
+
+def test_slow_host():
+    ok = True
+    for mounted in (False, True):
+        host = slow_host(mounted)
+        slots = host.slots()
+        burst_end = max((x[1] for x in slots if x[3]), default=0.0)
+        start = max(burst_end + 1.0, 21.0 if mounted else 0.0)
+        after = [x for x in slots if x[1] > start]
+        rates = {name: rate([x[1] for x in after if kind(x[2]) == wanted])
+                 for name, wanted in (("ping", PING), ("time", TIME), ("weather", WEATHER), ("vehicle", VEHICLE))}
+        time_slots = [x[1] for x in after if kind(x[2]) == TIME]
+        longest_gap = max((b - a for a, b in zip(time_slots, time_slots[1:])), default=float("inf"))
+        # the 3-minute time value steps every 22.5 s: a change still goes out at once
+        delays = []
+        for k in range(1, int(slots[-1][1] / 22.5)):
+            value = (600 + 3 * k) // 3
+            first = next((x[1] for x in slots if kind(x[2]) == TIME and x[2] % TYPE_STRIDE == value), None)
+            delays.append(None if first is None else first - k * 22.5)
+        repeat_min = 0.3 if mounted else 0.5
+        checks = [
+            share(after) >= FLAG_SHARE_MIN,
+            longest_extra_run(after) <= 2,
+            rates["ping"] >= 0.75,
+            rates["time"] >= repeat_min and rates["weather"] >= repeat_min,
+            longest_gap <= 6.0,  # the joiner's TIME_FRESH_SECONDS is 10
+            None not in delays and max(delays) <= 0.2,
+        ]
+        if mounted:
+            first_flag = next(i for i, x in enumerate(slots) if kind(x[2]) == FLAGS and x[2] & IN_VEHICLE)
+            first_index = next((i for i, x in enumerate(slots) if kind(x[2]) == VEHICLE), None)
+            checks += [first_index is not None and first_flag < first_index <= first_flag + 3,
+                       rates["vehicle"] >= repeat_min]
+        print(f"  host 20 fps {'mounted' if mounted else 'on foot'}: flags {share(after):.2f} % of {len(after)} slots "
+              f"after {start:.1f} s, longest non-flag run {longest_extra_run(after)}; "
+              + ", ".join(f"{name} {value:.2f} Hz" for name, value in rates.items())
+              + f"; longest time gap {longest_gap:.2f} s; time change out after "
+              f"{max(d for d in delays if d is not None):.3f} s (missing {delays.count(None)})")
+        ok = ok and all(checks)
+    return ok
+
+
 # ------------------------------------------------------------------ P5
 
 def test_partner_reload():
@@ -498,9 +560,10 @@ if __name__ == "__main__":
             lambda: main_runs and test_main_run(host, joiner)),
         "P2 time and weather changes go out at once": lambda: main_runs and test_world_changes_at_once(host),
         "P3 long mod lists: burst ends, flags >= 85 % after it, exact comparison": test_long_lists,
-        "P4 vehicle index after the 'in a vehicle' flags, 1 Hz while mounted": test_vehicle_index,
+        "P4 vehicle index after the 'in a vehicle' flags, again after 0.2 s, >= 0.5 Hz; flags >= 85 % mounted": test_vehicle_index,
         "P5 partner reload / reset: lists sent again, compared exactly, back to one pair per 10 s": test_partner_reload,
         "P6 car entry: one lost 'in a vehicle' flags or index packet, or a 24/27 fps joiner, shows the car within 0.3-0.5 s": test_car_entry_under_loss,
+        "P7 host at 20 fps, on foot and mounted: flags >= 85 %, ping >= 0.75 Hz, time / weather / index repeat, changes at once": test_slow_host,
     }
     for name, test in tests.items():
         print(f"-- {name}")

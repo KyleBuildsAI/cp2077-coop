@@ -1318,9 +1318,12 @@ local Sync = {
     -- Terminy (Sync.clock) i ostatnio wysłane wartości (nil = jeszcze
     -- nie, czyli wysłać od razu).
     WORLD_INTERVAL = 1.0,
-    -- nowy model pojazdu idzie drugi raz po tylu sekundach: zgubiony
-    -- albo nadpisany pierwszy pakiet kosztuje 0.2 s, nie WORLD_INTERVAL
+    -- nowy model pojazdu idzie drugi raz po tylu sekundach, jak zmiana
+    -- (bez czekania na budżet slotów): zgubiony albo nadpisany pierwszy
+    -- pakiet kosztuje 0.2 s, nie sekundę i więcej
     VEHICLE_RESEND = 0.2,
+    -- Sync.clock drugiego wysłania nowego modelu (nil = już poszło)
+    vehicleResendAt = nil,
     nextTimeAt = 0.0,
     nextWeatherAt = 0.0,
     nextVehicleAt = 0.0,
@@ -1329,6 +1332,15 @@ local Sync = {
     sentVehicle = nil,
     -- poprzedni slot niósł coś innego niż flagi: ten niesie flagi
     lastSlotExtra = false,
+    -- Budżet slotów bez flag (flagi w >= 85% slotów przy każdym fps,
+    -- w aucie też): każdy slot dodaje EXTRA_SHARE kredytu (do
+    -- EXTRA_CREDIT_MAX), każdy slot bez flag zabiera 1 (dług do
+    -- -EXTRA_CREDIT_MAX; seria modów nic nie zabiera). Ping i powtórki
+    -- godziny / pogody / pojazdu czekają na kredyt >= 1. 0.15 dałoby
+    -- 84.99% przy niskim fps.
+    EXTRA_SHARE = 0.145,
+    EXTRA_CREDIT_MAX = 2.0,
+    extraCredit = 1.0,
     -- flagi z ostatniego pakietu flag (model pojazdu dopiero po
     -- fladze "w pojeździe", inaczej odbiorca go wyrzuca)
     lastSentFlags = 0,
@@ -1356,8 +1368,10 @@ local Sync = {
     -- Sync.clock przy ostatnim pakiecie z godziną hosta
     remoteTimeClock = -100.0,
     -- starsza godzina = host milczy (wyjście, crash, ładowanie):
-    -- nie cofamy zegara joinera do zamrożonej wartości
-    TIME_FRESH_SECONDS = 3.0,
+    -- nie cofamy zegara joinera do zamrożonej wartości. Host przy
+    -- ~20 fps w aucie powtarza godzinę co 2-5 s (budżet slotów), więc
+    -- 10 s; to ~1.3 minuty gry, daleko w TIME_TOLERANCE_MINUTES.
+    TIME_FRESH_SECONDS = 10.0,
     timeCooldown = 0.0,
 
     appliedWeather = -1,
@@ -1537,6 +1551,7 @@ function Sync.mountedVehicleIndex(player)
     if not Sync.hasFlag(Sync.localFlags, Sync.FLAG_IN_VEHICLE) then
 
         Sync.sentVehicle = nil
+        Sync.vehicleResendAt = nil
         return nil
     end
 
@@ -1564,16 +1579,25 @@ end
 
 function Sync.nextVehiclePayload(index, changedOnly)
 
-    if not Sync.dueValue(index, Sync.sentVehicle, Sync.nextVehicleAt, changedOnly) then
+    local resend =
+        index ~= nil
+        and index == Sync.sentVehicle
+        and Sync.vehicleResendAt ~= nil
+        and Sync.clock >= Sync.vehicleResendAt
+
+    if not resend
+        and not Sync.dueValue(index, Sync.sentVehicle, Sync.nextVehicleAt, changedOnly)
+    then
         return nil
     end
 
     if index ~= Sync.sentVehicle then
-        Sync.nextVehicleAt = Sync.clock + Sync.VEHICLE_RESEND
+        Sync.vehicleResendAt = Sync.clock + Sync.VEHICLE_RESEND
     else
-        Sync.nextVehicleAt = Sync.nextSendAt(Sync.nextVehicleAt, Sync.WORLD_INTERVAL)
+        Sync.vehicleResendAt = nil
     end
 
+    Sync.nextVehicleAt = Sync.nextSendAt(Sync.nextVehicleAt, Sync.WORLD_INTERVAL)
     Sync.sentVehicle = index
 
     return
@@ -1582,9 +1606,51 @@ function Sync.nextVehiclePayload(index, changedOnly)
 end
 
 
+-- Powtórka godziny, pogody albo modelu pojazdu: ta, której termin
+-- minął najdawniej (przy budżecie poniżej 1 Hz na każdą zwalniają
+-- równo, żadna nie głoduje). nil = nic nie jest należne.
+function Sync.nextRepeatPayload(timeValue, weatherValue, vehicleIndex)
+
+    local due = nil
+    local dueAt = nil
+
+    if timeValue ~= nil and Sync.clock >= Sync.nextTimeAt then
+        due, dueAt = "time", Sync.nextTimeAt
+    end
+
+    if weatherValue ~= nil
+        and Sync.clock >= Sync.nextWeatherAt
+        and (dueAt == nil or Sync.nextWeatherAt < dueAt)
+    then
+        due, dueAt = "weather", Sync.nextWeatherAt
+    end
+
+    if vehicleIndex ~= nil
+        and Sync.clock >= Sync.nextVehicleAt
+        and (dueAt == nil or Sync.nextVehicleAt < dueAt)
+    then
+        due = "vehicle"
+    end
+
+    if due == "time" then
+        return Sync.nextWorldPayload(timeValue, nil, false)
+    end
+
+    if due == "weather" then
+        return Sync.nextWorldPayload(nil, weatherValue, false)
+    end
+
+    if due == "vehicle" then
+        return Sync.nextVehiclePayload(vehicleIndex, false)
+    end
+
+    return nil
+end
+
+
 -- Payload inny niż flagi, jeśli coś jest do wysłania (nil = flagi).
 -- Kolejność: zmieniona godzina / pogoda / auto, ping, ich termin co
--- WORLD_INTERVAL, mody.
+-- WORLD_INTERVAL (ping i powtórki tylko przy kredycie >= 1), mody.
 function Sync.nextExtraPayload(player, isHost)
 
     -- druga strona jeszcze nie pokazała, że dekoduje payload (patrz
@@ -1632,10 +1698,14 @@ function Sync.nextExtraPayload(player, isHost)
         and Sync.PING_INTERVAL_LEGACY
         or Sync.PING_INTERVAL
 
+    -- ping i powtórki tylko w ramach budżetu (Sync.buildPayload)
+    local affordable =
+        Sync.extraCredit >= 1.0
+
     -- ping idzie też, zanim druga strona pokaże, że dekoduje payload:
     -- z niego druga strona wie, że my dekodujemy
-    if Sync.clock - Sync.lastPingClock >=
-        pingInterval
+    if affordable
+        and Sync.clock - Sync.lastPingClock >= pingInterval
     then
 
         Sync.lastPingClock = Sync.clock
@@ -1655,12 +1725,14 @@ function Sync.nextExtraPayload(player, isHost)
         return nil
     end
 
-    local periodic =
-        Sync.nextWorldPayload(timeValue, weatherValue, false)
-        or Sync.nextVehiclePayload(vehicleIndex, false)
+    if affordable then
 
-    if periodic ~= nil then
-        return periodic
+        local periodic =
+            Sync.nextRepeatPayload(timeValue, weatherValue, vehicleIndex)
+
+        if periodic ~= nil then
+            return periodic
+        end
     end
 
     if Mods.due(Sync.clock) then
@@ -1674,16 +1746,25 @@ end
 -- Co wysłać w tym pakiecie (jeden payload na klatkę z tyknięciem
 -- 30 Hz). Flagi gracza mają dojść w >= 85% pakietów u OBU ról (Total
 -- Sync Plan, faza 0; wcześniej host 23%, joiner 70%: mody 25% na
--- zawsze, godzina i pogoda 50% pakietów hosta). Teraz:
+-- zawsze, godzina i pogoda 50% pakietów hosta), przy każdym fps i
+-- w aucie: najwyżej EXTRA_SHARE (14.5%) slotów bez flag. Teraz:
 --   pong od razu (dokładny RTT),
 --   godzina i pogoda (host), model pojazdu: od razu po zmianie
---     (przed pingiem) i co WORLD_INTERVAL,
---   ping co PING_INTERVAL,
+--     (przed pingiem),
+--   ping co PING_INTERVAL, potem powtórki godziny / pogody / pojazdu
+--     co WORLD_INTERVAL - jeśli starcza kredytu (poniżej ~28 slotów/s
+--     albo w aucie rzadziej niż 1 Hz),
 --   mody: seria do porównania + 2 cykle, potem para co 10 s (Mods.due),
 --   reszta: flagi.
 -- Po pakiecie bez flag (poza pongiem) następny niesie flagi, więc
 -- zmiana flag czeka najwyżej jeden slot.
 function Sync.buildPayload(player, isHost)
+
+    Sync.extraCredit =
+        math.min(
+            Sync.EXTRA_CREDIT_MAX,
+            Sync.extraCredit + Sync.EXTRA_SHARE
+        )
 
     -- odpowiedź na ping drugiego gracza ma pierwszeństwo
     if Sync.pendingPong ~= nil then
@@ -1691,6 +1772,7 @@ function Sync.buildPayload(player, isHost)
         local token = Sync.pendingPong
         Sync.pendingPong = nil
         Sync.lastSlotExtra = true
+        Sync.spendExtraSlot()
 
         return
             Sync.TYPE_PONG * Sync.TYPE_STRIDE +
@@ -1702,10 +1784,23 @@ function Sync.buildPayload(player, isHost)
 
     if not Sync.lastSlotExtra then
 
+        -- seria modów nic nie kosztuje: inaczej po długiej liście
+        -- ping i godzina czekałyby, aż dług spłaci się sam
+        local bursting = Mods.bursting()
+
         local extra =
             Sync.nextExtraPayload(player, isHost)
 
         if extra ~= nil then
+
+            local extraType =
+                math.floor(extra / Sync.TYPE_STRIDE)
+
+            if not (bursting
+                and (extraType == Mods.TYPE_HI or extraType == Mods.TYPE_LO))
+            then
+                Sync.spendExtraSlot()
+            end
 
             Sync.lastSlotExtra = true
             return extra
@@ -1716,6 +1811,18 @@ function Sync.buildPayload(player, isHost)
     Sync.lastSentFlags = Sync.localFlags
 
     return flagsPayload
+end
+
+
+-- Slot bez flag zabiera kredyt (dług ograniczony, żeby po serii
+-- pongów / zmian powtórki nie czekały dłużej niż ~0.7 s).
+function Sync.spendExtraSlot()
+
+    Sync.extraCredit =
+        math.max(
+            -Sync.EXTRA_CREDIT_MAX,
+            Sync.extraCredit - 1.0
+        )
 end
 
 
@@ -2580,8 +2687,10 @@ function Sync.reset()
     Sync.sentTime = nil
     Sync.sentWeather = nil
     Sync.sentVehicle = nil
+    Sync.vehicleResendAt = nil
     Sync.lastSlotExtra = false
     Sync.lastSentFlags = 0
+    Sync.extraCredit = 1.0
 
     Sync.remoteFlags = 0
     Sync.appliedFlags = -1
