@@ -889,13 +889,17 @@ local Sync = {
 }
 
 
--- Czy redscript (state.reds) się skompilował.
+-- Czy redscript się skompilował. Kompilacja jest "wszystko albo nic"
+-- (błąd w .reds innego moda = brak wszystkich metod CP2077Coop_*),
+-- więc wystarczy sprawdzić jedną metodę z state.reds.
 function Sync.hasScripts(player)
 
     return player.CP2077Coop_GetStateFlags ~= nil
 end
 
 
+-- Raz na sesję: bez redscriptu nie ma avatara ani stanu gry,
+-- a wywołanie brakującej metody rzucałoby błąd przy każdym pakiecie.
 function Sync.reportMissingScripts()
 
     if Sync.scriptsReported then
@@ -905,7 +909,7 @@ function Sync.reportMissingScripts()
     Sync.scriptsReported = true
 
     print(
-        "[CP2077Coop] state sync disabled: state.reds not compiled (check r6/logs/redscript_rCURRENT.log)"
+        "[CP2077Coop] redscript not compiled - remote avatar and state sync disabled (check r6/logs/redscript_rCURRENT.log; an error in any mod's .reds breaks the whole compile)"
     )
 end
 
@@ -1630,6 +1634,36 @@ function Sync.catchUpMoveType(moveType, errorDistance)
     return
         Sync.CATCH_UP_NEXT[moveType] or
         moveType
+end
+
+
+------------------------------------------------------------
+-- SPAWN AVATARA
+------------------------------------------------------------
+
+-- Pierwszy pakiet drugiego gracza: avatar przed lokalnym graczem.
+function Sync.requestSpawn(player)
+
+    -- redscript się nie skompilował: bez avatara (log raz),
+    -- reszta onUpdate (teleport do hosta, panel) działa dalej
+    if player.CP2077Coop_SpawnRemoteTest == nil then
+
+        Sync.reportMissingScripts()
+        return
+    end
+
+    player:CP2077Coop_SpawnRemoteTest()
+
+    S.remoteInitialized = true
+
+    print(
+        string.format(
+            "[CP2077Coop] remote spawn requested @ %.2f %.2f %.2f",
+            S.targetX,
+            S.targetY,
+            S.targetZ
+        )
+    )
 end
 
 
@@ -3209,7 +3243,7 @@ function Diag.draw()
 
     Diag.row(
         "Scripts",
-        Sync.scriptsReported and "state.reds NOT compiled" or "ok",
+        Sync.scriptsReported and "redscript NOT compiled - no avatar" or "ok",
         Sync.scriptsReported and "bad" or "good"
     )
 
@@ -3658,6 +3692,13 @@ local function hardCorrectRemote(
     y,
     z
 )
+
+    -- bez redscriptu nie ma czym teleportować (i nie ma avatara)
+    if player.CP2077Coop_MoveRemoteTest == nil then
+
+        Sync.reportMissingScripts()
+        return
+    end
 
     cancelMoveCommand()
 
@@ -4637,18 +4678,8 @@ registerForEvent(
                 and not S.joinSyncPending
             then
 
-                player:
-                    CP2077Coop_SpawnRemoteTest()
-
-                S.remoteInitialized = true
-
-                print(
-                    string.format(
-                        "[CP2077Coop] remote spawn requested @ %.2f %.2f %.2f",
-                        S.targetX,
-                        S.targetY,
-                        S.targetZ
-                    )
+                Sync.requestSpawn(
+                    player
                 )
             end
         end
