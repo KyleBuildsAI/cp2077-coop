@@ -1,5 +1,5 @@
 // Integration test: two Transport instances (the same code the plugin runs) talk through a real
-// UDP relay (tools/net2_relay.py), usually with simulated latency, jitter and loss.
+// UDP relay (tools/coopnet_relay.py), usually with simulated latency, jitter and loss.
 //
 //   coopnet_loopback.exe [host] [port] [reliableCount] [timeoutSeconds]
 //
