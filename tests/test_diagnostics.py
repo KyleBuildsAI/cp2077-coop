@@ -19,6 +19,8 @@ D9  monitor_status.txt left behind by a stopped monitor is shown as stale, not
     as a live ping; the monitor swaps the file in whole and removes it on Ctrl+C
 D10 the history CSV locked by Excel gives a WARN, not a crash; a header change
     starts a new file (the D1/D10 runs write their history to a temp folder)
+D11 Codeware and the coop DLL count as loaded only by RED4ext's success line;
+    a Codeware version other than 1.18.0 is a WARN
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
@@ -603,6 +605,53 @@ def test_history_locked_by_excel():
         shutil.rmtree(game, ignore_errors=True)
 
 
+# ------------------------------------------------------------------ D11
+
+# RED4ext's own wording (red4ext/logs/red4ext-*.log of the Test B bench)
+RED4EXT_LINE = "[2026-10-04 00:25:15.105] [info    ] [ 51360] [RED4ext] {}"
+LOADING = r"Loading plugin from 'G:\SteamLibrary\steamapps\common\Cyberpunk 2077\red4ext\plugins\{0}\{0}.dll'..."
+
+
+def startup_rows(lines):
+    game = tempfile.mkdtemp(prefix="coopr4x_")
+    try:
+        log_dir = os.path.join(game, "red4ext", "logs")
+        os.makedirs(log_dir)
+        with open(os.path.join(log_dir, "red4ext-2026-10-04-00-25-05.log"), "w", encoding="utf-8") as handle:
+            handle.write("".join(RED4EXT_LINE.format(line) + "\n" for line in lines))
+        return {name: (level, detail) for level, name, detail in monitor.check_startup_logs(game) if name in ("Codeware", "Coop DLL")}
+    finally:
+        shutil.rmtree(game, ignore_errors=True)
+
+
+def test_plugin_load_lines():
+    loaded = startup_rows([
+        LOADING.format("Codeware"),
+        "Codeware (version: 1.18.0, author(s): psiberx) has been loaded",
+        "CP2077 Coop (version: 0.0.25, author(s): Jakub) has been loaded",
+        "CP2077CoopNet (version: 0.1.0, author(s): CP2077 Coop) has been loaded",
+    ])
+    # Codeware rejected (e.g. after a game patch), the coop DLL only unloaded, CoopNet loaded
+    failed = startup_rows([
+        LOADING.format("Codeware"),
+        "ArchiveXL (version: 1.21.0, author(s): psiberx) has been loaded",
+        "CP2077CoopNet (version: 0.1.0, author(s): CP2077 Coop) has been loaded",
+        "CP2077 Coop has been unloaded",
+    ])
+    other_version = startup_rows([
+        "Codeware (version: 1.17.2, author(s): psiberx) has been loaded",
+        "CP2077 Coop (version: 0.0.25, author(s): Jakub) has been loaded",
+    ])
+    for name, rows in (("all loaded", loaded), ("Codeware rejected", failed), ("Codeware 1.17.2", other_version)):
+        print(f"  {name}: {rows}")
+    return (
+        loaded == {"Codeware": (monitor.GOOD, "loaded 1.18.0"), "Coop DLL": (monitor.GOOD, "loaded 0.0.25")}
+        and failed["Codeware"][0] == monitor.BAD and failed["Coop DLL"][0] == monitor.BAD
+        and other_version["Codeware"] == (monitor.WARN, "loaded 1.17.2 (the mod is tested with 1.18.0)")
+        and other_version["Coop DLL"][0] == monitor.GOOD
+    )
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -615,6 +664,7 @@ if __name__ == "__main__":
         "D8 panel names the real monitor path (coop-tools/)": test_panel_names_monitor_path,
         "D9 panel drops relay values once the monitor stops; status file swapped in whole": test_monitor_status_staleness,
         "D10 history CSV open in Excel: monitor warns and keeps running; new columns start a new file": test_history_locked_by_excel,
+        "D11 Codeware / coop DLL graded by their RED4ext success line and version": test_plugin_load_lines,
     }
     results = {}
     for name, test in tests.items():

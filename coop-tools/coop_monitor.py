@@ -49,6 +49,8 @@ RELAY_CLIENT = re.compile(r"\[STATS\]\s+#(\d+) \S+\s+in=\s*[\d.]+/s total=(\d+) 
 EVENT_KEYWORDS = ("EVENT", "WORLD SYNC", "synced", "ERROR", "FAILED", "GAVE UP", "disabled", "loaded",
                   "sync ON", "sync OFF", "not compiled")
 RED4EXT_LOG_DIR = os.path.join("red4ext", "logs")
+# the Codeware version the mod is tested with (README)
+EXPECTED_CODEWARE = "1.18.0"
 
 REFRESH_SECONDS = 5.0
 STATS_STALE_SECONDS = 15.0
@@ -218,6 +220,16 @@ def grade(value, limits, higher_is_bad=True):
     return GOOD if value >= warn_at else BAD
 
 
+def plugin_loaded_version(text, name):
+    """Version from RED4ext's '<name> (version: X, author(s): Y) has been loaded' line, else None.
+
+    Only the success line counts: the plugin's name also appears in 'Loading plugin
+    from ...' and 'has been unloaded', and other plugins' lines say 'has been loaded'.
+    """
+    match = re.search(r"\] " + re.escape(name) + r" \(version: ([^,)\n]+)[^\n]*\) has been loaded", text)
+    return match.group(1).strip() if match else None
+
+
 def check_startup_logs(game_dir):
     """Compile errors, crashes, plugin loading."""
     checks = []
@@ -238,8 +250,17 @@ def check_startup_logs(game_dir):
     if newest:
         lines = tail_lines(newest)
         text = "\n".join(lines)
-        checks.append((GOOD if "Codeware" in text and "has been loaded" in text else BAD, "Codeware", "loaded" if "Codeware" in text else "NOT loaded"))
-        checks.append((GOOD if "CP2077 Coop" in text else BAD, "Coop DLL", "loaded" if "CP2077 Coop" in text else "NOT loaded"))
+        log_name = os.path.basename(newest)
+        codeware = plugin_loaded_version(text, "Codeware")
+        if codeware is None:
+            checks.append((BAD, "Codeware", f"NOT loaded (see red4ext/logs/{log_name}) - the avatar cannot spawn"))
+        elif codeware != EXPECTED_CODEWARE:
+            checks.append((WARN, "Codeware", f"loaded {codeware} (the mod is tested with {EXPECTED_CODEWARE})"))
+        else:
+            checks.append((GOOD, "Codeware", f"loaded {codeware}"))
+        coop = plugin_loaded_version(text, "CP2077 Coop")
+        checks.append((GOOD, "Coop DLL", f"loaded {coop}") if coop
+                      else (BAD, "Coop DLL", f"NOT loaded (see red4ext/logs/{log_name})"))
         crash = [l for l in lines if "Crash report" in l or "Watchdog" in l or "Message:" in l]
         if crash:
             checks.append((BAD, "crash", " | ".join(c.split("] ")[-1] for c in crash[-2:])))
