@@ -18,10 +18,10 @@ same port, so the old DLL keeps working during migration.
 ## Run
 
 ```bash
-python -m unittest discover -s tests          # 66 unit tests (codecs, fuzzing, reliability, deltas, relay)
+python -m unittest discover -s tests          # 75 unit tests (codecs, fuzzing, reliability, deltas, relay)
 python run_demo.py                            # 5 end-to-end scenarios over real UDP (about 2 minutes)
 python run_demo.py --only realistic --duration 40
-python tools/check_c_header.py                # compile include/coop_proto_v2.h, compare with Python
+python tools/check_c_header.py                # compile include/coop_proto_v2.h, compare layouts and constants
 python relay_v2.py                            # local relay on 127.0.0.1:11778 (v1 + v2)
 python relay_v2.py --host :: --port 11778     # public relay, IPv6 + IPv4
 python tools/relay_ping.py relay.example.net:11778   # RTT to a candidate v2 relay (no session created)
@@ -63,6 +63,11 @@ HMAC cookie bound to IP:port, valid 10 s) → `AUTH` (join info + cookie + `SHA2
 Join info carries protocol minor, requested role, capabilities, game build hash, mod version and a
 u64 hash of the sorted mod list. The room creator can require identical mods/game build (`STRICT_MODS`).
 
+**Minor versions**: the relay speaks 2.1 and accepts 2.0 clients. The negotiated minor is
+`min(client, relay)`; WELCOME and PEER_JOINED carry it. 2.1 adds `SCRIPT_MSG` and the entity extension
+`X_WORLD_ID`. The relay only accepts them from, and only delivers them to, peers that negotiated minor 1
+(a 2.0 receiver is skipped and counted as `minor_filtered`).
+
 **Channels** (per hop, client↔relay): each DATA packet acks the newest packet plus 32 before it.
 Unreliable messages are sent once. Reliable messages carry a u16 message sequence, are resent after
 an RTO (SRTT + 4·RTTVAR + 40 ms, exponential backoff) and delivered exactly once, in order. Message header:
@@ -88,6 +93,12 @@ peer; the relay rewrites it to the source peer.
 | `WORLD_FACT` 0x29 | reliable | host → all | 12 | quest facts |
 | `MOD_LIST` 0x2A | reliable | player → all | 3+text chunks | on join |
 | `SESSION_CONFIG` 0x2B | reliable | host → all | 8 | on join/change |
+| `SCRIPT_MSG` 0x30 (2.1) | channel 1–15 unreliable, 16–31 reliable | player → named peer or all (0xFF) | 4+text (≤ 1000) | script bring-up |
+
+**Script messages** (2.1): `channel u8, flags u8, text_len u16, text` with UTF-8 text of at most 1000 bytes and
+no NUL; other control characters are allowed so scripts can send JSON. The channel numbers are the plugin's
+`Net_Send` channels, and the reliable bit must match them (channels 16–31 reliable), otherwise the relay
+drops the message as a violation. `flags` has no meaning yet and is relayed unchanged.
 
 **Player snapshot**: sequence, `sample_time` (relay clock ms), position f32×3, yaw u16, pitch i16 (0.01°),
 velocity i16×3 (cm/s), move state, health, flags (crouch, weapon drawn, aiming, firing, in vehicle, driving,
@@ -98,7 +109,9 @@ forward vector.
 
 **Entity snapshot**: `tick, baseline_tick, sample_time, count` + records
 `net_id u16, mask u8 [ext u8] [SPAWN kind/flags/attitude/TweakDBID/appearance 20] [POS i32×3 mm | POS_DELTA i16×3 mm]
-[YAW u16 | QUAT u32] [VEL i16×3] [STATE move/flags/health 3] [TARGET u16] [WEAPON u64]`. Records are deltas against
+[YAW u16 | QUAT u32] [VEL i16×3] [STATE move/flags/health 3] [TARGET u16] [WEAPON u64] [WORLD_ID u64]`.
+`WORLD_ID` (ext bit 0x08, protocol 2.1) is the static EntityID hash of a placed NPC so the joiner can bind
+its own copy (a "mirror"); it is part of the entity identity and travels with the spawn block. Records are deltas against
 the newest snapshot the receiver acknowledged (`SNAPSHOT_ACK`); missing entities are unchanged, removals are
 explicit, so a lost snapshot never breaks later ones. A walking NPC costs 9–17 bytes, a spawn 44. The host
 runs interest management (NPCs within 100 m, vehicles within 200 m, +15 m hysteresis, hostile NPCs targeting
