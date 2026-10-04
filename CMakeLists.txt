@@ -87,6 +87,8 @@ set(COOPNET_V2_SOURCES
   src/v2/coop_proto_v2.h
   src/v2/V2Codec.cpp
   src/v2/V2Codec.hpp
+  src/v2/V2Delta.cpp
+  src/v2/V2Delta.hpp
   src/v2/V2Describe.cpp
   src/v2/V2Describe.hpp
   src/v2/V2Hash.cpp
