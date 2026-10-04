@@ -81,6 +81,22 @@ target_compile_options(coopnet_core PRIVATE ${COOPNET_WARNINGS} /WX)
 target_link_libraries(coopnet_core PUBLIC ws2_32 coopnet_version)
 
 # -----------------------------------------------------------------------------
+# Protocol v2 codec (port of relay/coopnet/proto.py and snapshot.py; no RED4ext, no Winsock)
+# -----------------------------------------------------------------------------
+set(COOPNET_V2_SOURCES
+  src/v2/coop_proto_v2.h
+  src/v2/V2Codec.cpp
+  src/v2/V2Codec.hpp
+  src/v2/V2Describe.cpp
+  src/v2/V2Describe.hpp
+  src/v2/V2Hash.cpp
+  src/v2/V2Hash.hpp
+)
+add_library(coopnet_v2 STATIC ${COOPNET_V2_SOURCES})
+target_include_directories(coopnet_v2 PUBLIC "${PROJECT_SOURCE_DIR}/src")
+target_compile_options(coopnet_v2 PRIVATE ${COOPNET_WARNINGS} /WX)
+
+# -----------------------------------------------------------------------------
 # RED4ext plugin
 # -----------------------------------------------------------------------------
 add_library(CP2077CoopNet SHARED src/plugin/Main.cpp)
