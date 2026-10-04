@@ -63,7 +63,8 @@ folder on its own when it is run without the runner.
 
 A check whose name contains `[KNOWN: ...]` is a tracked, known problem. If a test
 fails only on such checks, and does not crash, the runner reports it as known
-and does not count it. The `test_bot.py` drift item is the only tagged check.
+and does not count it. Remove a tag as soon as its check passes, or a later
+regression in it is not counted; the runner prints a note when a tagged check passes.
 
 The mock AI model is an assumption: walk 2.0, run 4.5 and sprint 7.0 m/s, a 0.1 s
 command delay, and `CancelCommand` stops the NPC. The real values have to be

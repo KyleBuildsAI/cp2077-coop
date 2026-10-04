@@ -154,6 +154,9 @@ function Test-PythonScript {
     }
     $result = Invoke-InWorkFolder ([IO.Path]::GetFileNameWithoutExtension($Test)) @($path, $LuaScript)
     Show-Lines $result $ResultPattern
+    # a tag left on a passing check would hide its next regression
+    $staleTags = @($result.Lines | Where-Object { $_ -cmatch "^PASS\b" -and $_ -cmatch "\[KNOWN" })
+    foreach ($line in $staleTags) { Write-Output "  note: tagged check now passes, remove its [KNOWN] tag: $line" }
     $verdict = Get-Verdict $result
     if ($verdict -eq "KNOWN") {
         Write-Output "  (only [KNOWN] checks failed: tracked, not counted)"

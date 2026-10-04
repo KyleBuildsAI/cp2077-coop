@@ -139,6 +139,9 @@ def main():
     car = car_pose_errors(host_truth, car_samples)
     print("joiner car vs bot true pose (vehicle phase, %d frames): position avg %.2f m p95 %.2f m max %.2f m, heading avg %.1f deg p95 %.1f deg"
           % (car["frames"], car["pos_avg"], car["pos_p95"], car["pos_max"], car["yaw_avg"], car["yaw_p95"]))
+    # window 1 holds the bot start jump; the seeded run's worst later window is about 5 m
+    drift_maxima = [float(s["drift_max_m"]) for s in stats[1:] if s.get("drift_max_m") not in (None, "-")]
+    print("joiner drift max per window after start:", drift_maxima)
     checks = {
         "joiner car matches bot pose (avg < 0.2 m, p95 < 0.4 m, heading avg < 2 deg)": car["frames"] > 200 and car["pos_avg"] < 0.2 and car["pos_p95"] < 0.4 and car["yaw_avg"] < 2.0,
         "all bot phases ran": {"walk", "run", "sprint", "pistol", "pistol-aim", "crouch-walk", "crouch-rifle", "dodge", "vehicle"}.issubset(phases),
@@ -148,7 +151,7 @@ def main():
         "joiner saw vehicle speed": max_speed > 9.0,
         "remote vehicle #35 shown then hidden": set(vehicle_shows) == {35} and len(vehicle_shows) > 100 and applied.vehicleHide >= 1,
         "joiner saw crouch flag": any(f % 2 == 1 for f in flags_seen) or True in stance,
-        "drift bounded after start (<6 m max) [KNOWN: sprint catch-up, tune in live test]": all(float(s.get("drift_max_m") or 0) < 6.0 for s in stats[1:] if s.get("drift_max_m") not in (None, "-")),  # window 1 holds the bot start jump
+        "drift bounded after start (>= 5 windows, every max < 6 m)": len(drift_maxima) >= 5 and max(drift_maxima) < 6.0,
     }
     for name, passed in checks.items():
         print(f"{'PASS' if passed else 'FAIL'}  {name}")
