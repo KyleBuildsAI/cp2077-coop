@@ -55,7 +55,7 @@ folder on its own when it is run without the runner.
 | `test_state_sync.py` | State payload round trip through float32 and `%.6f`. Before the partner's first ping the host sends only flags; after it, world state, which the joiner applies |
 | `test_two_players.py` | Two instances through a simulated LA-Warsaw-Russia relay: RTT, rates, join, role conflict, join give-up, STALE/LOST, panel buttons. Shared harness for most tests |
 | `test_bot.py` | Test-pattern bot: the joiner sees every phase (walk, run, sprint, crouch, weapons, vehicle), car pose and drift bound |
-| `test_combat.py` | A hit packet does not move the avatar or reset its state |
+| `test_combat.py` | A hit packet damages the nearest live NPC within 4 m (skipping dead ones, non-NPCs and the avatar itself) through a 220 m targeting scan, queues the hit reaction, and does not move the avatar or reset its state |
 | `test_mods.py` | Mod list comparison is exact with packet loss |
 | `test_live_bugs.py` | Regressions from the live test: join teleport, fast follow, remote vehicle |
 | `test_join.py` | The joiner's teleport to the host against a mock game that drops teleports for the first 8 s after a load and applies them 0.6 s late: waits for 4 s of settled play (vehicle, scene and position jumps restart it), one Teleport per attempt, success measured at the teleport point, 3 logged attempts with growing pauses and a clean give-up, a late teleport still counts, "Teleport to host" takes the same path, the panel's *Join* row in every phase. Also runs the join loop from commit `30077d1` (kept as `tests/fixtures/init_30077d1.lua`, pinned by its git blob hash) in the same game and checks that it gives up without moving the player |

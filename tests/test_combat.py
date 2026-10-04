@@ -1,18 +1,78 @@
-"""A combat packet (forwardY=9999) must go to the combat handler, not move the avatar or corrupt state."""
+"""A combat packet (forwardY=9999) must damage the NPC nearest the hit, not move the avatar or corrupt state."""
 import sys
 
 import test_two_players as harness
 
 FRAME_DT = harness.FRAME_DT
 
+# Targeting, god mode and stat pool systems for Combat.findNearestNPCAt / applyRemoteHit.
+# The scene sits around the hit at (90, 0, 0); only "target" is a valid nearest match.
+COMBAT_MOCK = r"""
+stancesApplied = 0
+function player:CP2077Coop_ApplyRemoteStance(c) stancesApplied = stancesApplied + 1 end
+
+gameGodModeType = { Invulnerable = "Invulnerable" }
+tsqQueries = {}
+statCalls = {}
+ragdollEvents = 0
+
+local function makeEntity(id, x, y, z, isNpc, isDead)
+    local entity = { id = id, x = x, y = y, z = z }
+    function entity:IsNPC() return isNpc end
+    function entity:IsDead() return isDead end
+    function entity:GetEntityID() return id end
+    function entity:GetWorldPosition() return { x = self.x, y = self.y, z = self.z, w = 1 } end
+    function entity:QueueEvent(event) ragdollEvents = ragdollEvents + 1 end
+    return entity
+end
+
+sceneEntities = {
+    makeEntity("dead", 90.2, 0, 0, true, true),     -- closest, but dead
+    makeEntity("car", 90.1, 0, 0, false, false),    -- closer, but not an NPC
+    makeEntity("target", 91.0, 0, 0, true, false),  -- valid, 1.0 m: the expected match
+    makeEntity("second", 92.5, 0, 0, true, false),  -- valid, 2.5 m, listed later on purpose
+    makeEntity("far", 95.0, 0, 0, true, false),     -- outside MATCH_RADIUS (4 m)
+}
+
+local function partOf(entity)
+    return { GetComponent = function() return { GetEntity = function() return entity end } end }
+end
+
+Game["TSQ_NPC;"] = function()
+    local query = { maxDistance = 0 }
+    tsqQueries[#tsqQueries + 1] = query
+    return query
+end
+Game.GetTargetingSystem = function()
+    return { GetTargetParts = function(_, source, query)
+        local parts = {}
+        for _, entity in ipairs(sceneEntities) do parts[#parts + 1] = partOf(entity) end
+        -- the remote avatar is an NPC too; the handler must skip it by handle
+        if npc ~= nil then
+            npc.IsNPC = function() return true end
+            npc.IsDead = function() return false end
+            npc.GetEntityID = function() return "avatar" end
+            parts[#parts + 1] = partOf(npc)
+        end
+        return true, parts  -- CET: bool result, then the out array
+    end }
+end
+Game.GetGodModeSystem = function()
+    return { HasGodMode = function(_, id, mode) return false end }
+end
+Game.GetStatPoolsSystem = function()
+    return { RequestChangingStatPoolValue = function(_, id, pool, delta, instigator)
+        statCalls[#statCalls + 1] = { id = id, pool = pool, delta = delta, byPlayer = (instigator == player) }
+    end }
+end
+Game.CreateForceRagdollEvent = function(reason) return { reason = reason } end
+"""
+
 
 def main():
     joiner = harness.make_instance("joiner", (0.0, 0.0))
     g = joiner.globals()
-    joiner.execute(r"""
-        stancesApplied = 0
-        function player:CP2077Coop_ApplyRemoteStance(c) stancesApplied = stancesApplied + 1 end
-    """)
+    joiner.execute(COMBAT_MOCK)
     t = 0.0
     seq = 0
 
@@ -23,41 +83,51 @@ def main():
         g.net.seq = seq
         g.net.x, g.net.y, g.net.z, g.net.fx, g.net.fy = x, y, z, fx, fy
 
-    # host standing at (10, 0) sending flags=257 (host + crouch) for 6 s
-    # (the joiner's avatar spawns after the join teleport, which waits 4 s)
-    while t < 6.0:
+    def frame(packet):
+        nonlocal t
         g.simTime = t
-        deliver(10.0, 0.0, 0.0, 0.0, 1.0 * (1 + 257))
+        deliver(*packet)
         g.tickSpawn()
         g.events["onUpdate"](FRAME_DT)
         joiner.eval("stepNpc")(FRAME_DT)
         t += FRAME_DT
 
+    move = (10.0, 0.0, 0.0, 0.0, 1.0 * (1 + 257))  # host at (10, 0), flags=257 (host + crouch)
+
+    # 6 s of movement (the joiner's avatar spawns after the join teleport, which waits 4 s)
+    while t < 6.0:
+        frame(move)
+
     npc = g.npc
+    acquired = any("remote entity acquired" in l for l in harness.logs(joiner))
     before = (npc.x, npc.y)
-    # combat hit on an NPC 80 m away, damage 42
-    g.simTime = t
-    deliver(90.0, 0.0, 0.0, 42.0, 9999.0)
-    g.events["onUpdate"](FRAME_DT)
-    joiner.eval("stepNpc")(FRAME_DT)
-    t += FRAME_DT
-    # movement resumes
+    # hit 1: NPC 80 m from the avatar, damage 42
+    frame((90.0, 0.0, 0.0, 42.0, 9999.0))
+    # hit 2: at the avatar itself; the avatar is the only candidate and must be skipped
+    frame((npc.x, npc.y, npc.z, 30.0, 9999.0))
     for _ in range(30):
-        g.simTime = t
-        deliver(10.0, 0.0, 0.0, 0.0, 1.0 * (1 + 257))
-        g.events["onUpdate"](FRAME_DT)
-        joiner.eval("stepNpc")(FRAME_DT)
-        t += FRAME_DT
+        frame(move)
 
     after = (npc.x, npc.y)
-    logs = harness.logs(joiner)
-    combat_logs = [l for l in logs if "COMBAT" in l]
-    stats_line = joiner.eval("nil")
+    combat_logs = [l for l in harness.logs(joiner) if "COMBAT" in l]
+    calls = [g.statCalls[i] for i in range(1, len(g.statCalls) + 1)]
     moved = abs(after[0] - before[0]) + abs(after[1] - before[1])
     print("combat logs:", combat_logs)
+    print("stat pool calls:", [(c.id, c.pool, c.delta) for c in calls])
     print(f"avatar before {before} after {after} moved {moved:.3f} m; teleports {g.stats.teleports}")
     checks = {
-        "combat handler ran (scan error expected in mock, no crash)": any("COMBAT" in l for l in combat_logs),
+        "remote avatar handle acquired before the hits": acquired,
+        "no scan or damage error logged": not any("error" in l for l in combat_logs),
+        "scan uses SCAN_RADIUS 220 m": len(g.tsqQueries) == 2 and all(
+            g.tsqQueries[i].maxDistance == 220.0 for i in (1, 2)),
+        "hit 1 matched the nearest live NPC (1.00 m)": any(
+            "COMBAT HIT applied dmg=42.00 match=1.00m" in l for l in combat_logs),
+        "exactly one damage request: target, Health, -42, instigator = player": len(calls) == 1
+            and calls[0].id == "target" and calls[0].pool == "Health"
+            and calls[0].delta == -42.0 and calls[0].byPlayer,
+        "hit 2 skipped the remote avatar (no NPC match)": any(
+            "COMBAT HIT no NPC match" in l and "dmg=30.00" in l for l in combat_logs),
+        "hit reaction queued on the target": g.ragdollEvents == 1,
         "avatar did not jump to the hit position": moved < 0.5 and after[0] < 50,
         "crouch state not reset by the hit packet": g.stancesApplied == 1,
     }
