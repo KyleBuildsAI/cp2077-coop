@@ -1574,20 +1574,13 @@ function Sync.applyRemoteTime(player, delta)
     local localMinutes =
         player:CP2077Coop_GetTimeOfDayMinutes()
 
-    -- różnica na zegarze 24h (23:59 vs 00:01 = 2 min)
+    -- najkrótsza różnica ze znakiem na zegarze 24h (joiner 23:59,
+    -- host 00:01 = +2 min); state.reds przestawia zegar o ten krok
     local difference =
-        math.abs(
-            localMinutes -
-            Sync.remoteTimeMinutes
-        )
+        (Sync.remoteTimeMinutes - localMinutes + 720) % 1440 -
+        720
 
-    difference =
-        math.min(
-            difference,
-            1440 - difference
-        )
-
-    if difference <=
+    if math.abs(difference) <=
         Sync.TIME_TOLERANCE_MINUTES
     then
         return
@@ -1597,11 +1590,13 @@ function Sync.applyRemoteTime(player, delta)
         Sync.remoteTimeMinutes
     )
 
+    -- duży krok wstecz (np. host wczytał save) widać w logu
     print(
         string.format(
-            "[CP2077Coop] time synced to host %02d:%02d",
+            "[CP2077Coop] time synced to host %02d:%02d (%+d min)",
             math.floor(Sync.remoteTimeMinutes / 60),
-            Sync.remoteTimeMinutes % 60
+            Sync.remoteTimeMinutes % 60,
+            difference
         )
     )
 end

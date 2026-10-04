@@ -136,11 +136,28 @@ public func CP2077Coop_GetTimeOfDayMinutes() -> Int32 {
 // WORLD STATE (host -> joiner)
 // ------------------------------------------------------------
 
+// Moves the clock to the given time of day by the shortest signed step
+// (at most 12 h either way). SetGameTimeByHMS works inside the current game
+// day, so a correction across midnight (host 00:04, joiner 23:58, or a host
+// sleeping 22:00 -> 04:00) moved the joiner's clock by about a whole day and
+// fired or postponed a day's worth of GameTime listeners.
 @addMethod(PlayerPuppet)
 public func CP2077Coop_SetTimeOfDayMinutes(minutes: Int32) -> Void {
-    let hours = (minutes / 60) % 24;
-    let remainder = minutes % 60;
-    GameInstance.GetTimeSystem(this.GetGame()).SetGameTimeByHMS(hours, remainder, 0);
+    let timeSystem = GameInstance.GetTimeSystem(this.GetGame());
+    let now = timeSystem.GetGameTime();
+    let current = GameTime.Hours(now) * 60 + GameTime.Minutes(now);
+    let target = ((minutes % 1440) + 1440) % 1440;
+    let delta = target - current;
+
+    if delta > 720 {
+        delta -= 1440;
+    } else {
+        if delta < -720 {
+            delta += 1440;
+        }
+    }
+
+    timeSystem.SetGameTimeBySeconds(GameTime.GetSeconds(now) - GameTime.Seconds(now) + delta * 60);
 }
 
 // Index into this list is what travels over the network.
