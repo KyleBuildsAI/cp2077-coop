@@ -389,9 +389,10 @@ port of it, on a host that both players can reach.
 * `run_v2_loopback.py`: a host and a joiner `coopnet_v2_loopback_client` through `relay_v2.py` on
   127.0.0.1, each impairing its own uplink and downlink. Clean, 40 ms + 20 ms jitter with 1 % loss,
   and 60 ms + 40 ms jitter with 10 % loss and 2 % duplicates: 200-300 reliable `SCRIPT_MSG` events
-  each way arrive exactly once and in order, no duplicate snapshots, relay error after warm-up at
-  most 0.31, 0.83 and 2.30 ms, and the two clients' relay clocks within 0.32, 1.06 and 1.67 ms of
-  each other (Phase 2 exit criterion: under 5 ms). The relay reports no violations or rate drops.
+  each way arrive exactly once and in order, no duplicate snapshots, and the relay reports no
+  violations or rate drops. Over two fresh runs the relay clock error after warm-up was at most
+  0.31, 1.42 and 2.30 ms, and the two clients' relay clocks stayed within 0.41, 1.19 and 3.21 ms of
+  each other (Phase 2 exit criterion: under 5 ms).
 
 ## Known limits
 
