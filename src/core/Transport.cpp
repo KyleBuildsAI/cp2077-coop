@@ -236,6 +236,24 @@ struct AddressLookup
 // How long a cancelled lookup may take to report completion before it is abandoned.
 constexpr DWORD kLookupCancelWaitMillis = 1000;
 
+// Winsock stays initialised for the rest of the process once a session has started it, and the
+// plugin never calls WSACleanup. A cancelled GetAddrInfoExW lookup keeps running on a WS2_32
+// thread-pool thread after its completion was reported (the LLMNR/NetBIOS query is not
+// interrupted). If the last WSACleanup ran in between, that thread touched freed WS2_32 state:
+// access violations inside WS2_32, with none of the plugin's frames on the stack, in the unit
+// tests that started and stopped sessions after the stop-while-resolving checks. Process exit
+// tears Winsock down; DllMain must not call WSACleanup anyway. Returns WSAStartup's result.
+int AcquireWinsock()
+{
+    static std::once_flag once;
+    static int result = 0;
+    std::call_once(once, [] {
+        WSADATA data{};
+        result = WSAStartup(MAKEWORD(2, 2), &data);
+    });
+    return result;
+}
+
 struct ScriptRequest
 {
     uint8_t channel = 0;
@@ -660,14 +678,12 @@ private:
 
     bool Open()
     {
-        WSADATA data{};
-        const int startup = WSAStartup(MAKEWORD(2, 2), &data);
+        const int startup = AcquireWinsock();
         if (startup != 0)
         {
             Fail("WSAStartup failed (error " + std::to_string(startup) + ")");
             return false;
         }
-        m_wsaStarted = true;
 
         SetState(ConnectionState::Resolving);
         if (!Resolve())
@@ -822,11 +838,6 @@ private:
         {
             WSACloseEvent(m_socketEvent);
             m_socketEvent = WSA_INVALID_EVENT;
-        }
-        if (m_wsaStarted)
-        {
-            WSACleanup();
-            m_wsaStarted = false;
         }
     }
 
@@ -1744,7 +1755,6 @@ private:
     const ConnectOptions m_options;
     std::mt19937_64 m_random;
 
-    bool m_wsaStarted = false;
     SOCKET m_socket = INVALID_SOCKET;
     WSAEVENT m_socketEvent = WSA_INVALID_EVENT;
     sockaddr_in m_relayAddress{};
