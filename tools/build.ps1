@@ -65,7 +65,7 @@ if ($Loopback -or $All) {
 if ($All) {
     Invoke-Step 'relay protocol test' { python (Join-Path $root 'tests\test_relay_protocol.py') }
     Invoke-Step 'Lua helper test (LuaJIT 2.1)' { python (Join-Path $root 'tests\test_lua_helper.py') }
-    Invoke-Step 'relay unit tests' { python -m unittest discover -s (Join-Path $relay 'tests') -t $relay }
+    Invoke-Step 'relay unit tests' { Push-Location $relay; try { python -m unittest discover -s tests } finally { Pop-Location } }
     Invoke-Step 'relay C header check (MSVC)' { python (Join-Path $relay 'tools\check_c_header.py') }
 }
 
