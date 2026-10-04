@@ -3,6 +3,7 @@ deps/
 
 # Build output
 build/
+dist/
 out/
 *.dll
 *.exe
