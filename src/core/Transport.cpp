@@ -2046,7 +2046,14 @@ bool Transport::PushPlayer(const PlayerState& aState)
     }
     {
         std::lock_guard lock(m_shared->outboxMutex);
-        m_shared->pendingPlayer = PendingPlayer{aState, MonotonicMs()};
+        PendingPlayer next{aState, MonotonicMs()};
+        if (m_shared->pendingPlayer && (m_shared->pendingPlayer->state.flags & coopv2::kPlayerTeleported) != 0)
+        {
+            // The unsent sample was a teleport: the newer one replaces it but must not be
+            // interpolated from the place before the teleport either.
+            next.state.flags |= coopv2::kPlayerTeleported;
+        }
+        m_shared->pendingPlayer = next;
         ++m_shared->playersPushed;
     }
     m_shared->Wake();
