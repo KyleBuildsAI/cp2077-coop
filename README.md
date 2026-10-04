@@ -24,8 +24,9 @@ All of these ship inside the release zip:
 3. Pick a role in the in-game **CP2077 Coop** panel (open the CET overlay, click *Switch to HOST/JOINER*).
    The choice is saved to `role.txt` in the mod folder. One player must be host, the other joiner.
 
-**Both players must run the same version** (the *Version* row at the top of the panel). The
-protocol changes between builds: a partner on an older build shows up as *Peer: no ping reply -
+**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.32*), the
+*Version* row at the top of the panel and `version=` at the start of every `[STATS]` line show it.
+The protocol changes between builds: a partner on an older build shows up as *Peer: no ping reply -
 other player on old version?* and *Role check: unknown*, not as a role problem. Update the older
 side instead of switching roles. Against a v0.0.26 or v0.0.27 partner a current build still shows
 position and facing, but the RTT and the role check stay empty.
@@ -45,6 +46,22 @@ to. There are up to 3 attempts, 2 s and then 4 s apart. The panel's *Join* row s
 If it gives up, *Teleport to host* runs the same steps again. The host's avatar appears after the
 join, or straight away while the joiner sits in a car or a scene. Every attempt is logged as a
 `WORLD SYNC` line with the measured error and how far the player moved.
+
+**What each packet carries.** Each of the 30 packets per second carries one extra 9-bit value
+besides position and facing. Player flags (crouch, weapon, aim, fire, in a vehicle, role) go in
+every packet that has nothing else due, and never more than one slot late. In a steady session
+that is 86% of the host's packets and 93% of the joiner's. The rest:
+
+- ping and the reply to the partner's ping: once a second each
+- time of day and weather (host only): once a second, and within about 0.1 s of a change
+- the car's model index while driving: once a second, starting right after the first packet
+  that says "in a vehicle"
+- the installed-mods list: in a burst until both lists are compared plus two more full rounds,
+  then one mod every 10 s. A partner that reloads or restarts gets the list again.
+
+With a long mod list the burst costs flags for a while at the start: 30 mods take about 20 s.
+Below 30 fps the game sends fewer packets per second, so the once-a-second values take a larger
+share.
 
 **Player RTT** is the network round trip between the two games plus up to a few frames of
 waiting for the next send slot. Expect about **30-80 ms** when both players and the relay are in
@@ -83,7 +100,12 @@ no longer shows the old ping; after Ctrl+C it asks for the monitor again within 
 
 Logs, all in `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/` unless noted:
 
-- `coop_stats_host.txt` / `coop_stats_joiner.txt`: the latest `[STATS]` line, rewritten every 5 s
+- `coop_stats_host.txt` / `coop_stats_joiner.txt`: the latest `[STATS]` line, rewritten every 5 s.
+  Besides the connection numbers it has `frame_p99_ms` (99th percentile frame time of the last
+  5 s), `hard_per_min` (avatar teleports that fix drift over the last minute; teleports that
+  follow a dash or a car and the snap after spawning do not count) and `flags_rx_ps` (the
+  partner's flags packets read per second). The monitor shows them as *sync detail* and keeps
+  them, with the version, in the history CSV
 - `coop_events.log`: every `[CP2077Coop]` line (events, world sync, errors) with the time; restarts
   with each game launch and keeps at most the last 400 lines
 - `CP2077Coop.log`: Lua runtime errors only (written by CET)
