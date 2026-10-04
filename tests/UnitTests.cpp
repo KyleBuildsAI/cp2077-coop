@@ -1,12 +1,13 @@
 // Deterministic tests for the frame codec and the reliability layer (no sockets, simulated clock),
-// plus the logic behind the Net_NowMs / Net_Version natives, native registration checks and the
-// startup summary line.
+// plus the logic behind the Net_NowMs / Net_Version natives, native registration checks, String
+// results and the startup summary line.
 
 #include "core/Clock.hpp"
 #include "core/LoadReport.hpp"
 #include "core/NativeRegistration.hpp"
 #include "core/Protocol.hpp"
 #include "core/Reliability.hpp"
+#include "core/ScriptString.hpp"
 #include "core/Version.hpp"
 
 #include <algorithm>
@@ -752,6 +753,96 @@ void TestNativeRegistration()
     }
 }
 
+// ---- String results ----------------------------------------------------------------------------
+// Models RED4ext::CString ownership: strings of 20 bytes or more own a heap buffer. The copy
+// assignment releases the destination's old buffer (the game's CString_copy); the move assignment
+// takes the source's buffer and does not release the old one (SDK 1.0.0 operator=(CString&&)).
+
+struct MockScriptString
+{
+    static inline int liveBuffers = 0;
+
+    std::string text;
+    bool heap = false;
+
+    MockScriptString() = default;
+
+    MockScriptString(const char* aText, uint32_t aLength)
+        : text(aText, aLength)
+        , heap(aLength >= 20)
+    {
+        liveBuffers += heap ? 1 : 0;
+    }
+
+    MockScriptString(const MockScriptString& aOther)
+        : text(aOther.text)
+        , heap(aOther.heap)
+    {
+        liveBuffers += heap ? 1 : 0;
+    }
+
+    ~MockScriptString()
+    {
+        liveBuffers -= heap ? 1 : 0;
+    }
+
+    MockScriptString& operator=(const MockScriptString& aOther)
+    {
+        if (this != &aOther)
+        {
+            liveBuffers -= heap ? 1 : 0;
+            text = aOther.text;
+            heap = aOther.heap;
+            liveBuffers += heap ? 1 : 0;
+        }
+        return *this;
+    }
+
+    MockScriptString& operator=(MockScriptString&& aOther) noexcept
+    {
+        text = std::move(aOther.text); // the old buffer is overwritten, never released
+        heap = aOther.heap;
+        aOther.heap = false;
+        aOther.text.clear();
+        return *this;
+    }
+};
+
+void TestScriptString()
+{
+    std::puts("String results into a live slot (redscript `let raw = Net_Poll();` in a loop)");
+    const std::string payload = "1|9|NP1|u|123456|42|1790000000000.000|1.000|2.000|3.000|90.00|walk";
+    MockScriptString::liveBuffers = 0;
+    {
+        MockScriptString slot; // one local, reused by every iteration
+        for (int index = 0; index < 100; ++index)
+        {
+            AssignScriptString(&slot, payload);
+        }
+        CHECK(slot.text == payload);
+        CHECK(MockScriptString::liveBuffers == 1);
+        AssignScriptString(&slot, std::string_view{});
+        CHECK(slot.text.empty());
+        CHECK(MockScriptString::liveBuffers == 0);
+    }
+    const int afterHelper = MockScriptString::liveBuffers;
+    {
+        // the pre-0.1.2 code: *aOut = CString(...) picks the move assignment
+        MockScriptString slot;
+        for (int index = 0; index < 100; ++index)
+        {
+            slot = MockScriptString(payload.data(), static_cast<uint32_t>(payload.size()));
+        }
+    }
+    const int afterMove = MockScriptString::liveBuffers;
+    std::printf("    100 polls: buffers leaked with AssignScriptString=%d, with move assignment=%d\n", afterHelper,
+                afterMove);
+    CHECK(afterHelper == 0);
+    CHECK(afterMove == 99); // the model reproduces the leak, so the check above is meaningful
+    AssignScriptString<MockScriptString>(nullptr, payload); // null result slot: no write
+    MockScriptString::liveBuffers = 0;
+}
+
 } // namespace
 
 int main()
@@ -769,6 +860,7 @@ int main()
     TestVersionString();
     TestLoadReport();
     TestNativeRegistration();
+    TestScriptString();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -50,6 +50,7 @@ add_library(coopnet_core STATIC
   src/core/Protocol.hpp
   src/core/Reliability.cpp
   src/core/Reliability.hpp
+  src/core/ScriptString.hpp
   src/core/Transport.cpp
   src/core/Transport.hpp
   src/core/Version.hpp

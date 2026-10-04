@@ -17,6 +17,7 @@
 #include "core/Clock.hpp"
 #include "core/LoadReport.hpp"
 #include "core/NativeRegistration.hpp"
+#include "core/ScriptString.hpp"
 #include "core/Transport.hpp"
 #include "core/Version.hpp"
 
@@ -72,12 +73,11 @@ std::string_view ToView(const RED4ext::CString& aText)
     return data == nullptr ? std::string_view{} : std::string_view(data, aText.Length());
 }
 
+// Copy-assigns through the game's CString_copy so a live result slot's old buffer is released
+// (core/ScriptString.hpp explains why the SDK's move assignment must not be used here).
 void ReturnString(RED4ext::CString* aOut, std::string_view aText)
 {
-    if (aOut != nullptr)
-    {
-        *aOut = RED4ext::CString(aText.data(), static_cast<uint32_t>(aText.size()));
-    }
+    coopnet::AssignScriptString(aOut, aText);
 }
 
 // ---- natives ---------------------------------------------------------------------------------

@@ -85,6 +85,10 @@ If a native or the Scripts folder failed, the same line is logged at error level
 `MISSING: Net_X (<failed step>)` or `scripts NOT added: <reason>`. The line does not prove that a
 call works; the CET and redscript console checks in [INSTALL_PHASE1.md](INSTALL_PHASE1.md) do.
 
+String results (`Net_Poll`, `Net_Stats`, `Net_Version`) are copy-assigned into the caller's slot
+(`src/core/ScriptString.hpp`). The SDK's `CString` move assignment does not free the slot's old
+buffer, so a redscript loop such as `let raw = Net_Poll();` would leak one buffer per message.
+
 ## API
 
 | native | redscript | CET |
