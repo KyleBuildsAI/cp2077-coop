@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.28 WORLD + STATE SYNC + DIAGNOSTICS
+-- v0.0.29 WORLD + STATE SYNC + DIAGNOSTICS + TEST BOT
 --
 -- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
 -- albo domyślnie poniżej. role.txt ma pierwszeństwo.
@@ -608,16 +608,19 @@ function Sync.buildPayload(player, isHost)
 
         Sync.reportMissingScripts()
 
-        Sync.localFlags = roleFlag
+        Sync.localFlags =
+            (Sync.flagsOverride or 0) +
+            roleFlag
 
         return
             Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
-            roleFlag
+            Sync.localFlags
     end
 
     -- flagi czytamy przy każdym pakiecie (panel + blokada teleportu w aucie)
+    -- flagsOverride: ustawiane przez bota testowego (Bot)
     Sync.localFlags =
-        player:CP2077Coop_GetStateFlags() +
+        (Sync.flagsOverride or player:CP2077Coop_GetStateFlags()) +
         roleFlag
 
     Sync.sendSlot = Sync.sendSlot + 1
@@ -938,6 +941,24 @@ function Sync.applyWorldState(player, isHost, delta)
 end
 
 
+-- Avatar biegnący dokładnie z prędkością gracza nigdy nie nadrobi
+-- opóźnienia (ping + reakcja AI) i co chwilę teleportuje się o 6 m.
+-- Gdy zostaje w tyle: o jeden bieg szybciej.
+Sync.CATCH_UP_DISTANCE = 2.0
+Sync.CATCH_UP_NEXT = { Walk = "Run", Run = "Sprint", Sprint = "Sprint" }
+
+function Sync.catchUpMoveType(moveType, errorDistance)
+
+    if errorDistance < Sync.CATCH_UP_DISTANCE then
+        return moveType
+    end
+
+    return
+        Sync.CATCH_UP_NEXT[moveType] or
+        moveType
+end
+
+
 function Sync.reset()
 
     Sync.pendingPong = nil
@@ -960,6 +981,340 @@ end
 
 
 ------------------------------------------------------------
+-- STEER: komendy ruchu avatara
+--
+-- Stara metoda: co 0.12 s anuluj AIMoveTo i wyślij nowe.
+-- AI za każdym razem stawało i ruszało od nowa, więc avatar
+-- stał przez większość czasu, zostawał w tyle i skakał
+-- teleportem co 6 m. Teraz: cel daleko przed graczem
+-- (prędkość * LEAD_TIME) i nowa komenda tylko gdy coś się
+-- realnie zmieni.
+------------------------------------------------------------
+
+local Steer = {
+    LEAD_TIME = 0.8,
+    MAX_LEAD = 6.0,
+    -- cos(25°): większa zmiana kierunku = nowa komenda
+    REISSUE_ANGLE_COS = 0.906,
+    -- avatar prawie u celu: przedłużamy
+    ARRIVE_DISTANCE = 1.2,
+    -- nowy cel odjechał od starego o tyle: nowa komenda
+    ENDPOINT_DRIFT = 1.5,
+    MIN_INTERVAL = 0.25,
+
+    sinceIssue = 99.0,
+    endX = nil,
+    endY = nil,
+    endZ = nil,
+    dirX = 0.0,
+    dirY = 0.0,
+    moveType = nil,
+    crouched = nil
+}
+
+
+-- Punkt docelowy: ostatnia znana pozycja + prędkość * LEAD_TIME.
+function Steer.endpoint()
+
+    local leadX =
+        (S.remoteVelocityX or 0.0) *
+        Steer.LEAD_TIME
+
+    local leadY =
+        (S.remoteVelocityY or 0.0) *
+        Steer.LEAD_TIME
+
+    local leadLength =
+        math.sqrt(
+            leadX * leadX +
+            leadY * leadY
+        )
+
+    if leadLength > Steer.MAX_LEAD then
+
+        leadX = leadX * Steer.MAX_LEAD / leadLength
+        leadY = leadY * Steer.MAX_LEAD / leadLength
+    end
+
+    local baseX = S.previousRemoteX or S.targetX
+    local baseY = S.previousRemoteY or S.targetY
+    local baseZ = S.previousRemoteZ or S.targetZ
+
+    return
+        baseX + leadX,
+        baseY + leadY,
+        baseZ
+end
+
+
+function Steer.shouldReissue(current, endX, endY, endZ, moveType, crouched, delta)
+
+    Steer.sinceIssue =
+        Steer.sinceIssue +
+        delta
+
+    if Steer.sinceIssue < Steer.MIN_INTERVAL then
+        return false
+    end
+
+    if Steer.endX == nil
+        or moveType ~= Steer.moveType
+        or crouched ~= Steer.crouched
+    then
+        return true
+    end
+
+    -- avatar prawie dotarł
+    local toEndX = Steer.endX - current.x
+    local toEndY = Steer.endY - current.y
+
+    if math.sqrt(toEndX * toEndX + toEndY * toEndY) <
+        Steer.ARRIVE_DISTANCE
+    then
+        return true
+    end
+
+    -- cel uciekł
+    local driftX = endX - Steer.endX
+    local driftY = endY - Steer.endY
+
+    if math.sqrt(driftX * driftX + driftY * driftY) >
+        Steer.ENDPOINT_DRIFT
+    then
+        return true
+    end
+
+    -- zmiana kierunku ruchu gracza (liczona tak samo jak w remember)
+    local dirX, dirY =
+        Steer.direction(
+            { x = S.previousRemoteX or endX, y = S.previousRemoteY or endY },
+            endX,
+            endY
+        )
+
+    if dirX == 0.0 and dirY == 0.0 then
+        return false
+    end
+
+    return
+        dirX * Steer.dirX +
+        dirY * Steer.dirY <
+        Steer.REISSUE_ANGLE_COS
+end
+
+
+function Steer.direction(current, endX, endY)
+
+    local dx = endX - current.x
+    local dy = endY - current.y
+
+    local length =
+        math.sqrt(dx * dx + dy * dy)
+
+    if length < 0.001 then
+        return 0.0, 0.0
+    end
+
+    return
+        dx / length,
+        dy / length
+end
+
+
+function Steer.remember(endX, endY, endZ, moveType, crouched)
+
+    Steer.dirX, Steer.dirY =
+        Steer.direction(
+            { x = S.previousRemoteX or endX, y = S.previousRemoteY or endY },
+            endX,
+            endY
+        )
+
+    Steer.endX = endX
+    Steer.endY = endY
+    Steer.endZ = endZ
+    Steer.moveType = moveType
+    Steer.crouched = crouched
+    Steer.sinceIssue = 0.0
+end
+
+
+function Steer.reset()
+
+    Steer.endX = nil
+    Steer.endY = nil
+    Steer.endZ = nil
+    Steer.moveType = nil
+    Steer.crouched = nil
+    Steer.sinceIssue = 99.0
+end
+
+
+------------------------------------------------------------
+-- TEST PATTERN BOT
+--
+-- Do testów bez drugiej osoby: zamiast prawdziwej pozycji
+-- gracza wysyłamy zaplanowaną trasę (koło 8 m obok gracza)
+-- i flagi stanu. Druga instancja gry powinna pokazać avatar
+-- idący, biegnący, kucający, z bronią itd.
+-- Start: przycisk w panelu albo plik testpattern.txt w folderze moda.
+------------------------------------------------------------
+
+local Bot = {
+    FILE = "testpattern.txt",
+    RADIUS = 8.0,
+    -- środek koła przesunięty od gracza, żeby avatar nie wchodził w gracza
+    CENTER_OFFSET = 12.0,
+
+    -- name, start (s), speed (m/s), flags (bez bitu roli)
+    -- flags: crouch=1 drawn=2 aim=4 fire=8 vehicle=16, klasa broni *32
+    PHASES = {
+        { "walk",          0,  1.8, 0 },
+        { "run",           6,  4.5, 0 },
+        { "sprint",       12,  7.0, 0 },
+        { "pistol",       15,  0.0, 2 + 1 * 32 },
+        { "pistol-aim",   17,  0.0, 2 + 4 + 1 * 32 },
+        { "crouch-walk",  19,  1.3, 1 },
+        { "crouch-rifle", 25,  0.0, 1 + 2 + 2 * 32 },
+        { "dodge",        29, 15.0, 0 },
+        { "idle",         29.4, 0.0, 0 },
+        { "vehicle",      34, 14.0, 16 },
+        { "idle-end",     40,  0.0, 0 },
+    },
+    CYCLE = 44.0,
+
+    active = false,
+    time = 0.0,
+    distance = 0.0,
+    phaseIndex = 0,
+    anchor = nil,
+    x = 0.0,
+    y = 0.0,
+    z = 0.0,
+    forwardX = 0.0,
+    forwardY = 1.0
+}
+
+
+function Bot.phaseAt(time)
+
+    local current = 1
+
+    for index, phase in ipairs(Bot.PHASES) do
+
+        if time >= phase[2] then
+            current = index
+        end
+    end
+
+    return current
+end
+
+
+function Bot.start(player)
+
+    local position =
+        player:GetWorldPosition()
+
+    Bot.anchor = {
+        x = position.x + Bot.CENTER_OFFSET,
+        y = position.y,
+        z = position.z
+    }
+
+    Bot.active = true
+    Bot.time = 0.0
+    Bot.distance = 0.0
+    Bot.phaseIndex = 0
+
+    print("[CP2077Coop] EVENT test pattern started")
+end
+
+
+function Bot.stop()
+
+    if not Bot.active then
+        return
+    end
+
+    Bot.active = false
+    Sync.flagsOverride = nil
+
+    print("[CP2077Coop] EVENT test pattern stopped")
+end
+
+
+function Bot.update(delta)
+
+    if not Bot.active then
+        return
+    end
+
+    Bot.time =
+        (Bot.time + delta) %
+        Bot.CYCLE
+
+    local index =
+        Bot.phaseAt(Bot.time)
+
+    local phase =
+        Bot.PHASES[index]
+
+    if index ~= Bot.phaseIndex then
+
+        Bot.phaseIndex = index
+
+        print(
+            string.format(
+                "[CP2077Coop] BOT phase=%s speed=%.1f flags=%d",
+                phase[1],
+                phase[3],
+                phase[4]
+            )
+        )
+    end
+
+    Bot.distance =
+        Bot.distance +
+        phase[3] *
+        delta
+
+    local angle =
+        Bot.distance /
+        Bot.RADIUS
+
+    Bot.x =
+        Bot.anchor.x +
+        math.cos(angle) *
+        Bot.RADIUS
+
+    Bot.y =
+        Bot.anchor.y +
+        math.sin(angle) *
+        Bot.RADIUS
+
+    Bot.z = Bot.anchor.z
+
+    -- kierunek = styczna do koła (ruch przeciwnie do wskazówek zegara)
+    Bot.forwardX = -math.sin(angle)
+    Bot.forwardY = math.cos(angle)
+
+    Sync.flagsOverride = phase[4]
+end
+
+
+function Bot.phaseName()
+
+    if not Bot.active or Bot.phaseIndex == 0 then
+        return "off"
+    end
+
+    return
+        Bot.PHASES[Bot.phaseIndex][1]
+end
+
+
+------------------------------------------------------------
 -- DIAGNOSTICS: statystyki, logi, panel w grze
 --
 -- Panel: okno "CP2077 Coop" (widoczne zawsze, klikalne przy
@@ -969,7 +1324,7 @@ end
 ------------------------------------------------------------
 
 local Diag = {
-    VERSION = "0.0.28",
+    VERSION = "0.0.29",
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
@@ -1003,9 +1358,47 @@ local Diag = {
 
     avatarError = nil,
 
+    -- dryf avatara w oknie STATS_INTERVAL (średnia i maksimum)
+    driftSum = 0.0,
+    driftCount = 0,
+    driftMax = 0.0,
+    driftAvgLast = nil,
+    driftMaxLast = nil,
+
     teleportRequested = false,
-    roleChanged = false
+    roleChanged = false,
+    botToggleRequested = false
 }
+
+
+function Diag.recordDrift(distance)
+
+    Diag.avatarError = distance
+    Diag.driftSum = Diag.driftSum + distance
+    Diag.driftCount = Diag.driftCount + 1
+    Diag.driftMax = math.max(Diag.driftMax, distance)
+end
+
+
+function Diag.closeDriftWindow()
+
+    if Diag.driftCount > 0 then
+
+        Diag.driftAvgLast =
+            Diag.driftSum /
+            Diag.driftCount
+
+        Diag.driftMaxLast = Diag.driftMax
+    else
+
+        Diag.driftAvgLast = nil
+        Diag.driftMaxLast = nil
+    end
+
+    Diag.driftSum = 0.0
+    Diag.driftCount = 0
+    Diag.driftMax = 0.0
+end
 
 
 function Diag.loadRole()
@@ -1205,7 +1598,7 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s conflict=%s peer_old=%s",
+            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s conflict=%s peer_old=%s",
             Diag.connectionState(),
             IS_HOST and "host" or "joiner",
             Diag.formatMs(Sync.rttMs),
@@ -1218,6 +1611,12 @@ function Diag.statsLine()
             Diag.ignored,
             age and string.format("%.0f", age * 1000.0) or "-",
             Diag.avatarError and string.format("%.2f", Diag.avatarError) or "-",
+            Diag.driftAvgLast and string.format("%.2f", Diag.driftAvgLast) or "-",
+            Diag.driftMaxLast and string.format("%.2f", Diag.driftMaxLast) or "-",
+            S.remoteSpeed or 0.0,
+            S.remoteMoving and (S.movementType or "-") or "idle",
+            Sync.remoteFlags or 0,
+            Bot.phaseName(),
             tostring(Diag.roleConflict()),
             tostring(Diag.peerLooksOutdated())
         )
@@ -1300,6 +1699,7 @@ function Diag.tick(delta)
     if Diag.statsTimer >= Diag.STATS_INTERVAL then
 
         Diag.statsTimer = 0.0
+        Diag.closeDriftWindow()
         print(Diag.statsLine())
     end
 
@@ -1570,6 +1970,25 @@ function Diag.draw()
         print(Diag.statsLine())
     end
 
+
+    -- bot testowy: wysyła trasę zamiast prawdziwej pozycji
+    if ImGui.Button(Bot.active and "Stop test pattern" or "Start test pattern") then
+        Diag.botToggleRequested = true
+    end
+
+    if Bot.active then
+
+        ImGui.SameLine()
+
+        local r, g, b, a =
+            Diag.colorFor("warn")
+
+        ImGui.TextColored(
+            r, g, b, a,
+            string.format("sending test path: %s", Bot.phaseName())
+        )
+    end
+
     ImGui.End()
 end
 
@@ -1586,6 +2005,9 @@ local function hardCorrectRemote(
 )
 
     cancelMoveCommand()
+
+    -- po teleporcie stary cel ruchu jest nieaktualny
+    Steer.reset()
 
     player:
         CP2077Coop_MoveRemoteTest(
@@ -1799,6 +2221,7 @@ local function resetRemote()
     S.rolePrinted = false
 
     Sync.reset()
+    Steer.reset()
 end
 
 
@@ -1957,6 +2380,39 @@ registerForEvent(
 
 
         ----------------------------------------------------
+        -- TEST PATTERN BOT
+        ----------------------------------------------------
+
+        if Diag.botToggleRequested then
+
+            Diag.botToggleRequested = false
+
+            if Bot.active then
+                Bot.stop()
+            else
+                Bot.start(player)
+            end
+        end
+
+        -- plik testpattern.txt = start bota po załadowaniu gry
+        if not S.botFileChecked then
+
+            S.botFileChecked = true
+
+            local botFile =
+                io.open(Bot.FILE, "r")
+
+            if botFile ~= nil then
+
+                botFile:close()
+                Bot.start(player)
+            end
+        end
+
+        Bot.update(delta)
+
+
+        ----------------------------------------------------
         -- LOCAL PLAYER -> VPS
         ----------------------------------------------------
 
@@ -1990,6 +2446,14 @@ registerForEvent(
             local forward =
                 player:
                     GetWorldForward()
+
+
+            -- bot testowy podmienia pozycję i kierunek
+            if Bot.active then
+
+                pos = { x = Bot.x, y = Bot.y, z = Bot.z, w = 1.0 }
+                forward = { x = Bot.forwardX, y = Bot.forwardY, z = 0.0 }
+            end
 
 
             -- kierunek w poziomie, długość dokładnie 1,
@@ -2653,7 +3117,7 @@ registerForEvent(
                 S.targetZ
             )
 
-        Diag.avatarError = errorDistance
+        Diag.recordDrift(errorDistance)
 
 
         ----------------------------------------------------
@@ -2719,46 +3183,49 @@ registerForEvent(
 
         if S.remoteMoving then
 
-            S.commandAccumulator =
-                S.commandAccumulator +
+            -- Steer: rzadkie, "lepkie" komendy ruchu zamiast
+            -- anulowania i wysyłania nowej co 0.12 s (AI stawało).
+            local moveType =
+                Sync.catchUpMoveType(
+                    S.movementType,
+                    errorDistance
+                )
+
+            local crouched =
+                Sync.isRemoteCrouching()
+
+            local endX, endY, endZ =
+                Steer.endpoint()
+
+            if Steer.shouldReissue(
+                current,
+                endX,
+                endY,
+                endZ,
+                moveType,
+                crouched,
                 delta
+            ) then
 
+                if moveRemoteAI(
+                    endX,
+                    endY,
+                    endZ,
+                    moveType,
+                    crouched
+                ) then
 
-            if S.commandAccumulator >=
-                COMMAND_INTERVAL
-            then
-
-                S.commandAccumulator = 0.0
-
-
-                local targetChanged =
-                    distance3(
-                        S.targetX,
-                        S.targetY,
-                        S.targetZ,
-
-                        S.lastCommandX,
-                        S.lastCommandY,
-                        S.lastCommandZ
+                    Steer.remember(
+                        endX,
+                        endY,
+                        endZ,
+                        moveType,
+                        crouched
                     )
 
-
-                if targetChanged >=
-                    MIN_TARGET_CHANGE
-                then
-
-                    if moveRemoteAI(
-                        S.targetX,
-                        S.targetY,
-                        S.targetZ,
-                        S.movementType,
-                        Sync.isRemoteCrouching()
-                    ) then
-
-                        S.lastCommandX = S.targetX
-                        S.lastCommandY = S.targetY
-                        S.lastCommandZ = S.targetZ
-                    end
+                    S.lastCommandX = endX
+                    S.lastCommandY = endY
+                    S.lastCommandZ = endZ
                 end
             end
 
@@ -2769,7 +3236,7 @@ registerForEvent(
 
         else
 
-            S.commandAccumulator = 0.0
+            Steer.reset()
 
 
             ------------------------------------------------
