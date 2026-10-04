@@ -4353,6 +4353,20 @@ registerForEvent(
 
 
         ----------------------------------------------------
+        -- HOST TIME / WEATHER: co klatkę, niezależnie od avatara
+        -- (spawn, teleport do hosta, snap, auto). Wcześniej
+        -- działało dopiero przy gotowym avatarze, więc nieudany
+        -- spawn = joiner nigdy nie dostawał godziny i pogody.
+        ----------------------------------------------------
+
+        Sync.applyWorldState(
+            player,
+            IS_HOST,
+            delta
+        )
+
+
+        ----------------------------------------------------
         -- NO FRESH REMOTE DATA
         ----------------------------------------------------
 
@@ -4994,15 +5008,8 @@ registerForEvent(
         -- REMOTE DRIVES A SHOWN CAR
         ----------------------------------------------------
 
-        -- avatar czeka ukryty; czas i pogoda hosta działają dalej
+        -- avatar czeka ukryty
         if Sync.parkAvatar(player) then
-
-            Sync.applyWorldState(
-                player,
-                IS_HOST,
-                delta
-            )
-
             return
         end
 
@@ -5092,14 +5099,8 @@ registerForEvent(
         -- REMOTE POSITION ERROR
         ----------------------------------------------------
 
-        -- stan gracza (kucanie, broń) i świata (czas, pogoda)
+        -- stan gracza (kucanie, broń); czas i pogoda: wyżej, co klatkę
         Sync.applyRemoteFlags(player)
-
-        Sync.applyWorldState(
-            player,
-            IS_HOST,
-            delta
-        )
 
         local current =
             S.remoteHandle:
