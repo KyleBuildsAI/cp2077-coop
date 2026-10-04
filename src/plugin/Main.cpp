@@ -16,6 +16,7 @@
 
 #include "core/Clock.hpp"
 #include "core/LoadReport.hpp"
+#include "core/NativeRegistration.hpp"
 #include "core/Transport.hpp"
 #include "core/Version.hpp"
 
@@ -266,35 +267,36 @@ void NetVersion(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::CS
 
 // ---- registration ----------------------------------------------------------------------------
 
-struct NativeParam
+void RecordFailure(coopnet::LoadReport& aReport, const char* aName, std::string aReason)
 {
-    const char* type;
-    const char* name;
-};
+    Log(coopnet::LogLevel::Error, std::string(aName) + " not registered: " + aReason);
+    aReport.failed.push_back({aName, std::move(aReason)});
+}
 
-// Registers one global native and records its name in aRegistered when RED4ext accepted it.
+// Registers one global native. Its name goes into aReport.registered only when every check in
+// coopnet::RegisterNative passed: each parameter and the return type resolved in RTTI, and looking
+// the name up again returns this function. Otherwise aReport.failed records the step that failed.
+// A function object that was not registered stays allocated: it came from the game's allocator
+// and nothing else references it.
 template<typename TOut>
-void RegisterGlobal(RED4ext::CRTTISystem* aRtti, std::vector<std::string>& aRegistered, const char* aName,
-                    RED4ext::ScriptingFunction_t<TOut> aHandler, std::initializer_list<NativeParam> aParams,
+void RegisterGlobal(RED4ext::CRTTISystem* aRtti, coopnet::LoadReport& aReport, const char* aName,
+                    RED4ext::ScriptingFunction_t<TOut> aHandler, std::initializer_list<coopnet::NativeParam> aParams,
                     const char* aReturnType)
 {
     auto* function = RED4ext::CGlobalFunction::Create(aName, aName, aHandler);
     if (function == nullptr)
     {
-        Log(coopnet::LogLevel::Error, std::string("could not allocate native ") + aName);
+        RecordFailure(aReport, aName, "CGlobalFunction::Create returned null");
         return;
     }
     function->flags = {.isNative = true, .isStatic = true};
-    for (const auto& param : aParams)
+    std::string problem = coopnet::RegisterNative(*aRtti, *function, aName, aParams, aReturnType);
+    if (!problem.empty())
     {
-        function->AddParam(param.type, param.name);
+        RecordFailure(aReport, aName, std::move(problem));
+        return;
     }
-    if (aReturnType != nullptr)
-    {
-        function->SetReturnType(aReturnType);
-    }
-    aRtti->RegisterFunction(function);
-    aRegistered.emplace_back(aName);
+    aReport.registered.emplace_back(aName);
 }
 
 void RegisterTypes()
@@ -306,24 +308,26 @@ void PostRegisterTypes()
     try
     {
         auto* rtti = RED4ext::CRTTISystem::Get();
-        std::vector<std::string> registered;
-        RegisterGlobal<bool*>(rtti, registered, "Net_Connect", &NetConnect, {{"String", "host"}, {"Int32", "port"}},
+        coopnet::LoadReport& report = g_loadReport;
+        report.registered.clear();
+        report.failed.clear();
+        RegisterGlobal<bool*>(rtti, report, "Net_Connect", &NetConnect, {{"String", "host"}, {"Int32", "port"}},
                               "Bool");
-        RegisterGlobal<bool*>(rtti, registered, "Net_ConnectRoom", &NetConnectRoom,
+        RegisterGlobal<bool*>(rtti, report, "Net_ConnectRoom", &NetConnectRoom,
                               {{"String", "host"}, {"Int32", "port"}, {"String", "room"}}, "Bool");
-        RegisterGlobal<void*>(rtti, registered, "Net_Disconnect", &NetDisconnect, {}, nullptr);
-        RegisterGlobal<bool*>(rtti, registered, "Net_Send", &NetSend, {{"Int32", "channel"}, {"String", "payload"}},
+        RegisterGlobal<void*>(rtti, report, "Net_Disconnect", &NetDisconnect, {}, nullptr);
+        RegisterGlobal<bool*>(rtti, report, "Net_Send", &NetSend, {{"Int32", "channel"}, {"String", "payload"}},
                               "Bool");
-        RegisterGlobal<bool*>(rtti, registered, "Net_SendTo", &NetSendTo,
+        RegisterGlobal<bool*>(rtti, report, "Net_SendTo", &NetSendTo,
                               {{"Int32", "peer"}, {"Int32", "channel"}, {"String", "payload"}}, "Bool");
-        RegisterGlobal<RED4ext::CString*>(rtti, registered, "Net_Poll", &NetPoll, {}, "String");
-        RegisterGlobal<RED4ext::CString*>(rtti, registered, "Net_Stats", &NetStats, {}, "String");
-        RegisterGlobal<int32_t*>(rtti, registered, "Net_LocalId", &NetLocalId, {}, "Int32");
-        RegisterGlobal<double*>(rtti, registered, "Net_NowMs", &NetNowMs, {}, "Double");
-        RegisterGlobal<RED4ext::CString*>(rtti, registered, "Net_Version", &NetVersion, {}, "String");
-        g_loadReport.registered = std::move(registered);
+        RegisterGlobal<RED4ext::CString*>(rtti, report, "Net_Poll", &NetPoll, {}, "String");
+        RegisterGlobal<RED4ext::CString*>(rtti, report, "Net_Stats", &NetStats, {}, "String");
+        RegisterGlobal<int32_t*>(rtti, report, "Net_LocalId", &NetLocalId, {}, "Int32");
+        RegisterGlobal<double*>(rtti, report, "Net_NowMs", &NetNowMs, {}, "Double");
+        RegisterGlobal<RED4ext::CString*>(rtti, report, "Net_Version", &NetVersion, {}, "String");
 
-        // The one line the Phase 1 check greps for: every native plus the Scripts folder.
+        // The one line the Phase 1 check greps for: every native that passed the registration
+        // checks, every one that did not (with the failed step), and the Scripts folder.
         const coopnet::LogLevel level =
             coopnet::IsLoadComplete(g_loadReport) ? coopnet::LogLevel::Info : coopnet::LogLevel::Error;
         Log(level, coopnet::FormatLoadReport(g_loadReport));

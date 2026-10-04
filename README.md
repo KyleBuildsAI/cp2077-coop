@@ -72,15 +72,18 @@ the game executable is file version 3.0.80.51928 (2.31). `Query` reports runtime
 and `Supports` returns API v1. These are the same values as Jakub's `CP2077Coop.dll`, which RED4ext
 1.30 loads.
 
-Once RED4ext has accepted the natives, the plugin writes one line to its own log,
-`<game>\red4ext\logs\cp2077coopnet-<timestamp>.log`:
+At RTTI post-register, the plugin writes one line to its own log,
+`<game>\red4ext\logs\cp2077coopnet-<timestamp>.log`. A native counts as registered only when every
+parameter type and the return type resolved in RTTI, and looking its name up again after
+`RegisterFunction` returned the function the plugin created (`src/core/NativeRegistration.hpp`):
 
 ```
 CP2077CoopNet 0.1.1 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
 If a native or the Scripts folder failed, the same line is logged at error level with
-`MISSING: ...` or `scripts NOT added: <reason>`. See [INSTALL_PHASE1.md](INSTALL_PHASE1.md).
+`MISSING: Net_X (<failed step>)` or `scripts NOT added: <reason>`. The line does not prove that a
+call works; the CET and redscript console checks in [INSTALL_PHASE1.md](INSTALL_PHASE1.md) do.
 
 ## API
 

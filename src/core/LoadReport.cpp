@@ -37,6 +37,21 @@ void AppendJoined(std::string& aOut, const std::vector<std::string>& aNames)
         aOut += aNames[index];
     }
 }
+
+// "Net_X (reason)" for every name that has a recorded failure, the bare name otherwise (for
+// example when the post-register callback never reached that native).
+std::vector<std::string> WithReasons(const std::vector<std::string>& aNames, const std::vector<NativeFailure>& aFailed)
+{
+    std::vector<std::string> annotated;
+    annotated.reserve(aNames.size());
+    for (const std::string& name : aNames)
+    {
+        const auto failure = std::find_if(aFailed.begin(), aFailed.end(),
+                                          [&name](const NativeFailure& aFailure) { return aFailure.name == name; });
+        annotated.push_back(failure == aFailed.end() ? name : name + " (" + failure->reason + ")");
+    }
+    return annotated;
+}
 } // namespace
 
 std::string FormatLoadReport(const LoadReport& aReport)
@@ -55,7 +70,7 @@ std::string FormatLoadReport(const LoadReport& aReport)
     if (!missing.empty())
     {
         line += "; MISSING: ";
-        AppendJoined(line, missing);
+        AppendJoined(line, WithReasons(missing, aReport.failed));
     }
 
     if (aReport.scriptsAdded)

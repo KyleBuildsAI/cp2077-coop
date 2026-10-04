@@ -1,8 +1,10 @@
 // Deterministic tests for the frame codec and the reliability layer (no sockets, simulated clock),
-// plus the logic behind the Net_NowMs / Net_Version natives and the startup summary line.
+// plus the logic behind the Net_NowMs / Net_Version natives, native registration checks and the
+// startup summary line.
 
 #include "core/Clock.hpp"
 #include "core/LoadReport.hpp"
+#include "core/NativeRegistration.hpp"
 #include "core/Protocol.hpp"
 #include "core/Reliability.hpp"
 #include "core/Version.hpp"
@@ -16,6 +18,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <deque>
+#include <map>
+#include <memory>
 #include <random>
 #include <regex>
 #include <set>
@@ -589,7 +593,165 @@ void TestLoadReport()
     const std::string emptyLine = FormatLoadReport(scriptsOnly);
     CHECK(!IsLoadComplete(scriptsOnly));
     CHECK(emptyLine.find("(0/10): none; MISSING: Net_Connect,") != std::string::npos);
+
+    LoadReport withReason;
+    withReason.registered.assign(kNativeNames.begin(), kNativeNames.end() - 1); // all but Net_Version
+    withReason.failed.push_back({"Net_Version", "RTTI lookup by name found nothing after RegisterFunction"});
+    withReason.scriptsAdded = true;
+    withReason.scriptsPath = "X";
+    const std::string reasonLine = FormatLoadReport(withReason);
+    std::printf("    %s\n", reasonLine.c_str());
+    CHECK(reasonLine.find("registered Net_* natives (9/10)") != std::string::npos);
+    CHECK(reasonLine.find("; MISSING: Net_Version (RTTI lookup by name found nothing after RegisterFunction); "
+                          "scripts added: X") != std::string::npos);
 }
+
+// ---- native registration checks ----------------------------------------------------------------
+// Fakes with the observable behaviour of RED4ext SDK 1.0.0: AddParam/SetReturnType return false and
+// change nothing when the type name is unknown, RegisterFunction returns nothing, and GetFunction
+// looks the name up.
+
+bool IsFundamentalType(std::string_view aType)
+{
+    return aType == "String" || aType == "Int32" || aType == "Bool" || aType == "Double";
+}
+
+struct FakeFunction
+{
+    std::string name;
+    std::vector<std::string> params;
+    std::string returnType;
+
+    bool AddParam(const char* aType, const char* aName)
+    {
+        if (!IsFundamentalType(aType))
+        {
+            return false;
+        }
+        params.push_back(std::string(aType) + " " + aName);
+        return true;
+    }
+
+    bool SetReturnType(const char* aType)
+    {
+        if (!IsFundamentalType(aType))
+        {
+            return false;
+        }
+        returnType = aType;
+        return true;
+    }
+};
+
+struct FakeRtti
+{
+    bool dropRegistrations = false; // RegisterFunction silently does nothing
+    bool keepFirst = false;         // a name that is already taken keeps its first function
+    int registerCalls = 0;
+    std::map<std::string, FakeFunction*> functions;
+
+    void RegisterFunction(FakeFunction* aFunction)
+    {
+        ++registerCalls;
+        if (dropRegistrations || (keepFirst && functions.contains(aFunction->name)))
+        {
+            return;
+        }
+        functions[aFunction->name] = aFunction;
+    }
+
+    FakeFunction* GetFunction(const char* aName)
+    {
+        const auto found = functions.find(aName);
+        return found == functions.end() ? nullptr : found->second;
+    }
+};
+
+void TestNativeRegistration()
+{
+    std::puts("native registration checks");
+    {
+        FakeRtti rtti;
+        FakeFunction connect{"Net_Connect"};
+        const std::string problem =
+            RegisterNative(rtti, connect, "Net_Connect", {{"String", "host"}, {"Int32", "port"}}, "Bool");
+        CHECK(problem.empty());
+        CHECK(rtti.GetFunction("Net_Connect") == &connect);
+        CHECK(connect.params == (std::vector<std::string>{"String host", "Int32 port"}));
+        CHECK(connect.returnType == "Bool");
+        FakeFunction disconnect{"Net_Disconnect"};
+        CHECK(RegisterNative(rtti, disconnect, "Net_Disconnect", {}, nullptr).empty());
+        CHECK(disconnect.returnType.empty());
+    }
+    {
+        // a parameter type the RTTI does not know (typo "Int"): reported, and never registered
+        FakeRtti rtti;
+        FakeFunction send{"Net_Send"};
+        const std::string problem =
+            RegisterNative(rtti, send, "Net_Send", {{"Int", "channel"}, {"String", "payload"}}, "Bool");
+        std::printf("    unknown parameter type -> \"%s\"\n", problem.c_str());
+        CHECK(problem == "parameter 'channel' of type Int not added: type not in RTTI, native not registered");
+        CHECK(rtti.registerCalls == 0);
+        CHECK(rtti.GetFunction("Net_Send") == nullptr);
+    }
+    {
+        FakeRtti rtti;
+        FakeFunction poll{"Net_Poll"};
+        const std::string problem = RegisterNative(rtti, poll, "Net_Poll", {}, "Str");
+        CHECK(problem == "return type Str not set: type not in RTTI, native not registered");
+        CHECK(rtti.registerCalls == 0);
+    }
+    {
+        // RegisterFunction returns void; a registration the system dropped shows up only in the lookup
+        FakeRtti rtti;
+        rtti.dropRegistrations = true;
+        FakeFunction version{"Net_Version"};
+        const std::string problem = RegisterNative(rtti, version, "Net_Version", {}, "String");
+        std::printf("    dropped registration -> \"%s\"\n", problem.c_str());
+        CHECK(problem == "RTTI lookup by name found nothing after RegisterFunction");
+        CHECK(rtti.registerCalls == 1);
+    }
+    {
+        FakeRtti rtti;
+        rtti.keepFirst = true;
+        FakeFunction other{"Net_NowMs"};
+        rtti.RegisterFunction(&other);
+        FakeFunction ours{"Net_NowMs"};
+        const std::string problem = RegisterNative(rtti, ours, "Net_NowMs", {}, "Double");
+        CHECK(problem == "RTTI lookup by name returned a different function (name already taken?)");
+    }
+    {
+        // the same flow Main.cpp runs at post-register: one native fails, the line says which and why
+        FakeRtti rtti;
+        std::vector<std::unique_ptr<FakeFunction>> functions;
+        LoadReport report;
+        for (const std::string_view name : kNativeNames)
+        {
+            functions.push_back(std::make_unique<FakeFunction>(FakeFunction{std::string(name)}));
+            const char* returnType = name == "Net_NowMs" ? "Float64" : "String";
+            const std::string problem =
+                RegisterNative(rtti, *functions.back(), functions.back()->name.c_str(), {}, returnType);
+            if (problem.empty())
+            {
+                report.registered.emplace_back(name);
+            }
+            else
+            {
+                report.failed.push_back({std::string(name), problem});
+            }
+        }
+        report.scriptsAdded = true;
+        report.scriptsPath = "X";
+        const std::string line = FormatLoadReport(report);
+        std::printf("    %s\n", line.c_str());
+        CHECK(!IsLoadComplete(report));
+        CHECK(report.registered.size() == 9);
+        CHECK(line.find("registered Net_* natives (9/10)") != std::string::npos);
+        CHECK(line.find("; MISSING: Net_NowMs (return type Float64 not set: type not in RTTI, native not "
+                        "registered); scripts added: X") != std::string::npos);
+    }
+}
+
 } // namespace
 
 int main()
@@ -606,6 +768,7 @@ int main()
     TestClockNow();
     TestVersionString();
     TestLoadReport();
+    TestNativeRegistration();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

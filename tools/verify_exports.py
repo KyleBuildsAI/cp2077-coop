@@ -50,7 +50,7 @@ def source_consistency(names):
     failures = []
     main_cpp = read_text(os.path.join("src", "plugin", "Main.cpp"))
     reds = read_text(os.path.join("scripts", "CP2077CoopNet", "Natives.reds"))
-    registered = re.findall(r'RegisterGlobal<[^>]+>\(rtti,\s*registered,\s*"(Net_\w+)"', main_cpp)
+    registered = re.findall(r'RegisterGlobal<[^>]+>\(rtti,\s*report,\s*"(Net_\w+)"', main_cpp)
     declared = re.findall(r"public static native func (Net_\w+)\(", reds)
     print(f"natives: LoadReport.hpp={len(names)}, Main.cpp registers={len(registered)}, Natives.reds declares={len(declared)}")
     if registered != names:

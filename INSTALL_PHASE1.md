@@ -141,9 +141,14 @@ CP2077CoopNet 0.1.1 proto 1 loaded; the Net_* natives are added at RTTI post-reg
 CP2077CoopNet 0.1.1 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
-The last line is **the** Phase 1 line. It is written once, only after RED4ext has accepted the
-natives. The marker text `registered Net_* natives` appears nowhere else in the DLL (the export
-check counts it). To grep both games:
+The last line is **the** Phase 1 line. It is written once, at RTTI post-register. A native is
+listed there only when three checks passed: every parameter type and the return type resolved in
+RTTI, and looking the name up in RTTI after `RegisterFunction` returned the function the plugin
+registered. A native that fails a check is not counted. It is listed after `MISSING:` together
+with the step that failed, and the whole line is then logged at `[error]`. What the line cannot
+show is that a call works; step 5 checks that from CET and redscript. The marker text
+`registered Net_* natives` appears nowhere else in the DLL (the export check counts it). To grep
+both games:
 
 ```powershell
 foreach ($game in $games) {
@@ -262,7 +267,7 @@ this check.
 | No `cp2077coopnet-*.log`, and the RED4ext log has `Could not load plugin 'CP2077CoopNet'` | Windows could not load the DLL | Check that the DLL is in `red4ext\plugins\CP2077CoopNet\`. Run the probe from step 2 on the installed copy. |
 | RED4ext log: `CP2077CoopNet did not initialize properly, unloading...` | `Main` returned false | The plugin log says why, for example `unsupported game version ...`. |
 | Plugin log has the `loaded` line but no `registered Net_* natives` line | The RTTI post-register callback never ran | Natives are absent. Report it; this is the Phase 1 hard-stop question. |
-| Summary line at `[error]` with `MISSING: ...` | RED4ext refused those natives | Report the names. |
+| Summary line at `[error]` with `MISSING: Net_X (<step>)` | That native failed a registration check: a parameter or return type is not in RTTI (`... not in RTTI, native not registered`), or the RTTI lookup after `RegisterFunction` did not return it | Report the summary line and the `Net_X not registered: ...` error line above it. The missing natives cannot be used. If CET can still call one of them (step 5), the lookup check is wrong, not the registration; report that too. |
 | Summary line with `scripts NOT added: ...` | `sdk->scripts->Add` refused the folder | Fallback from the plan: copy `Scripts\*.reds` into `<game>\r6\scripts\CP2077CoopNet\` **and** delete the plugin's `Scripts` folder, so the natives are declared only once. |
 | CET: `attempt to call a nil value (field 'Net_Version')` | CET does not see the native | Check the summary line first. |
 | `Game.Net_*` works but `Game.CoopNet_SelfTest` is nil | The redscript side did not compile our files | Check `redscript_rCURRENT.log`. |

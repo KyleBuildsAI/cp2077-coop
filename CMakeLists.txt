@@ -45,6 +45,7 @@ add_library(coopnet_core STATIC
   src/core/Clock.hpp
   src/core/LoadReport.cpp
   src/core/LoadReport.hpp
+  src/core/NativeRegistration.hpp
   src/core/Protocol.cpp
   src/core/Protocol.hpp
   src/core/Reliability.cpp
