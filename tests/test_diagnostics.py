@@ -25,6 +25,9 @@ D12 server.ini saved with a UTF-8 BOM still gives the relay IP (and a WARN),
     UTF-16 and missing keys are reported, devkit reads it too
 D13 the relay ping is parsed from ping.exe in any language (Russian, also
     mis-decoded), and from Linux/macOS ping
+D14 until the partner shows it decodes payloads, only flags go out (constant
+    vector length, role bit at once); a v0.0.26 partner then gets payload 0 like
+    its own, so its avatar is not re-rotated every 0.1 s
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
@@ -752,6 +755,54 @@ def test_ping_any_language():
     return not wrong and from_bytes == 41.0 and live is not None
 
 
+# ------------------------------------------------------------------ D14
+
+def length_changes(peer, begin, end):
+    """Sent packets whose forward-vector length differs from the previous one by > 0.03:
+    with the facing unchanged, each makes a v0.0.26 receiver cancel and send AIRotateTo."""
+    lengths = [(t, math.hypot(packet[3], packet[4])) for t, _, packet, _ in peer.sent]
+    return sum(1 for (_, before), (t, now) in zip(lengths, lengths[1:]) if begin <= t < end and abs(now - before) > 0.03)
+
+
+def test_old_partner_sees_constant_vector():
+    ok = True
+    for role in ("host", "joiner"):
+        other = "joiner" if role == "host" else "host"
+        rng = random.Random(14)
+        new = timing.Peer(role, timing.make_peer(role, (100.0, 50.0)), 60.0, rng)
+        old = OldPeer("0.0.26", other, timing.make_peer(other, (-900.0, 400.0)), 60.0, rng)
+        timing.run_pair(new, old, 25.0)
+        sync = upvalue(new.lua, "Sync")
+        first, later = length_changes(new, 0.0, 5.0), length_changes(new, 5.0, 25.0)
+        print(f"  new {role} -> v0.0.26 {other}, both standing: vector length changes {first} in the first 5 s, "
+              f"{later} in the next 20 s; partner judged old: {sync.peerIsLegacy()}")
+        ok = ok and first <= 12 and later <= 6 and sync.peerIsLegacy()
+
+    # two current builds: the full schedule starts after the first packet, no false role flash
+    rng = random.Random(14)
+    host = timing.Peer("host", timing.make_peer("host", (100.0, 50.0)), 60.0, rng)
+    joiner = timing.Peer("joiner", timing.make_peer("joiner", (-900.0, 400.0)), 60.0, rng)
+    conflicts = []
+    host_sync, joiner_sync = upvalue(host.lua, "Sync"), upvalue(joiner.lua, "Sync")
+    seen = {}
+
+    def on_frame(peer, t):
+        conflicts.append(upvalue(peer.lua, "Diag").roleConflict())
+        if "time" not in seen and joiner_sync.remoteTimeMinutes >= 0:
+            seen["time"] = t
+        if "weather" not in seen and joiner_sync.remoteWeather is not None:
+            seen["weather"] = t
+
+    timing.run_pair(host, joiner, 6.0, on_frame)
+    changes = length_changes(host, 3.0, 6.0)
+    print(f"  current host + joiner: joiner has the host's time at {seen.get('time', -1):.2f} s, weather at "
+          f"{seen.get('weather', -1):.2f} s; role conflict on any frame {any(conflicts)}; host still sends the full "
+          f"schedule ({changes} length changes in 3 s); both judged current: "
+          f"{host_sync.peerDecodesPayload and joiner_sync.peerDecodesPayload}")
+    return (ok and seen.get("time", 9.0) < 1.0 and seen.get("weather", 9.0) < 1.0 and not any(conflicts)
+            and changes > 30 and host_sync.peerDecodesPayload and joiner_sync.peerDecodesPayload)
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -767,6 +818,7 @@ if __name__ == "__main__":
         "D11 Codeware / coop DLL graded by their RED4ext success line and version": test_plugin_load_lines,
         "D12 server.ini with a BOM, as UTF-16 or without a key is read or reported": test_server_ini_encodings,
         "D13 relay ping parsed in any Windows language (TTL= anchor) and on Linux/macOS": test_ping_any_language,
+        "D14 a v0.0.26 partner gets a constant vector length (no rotate spam); current builds sync at once": test_old_partner_sees_constant_vector,
     }
     results = {}
     for name, test in tests.items():

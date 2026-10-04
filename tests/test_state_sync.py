@@ -159,21 +159,36 @@ def test_host_sends_world_state():
     """)
     g = lua.globals()
     on_update = g.events["onUpdate"]
-    for frame in range(60):
-        g.simTime = frame / 60
-        on_update(1 / 60)
-    payloads = []
-    for packet in g.sent.values():
-        fx, fy = packet[1], packet[2]
-        payloads.append(round(math.hypot(wire(fx), wire(fy)) - 1))
-    kinds = sorted(set(payloads))
-    print("host payloads:", kinds)
+
+    def run_frames(first, count):
+        for frame in range(first, first + count):
+            g.simTime = frame / 60
+            on_update(1 / 60)
+        payloads = [round(math.hypot(wire(packet[1]), wire(packet[2])) - 1) for packet in g.sent.values()]
+        lua.execute("sent = {}")
+        return payloads
+
     flags_with_role = 1 + 2 + 3 * 32 + 256
-    required = {flags_with_role, TYPE_STRIDE + (7 * 60 + 30) // 3, 2 * TYPE_STRIDE + 3}
+    # alone: the partner has not shown it decodes payloads (a v0.0.26 partner compares
+    # raw forward vectors), so only flags (constant length) and the 1 Hz ping go out
+    alone = run_frames(0, 60)
+    alone_kinds = sorted(set(alone))
+    alone_ok = set(p for p in alone_kinds if p // TYPE_STRIDE != 3) == {flags_with_role} and len(alone) > 20
+    print("host payloads before the partner's first packet:", alone_kinds)
+
+    # the partner's ping proves it decodes payloads: the full schedule follows
+    net = g.net
+    ping = 3 * TYPE_STRIDE + 7
+    net.has, net.seq = True, 1
+    net.x, net.y, net.z = 5.0, 5.0, 0.0
+    net.fx, net.fy = wire(0.0), wire(1.0 + ping)
+    kinds = sorted(set(run_frames(60, 60)))
+    print("host payloads after the partner's ping:", kinds)
+    required = {flags_with_role, TYPE_STRIDE + (7 * 60 + 30) // 3, 2 * TYPE_STRIDE + 3, 4 * TYPE_STRIDE + 7}
     pings = [p for p in kinds if p // TYPE_STRIDE == 3]
     unexpected = [p for p in kinds if p not in required and p // TYPE_STRIDE not in (3, 6, 7)]
     print("pings sent:", len(pings), "unexpected:", unexpected)
-    return required.issubset(kinds) and len(pings) >= 1 and not unexpected
+    return alone_ok and required.issubset(kinds) and len(pings) >= 1 and not unexpected
 
 
 if __name__ == "__main__":

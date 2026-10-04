@@ -1084,6 +1084,18 @@ local Sync = {
     -- tego bitu, więc wyglądałaby na joinera
     peerHasRoleBit = false,
 
+    -- Wersja drugiej strony a długość wektora kierunku. v0.0.26 nie
+    -- dekoduje payloadu i porównuje surowe wektory: zmienna długość
+    -- (flagi / godzina / pogoda / mody na zmianę) = cancel + AIRotateTo
+    -- co 0.1 s u stojącego avatara. Dopóki druga strona nie wyśle
+    -- payloadu > 0 (v0.0.27+), wysyłamy same flagi (stała długość, bit
+    -- roli od razu); po LEGACY_AFTER_PACKETS pakietach bez payloadu to
+    -- v0.0.26: payload 0 jak u niej i ping co PING_INTERVAL_LEGACY.
+    peerDecodesPayload = false,
+    zeroPayloadPackets = 0,
+    LEGACY_AFTER_PACKETS = 150,
+    PING_INTERVAL_LEGACY = 10.0,
+
     remoteTimeMinutes = -1,
     -- Sync.clock przy ostatnim pakiecie z godziną hosta
     remoteTimeClock = -100.0,
@@ -1137,6 +1149,24 @@ function Sync.reportMissingScripts()
 end
 
 
+-- Druga strona to v0.0.26: same pakiety z payloadem 0 (bez pingów,
+-- flag z bitem roli, godziny, pogody, modów) przez LEGACY_AFTER_PACKETS.
+function Sync.peerIsLegacy()
+
+    return
+        not Sync.peerDecodesPayload
+        and Sync.zeroPayloadPackets >= Sync.LEGACY_AFTER_PACKETS
+end
+
+
+-- Restart drugiej gry: to może być już inna wersja moda.
+function Sync.forgetPeerVersion()
+
+    Sync.peerDecodesPayload = false
+    Sync.zeroPayloadPackets = 0
+end
+
+
 -- Co wysłać w tym pakiecie. Host co drugi pakiet
 -- wysyła stan świata, flagi gracza lecą zawsze co drugi.
 function Sync.buildPayload(player, isHost)
@@ -1152,8 +1182,16 @@ function Sync.buildPayload(player, isHost)
             token
     end
 
+    -- stara wersja nie odpowiada na ping, a każdy ping to dwie zmiany
+    -- długości wektora (obrót avatara u niej): rzadko, tylko żeby
+    -- wykryć pomyłkę (np. kilka zgubionych pingów nowej wersji)
+    local pingInterval =
+        Sync.peerIsLegacy()
+        and Sync.PING_INTERVAL_LEGACY
+        or Sync.PING_INTERVAL
+
     if Sync.clock - Sync.lastPingClock >=
-        Sync.PING_INTERVAL
+        pingInterval
     then
 
         Sync.pingToken =
@@ -1184,6 +1222,10 @@ function Sync.buildPayload(player, isHost)
             (Sync.flagsOverride or 0) +
             roleFlag
 
+        if Sync.peerIsLegacy() then
+            return 0
+        end
+
         return
             Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
             Sync.localFlags
@@ -1203,6 +1245,20 @@ function Sync.buildPayload(player, isHost)
     Sync.localFlags =
         (Sync.flagsOverride or realFlags) +
         roleFlag
+
+    -- druga strona jeszcze nie pokazała, że dekoduje payload (patrz
+    -- peerDecodesPayload): stała długość wektora, flagi liczone wyżej
+    -- i tak służą panelowi i blokadzie teleportu w aucie
+    if not Sync.peerDecodesPayload then
+
+        if Sync.peerIsLegacy() then
+            return 0
+        end
+
+        return
+            Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
+            Sync.localFlags
+    end
 
     Sync.sendSlot = Sync.sendSlot + 1
 
@@ -1314,6 +1370,14 @@ function Sync.receivePayload(payload)
 
     if payload == nil then
         return
+    end
+
+    -- payload > 0 (ping, flagi hosta, godzina, pogoda, mody...) wysyła
+    -- tylko wersja, która go dekoduje; v0.0.26 wysyła zawsze 0
+    if payload > 0 then
+        Sync.peerDecodesPayload = true
+    elseif not Sync.peerDecodesPayload then
+        Sync.zeroPayloadPackets = Sync.zeroPayloadPackets + 1
     end
 
     local packetType =
@@ -5126,6 +5190,10 @@ registerForEvent(
                 and (Sync.vehicleShown or Sync.remoteVehicleIndex ~= nil)
             then
                 Sync.hideRemoteVehicle(player)
+            end
+
+            if isRestart then
+                Sync.forgetPeerVersion()
             end
 
             Sync.receivePayload(payload)
