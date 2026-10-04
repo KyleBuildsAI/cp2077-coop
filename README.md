@@ -5,12 +5,21 @@ message transport: a FIFO inbox, an unreliable channel for snapshots, and a reli
 events (resent until acknowledged, delivered once and in order). It replaces the
 "latest position only, extra bits squeezed into the forward vector" limit of `CP2077Coop.dll`.
 
-Version 0.1.2 (protocol 1). Status: builds, unit and integration tests pass outside the game.
+Version 0.2.0-alpha.1 (wire protocol 1 on the network; protocol v2 codec built and tested).
+Status: builds, unit and integration tests pass outside the game.
 0.1.0 was loaded in both bench games on 2026-10-04 (Phase 1 go: `Game.Net_*` callable from CET,
 about 1 % unreliable loss at 1 % simulated, 0 reliable order errors, 0.03 ms per frame to drain
-`Net_Poll`, no crash on load, save load or quit). **0.1.1 and 0.1.2 have not been loaded in the game
-yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1 install and in-game check: install
-steps, the bench relay on port 11779, CET console commands and the log lines that prove success.
+`Net_Poll`, no crash on load, save load or quit). **0.1.1, 0.1.2 and 0.2.0-alpha.1 have not been
+loaded in the game yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1 install and
+in-game check: install steps, the bench relay on port 11779, CET console commands and the log lines
+that prove success.
+
+**Phase 2 (one wire format, v2).** The plugin moves from its own CPN2 framing to protocol v2
+(magic 0xCB77) from the relay repo (`coopnet/proto.py`, `include/coop_proto_v2.h`). Each milestone
+bumps the version to 0.2.0-alpha.N. Milestone 1 (alpha.1) is the C++ codec in `src/v2`, see
+[Protocol v2 codec](#protocol-v2-codec-srcv2). The transport, the natives and the Lua helper still
+run wire protocol 1 until the reliability and handshake milestones land, so `Net_Version` still
+says `proto 1`.
 
 0.1.2 fixes the five confirmed findings of the Phase 1 review:
 - The startup line now checks each native's registration: the parameter and return types resolved
@@ -30,17 +39,26 @@ src/core/Transport.*    Winsock UDP thread, peers, inbox/outbox queues, stats (n
 src/core/Clock.*        Net_NowMs clock (GetSystemTimePreciseAsFileTime -> Unix epoch ms)
 src/core/Version.hpp    plugin version (from CMake project VERSION) and the Net_Version string
 src/core/LoadReport.*   the native list and the one-line startup summary
+src/v2/coop_proto_v2.h  protocol v2 wire structs, a verbatim copy of relay/include/coop_proto_v2.h
+src/v2/V2Codec.*        v2 packet header, cookie handshake, message framing, every message body
+src/v2/V2Delta.*        delta entity snapshots: encoder (acked baselines, byte budget) and decoder
+src/v2/V2Hash.*         SHA-256, HMAC-SHA256, room key hash, mod list hash, game build id, cookies
+src/v2/V2Describe.*     canonical text for decoded datagrams (golden vectors, diagnostics)
 src/plugin/Main.cpp     RED4ext exports (Query/Main/Supports), Net_* natives, runtime check
 scripts/CP2077CoopNet/  Natives.reds (declarations) + Helpers.reds (parsing, channel ids, self test)
 lua/coopnet.lua         CET helper module
 tools/coopnet_relay.py  relay for this protocol, with latency/jitter/loss/reorder simulation
 tools/*.ps1, *.py       build, dependency fetch, export verification, loopback runner
+tools/v2_golden.py      golden vectors between the C++ v2 codec and the relay's proto.py, both ways
 tests/                  unit tests, relay loopback test, plugin probe, relay and Lua tests
+tests/V2*.cpp           v2 codec unit tests, golden-vector checker/emitter, fuzzer
 ```
 
 ## Build
 
-Requirements: VS 2022 (MSVC v143), CMake 3.21+, Python 3.11+ with `pefile`, git.
+Requirements: VS 2022 (MSVC v143), CMake 3.21+, Python 3.12+ with `pefile`, git, and the relay repo
+checked out next to this one (`..\relay`, or `COOPNET_RELAY_DIR`): the v2 golden vectors run its
+`proto.py`.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\fetch_deps.ps1   # RED4ext.SDK pinned to tag 1.0.0
@@ -48,10 +66,12 @@ powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Loopback
 powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Clean -All   # fresh build dir, every offline test
 ```
 
-`-Clean` deletes `build\` first. `-All` adds `tests\test_relay_protocol.py` and
-`tests\test_lua_helper.py` to the run; the Lua test needs `lupa` (`pip install lupa`, or `PYTHONPATH`
-pointing at a folder that has it). The version lives in one place, `project(CP2077CoopNet VERSION ...)`
-in `CMakeLists.txt`: `Query()`, `Net_Version()`, `Net_Stats` and the probe all read it.
+`-Clean` deletes `build\` first. `-All` adds `tests\test_relay_protocol.py`,
+`tests\test_lua_helper.py`, the relay's unit tests and its `tools\check_c_header.py` to the run; the
+Lua test needs `lupa` (`pip install lupa`, or `PYTHONPATH` pointing at a folder that has it). The
+version lives in one place, `project(CP2077CoopNet VERSION ...)` plus `COOPNET_PRERELEASE_TYPE` and
+`COOPNET_PRERELEASE_NUMBER` in `CMakeLists.txt`: `Query()` (as a RED4ext pre-release), `Net_Version()`,
+`Net_Stats` and the probe all read it.
 
 `build.ps1` runs these commands:
 
@@ -61,6 +81,10 @@ cmake --build build --config Release --parallel
 build\Release\coopnet_tests.exe
 python tools\verify_exports.py build\Release\CP2077CoopNet.dll
 build\Release\coopnet_plugin_probe.exe build\Release\CP2077CoopNet.dll
+build\Release\coopnet_v2_tests.exe
+build\Release\coopnet_v2_fuzz.exe 20000
+build\Release\coopnet_v2_fuzz_asan.exe 20000          # when the MSVC ASan runtime is installed
+python tools\v2_golden.py run --exe build\Release\coopnet_v2_golden.exe
 python tools\run_loopback.py
 ```
 
@@ -89,7 +113,7 @@ parameter type and the return type resolved in RTTI, and looking its name up aga
 `RegisterFunction` returned the function the plugin created (`src/core/NativeRegistration.hpp`):
 
 ```
-CP2077CoopNet 0.1.2 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
+CP2077CoopNet 0.2.0-alpha.1 proto 1: registered Net_* natives (10/10): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
 If a native or the Scripts folder failed, the same line is logged at error level with
@@ -113,7 +137,7 @@ buffer, so a redscript loop such as `let raw = Net_Poll();` would leak one buffe
 | `Net_Stats() -> String` | JSON | `CoopNet.stats()` decodes it |
 | `Net_LocalId() -> Int32` | 0 until welcomed | |
 | `Net_NowMs() -> Double` | ms since the Unix epoch (UTC), sub-ms fraction | `CoopNet.nowMs()` |
-| `Net_Version() -> String` | `"CP2077CoopNet 0.1.2 proto 1"` | `CoopNet.version()`, `CoopNet.parseVersion(s)` |
+| `Net_Version() -> String` | `"CP2077CoopNet 0.2.0-alpha.1 proto 1"` | `CoopNet.version()`, `CoopNet.parseVersion(s)` |
 
 * **Net_NowMs** reads `GetSystemTimePreciseAsFileTime` (100 ns ticks) and returns a Double, not an
   Int64: CET hands Int64 to Lua as LuaJIT cdata (`123LL`, built by compiling a chunk per call), while
@@ -121,8 +145,9 @@ buffer, so a redscript loop such as `let raw = Net_Poll();` would leak one buffe
   0.25 us at today's values. It is wall-clock time, so it follows Windows clock adjustments. Two
   instances on one PC share it, which is what the scoreboard needs. In redscript, Double literals
   need a `d` suffix (`1.0d`); `CoopNet_ElapsedMs(start)` gives a Float span.
-* **Net_Version** is `"CP2077CoopNet <major.minor.patch> proto <wire protocol>"`. `Net_Stats` JSON
-  carries the same string as `"version"`.
+* **Net_Version** is `"CP2077CoopNet <major.minor.patch>[-<alpha|beta|rc>.<n>] proto <wire protocol>"`.
+  `Net_Stats` JSON carries the same string as `"version"`. `CoopNet.parseVersion` returns the
+  pre-release as `prerelease` (`"alpha.1"`, or nil for a release) and keeps parsing 0.1.x strings.
 
 * **Channels**: 1..15 are unreliable and sequenced. A snapshot older than one already delivered on
   the same channel is dropped. 16..31 are reliable and ordered, sharing one ordered stream per peer.
@@ -150,6 +175,52 @@ registerForEvent("onUpdate", function()
 end)
 CoopNet.send(CoopNet.EVENT, "weapon|draw|Items.Preset_Overture_Default")
 ```
+
+## Protocol v2 codec (src/v2)
+
+The C++ port of `relay/coopnet/proto.py` (protocol 2.1) and of the delta encoder in
+`relay/coopnet/snapshot.py`. It has no RED4ext or Winsock dependency (`coopnet_v2` static library)
+and is not wired into the transport yet.
+
+* **Wire structs**: `src/v2/coop_proto_v2.h` is byte-identical to the relay's header (checked by
+  `tools/v2_golden.py`); the relay's `tools/check_c_header.py` checks that header's 30 struct
+  layouts and 130 constants and enum values against proto.py with MSVC.
+* **Packets**: `DecodePacket`/`EncodePacket` for the 20-byte header (magic, major 2, type, token,
+  seq, ack, ack bits). A v3 datagram reports `VersionMismatch` with its major and type, so a relay
+  can answer with a REJECT.
+* **Cookie handshake**: HELLO (zero-padded to 240 bytes), CHALLENGE, AUTH (join info + cookie + room
+  key hash), WELCOME, REJECT and DISCONNECT bodies; `RoomKeyHash`, `ModListHash`, `GameBuildId`,
+  `MakeCookie`/`CheckCookie` (HMAC-SHA256, 10 s, bound to address and nonce) in `V2Hash`.
+* **Messages**: `DecodeMessages`/`AppendMessage` for the framing inside DATA (at most 96 messages,
+  bodies up to 1174 bytes) and `DecodeBody`/`EncodeBody` for every message type with exactly
+  proto.py's validation: finite floats, world bounds (|x|,|y| <= 20 km, |z| <= 5 km), enum and range
+  checks, strict UTF-8 text. Encoders decode what they wrote and refuse anything a receiver would
+  reject. `MessageSpecs()` is the delivery/sender/route table.
+* **Delta entity snapshots**: `ENTITY_SNAPSHOT` records (spawn, pos or pos delta, yaw or quaternion,
+  velocity, state, target, weapon, world id, removal) and `V2Delta`'s `DeltaEncoder`/`DeltaDecoder`,
+  which produce the same bytes and views as snapshot.py.
+* **Protocol 2.1 additions** (also added to the relay on its `feat/phase2-v2` branch):
+  * `SCRIPT_MSG` (0x30): `channel u8, flags u8, text_len u16, text` with at most 1000 bytes of UTF-8
+    and no NUL. Channels 1..15 travel unreliable and 16..31 reliable (the `Net_Send` channel ids),
+    and the reliable bit must match. The relay sends it to the named peer, or to everybody for
+    0xFF. It carries script text during bring-up, so the old `Net_Send`/`Net_Poll` API can map onto
+    v2.
+  * `X_WORLD_ID` (entity extension bit 0x08): a u64 static world id (EntityID hash) for binding
+    mirrors. It belongs to the entity's identity, so it travels with the spawn block.
+  * The relay only accepts these from peers that negotiated minor 1 and skips 2.0 receivers.
+* **Golden vectors, both directions** (`python tools\v2_golden.py run --exe ...`): proto.py writes
+  valid datagrams of every packet and message type (its own encoders), 119 handcrafted invalid ones,
+  2,400 random mutations with proto.py's verdict, hash and quantizer vectors, the message table and
+  constants, and three delta scenarios. C++ must give the same verdicts, describe the same values
+  and re-encode every canonical datagram and delta snapshot byte for byte. Then C++ writes its own
+  vectors the same way and proto.py checks them. A deliberate one-character bug in the C++
+  move-state check was caught by the handcrafted `player-move-14` vector.
+* **Fuzzing**: `coopnet_v2_fuzz` feeds 20,000 random, mutated, truncated and oversized datagrams and
+  bodies, each in a heap block of exactly its size, and checks that accepted input re-encodes to the
+  same values. `coopnet_v2_fuzz_asan` is the same program built with `/fsanitize=address`.
+* **Limits**: `ModListHash` folds ASCII case and strips ASCII whitespace only, where proto.py uses
+  Python's Unicode rules. The quantizers map NaN to 0 where proto.py raises. `PackQuat` follows
+  CPython 3.12+ float summation.
 
 ## Wire protocol v1
 
@@ -203,7 +274,7 @@ port of it, on a host that both players can reach.
 
 ## Tests (latest run)
 
-* `coopnet_tests.exe`: 148 checks covering the codec, sequence wrap, RTT, SACK bits, backpressure,
+* `coopnet_tests.exe`: 150 checks covering the codec, sequence wrap, RTT, SACK bits, backpressure,
   fast retransmit, the horizon and simulated links. Game-like events at 20/s with 2% loss and
   320 ms RTT have one-way latency p50 169 ms, p99 539 ms, max 889 ms. A 70,000-message transfer
   wraps the 16-bit sequence. Since 0.1.1 the run also covers Net_NowMs: FILETIME conversion against
@@ -225,12 +296,22 @@ port of it, on a host that both players can reach.
   imports. The native list in `LoadReport.hpp`, the registrations in `Main.cpp` and the
   declarations in `Natives.reds` agree, and every name is in the image. The Net_Version string
   matches `CMakeLists.txt`, and the log marker occurs exactly once. `coopnet_plugin_probe.exe`:
-  LoadLibrary + Query gives version 0.1.2, runtime 3.0.80.51928 and SDK 1.0.0.
+  LoadLibrary + Query gives version 0.2.0 with pre-release alpha (1) number 1, runtime 3.0.80.51928
+  and SDK 1.0.0.
+* `coopnet_v2_tests.exe`: 24,076 checks: SHA-256 (FIPS vectors) and HMAC (RFC 4231), proto.py's
+  hash and quantizer values, UTF-8 rules, the packet header, the handshake bodies and their
+  anti-amplification sizes, framing limits, 4,400 body round trips over all 22 message types, the
+  validation rules, SCRIPT_MSG, X_WORLD_ID, and delta snapshots over a link with 0, 20 and 45 % loss
+  (acks lost too): 0 view mismatches, every body within the 1000-byte budget.
+* `v2_golden.py`: 7,920 checks of proto.py's vectors in C++ and 7,447 checks of C++'s vectors in
+  proto.py, 0 failures.
+* `coopnet_v2_fuzz.exe` and `coopnet_v2_fuzz_asan.exe`: 20,000 inputs each, no crash, no
+  AddressSanitizer report, 0 invariant failures.
 
 ## Known limits
 
-* Only 0.1.0 has run in the game. The 0.1.1 natives (`Net_NowMs`, `Net_Version`), the startup line
-  and the 0.1.2 fixes are verified offline only. Calling the natives from redscript at runtime
+* Only 0.1.0 has run in the game. The 0.1.1 natives (`Net_NowMs`, `Net_Version`), the startup line,
+  the 0.1.2 fixes and the 0.2.0-alpha.1 version string are verified offline only. Calling the natives from redscript at runtime
   (`CoopNet_SelfTest`) has not been tried yet.
 * No authentication or encryption. Anyone who knows the relay address and room can join.
 * IPv4 only. One reliable stream per peer, so a lost event delays later events on every reliable
