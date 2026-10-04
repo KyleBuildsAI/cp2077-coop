@@ -1,0 +1,33 @@
+# systemd unit for a public CP2077 Coop v2 relay (Debian/Ubuntu VPS).
+#
+#   sudo useradd --system --home /opt/coop-relay --shell /usr/sbin/nologin coop
+#   sudo mkdir -p /opt/coop-relay && sudo cp -r coopnet relay_v2.py /opt/coop-relay/
+#   sudo chown -R coop:coop /opt/coop-relay
+#   sudo cp deploy/coop-relay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now coop-relay
+#   sudo ufw allow 11778/udp        # and open UDP 11778 in the provider's firewall panel
+#
+# Logs: journalctl -u coop-relay -f      Stats: /opt/coop-relay/relay_stats.json
+
+[Unit]
+Description=CP2077 Coop relay (protocol v2, v1 compatible)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=coop
+Group=coop
+WorkingDirectory=/opt/coop-relay
+# "::" listens on IPv6 and IPv4 (dual stack); use 0.0.0.0 for IPv4 only.
+ExecStart=/usr/bin/python3 /opt/coop-relay/relay_v2.py --host :: --port 11778 --stats-json /opt/coop-relay/relay_stats.json
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/coop-relay
+ProtectHome=true
+PrivateTmp=true
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

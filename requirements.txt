@@ -1,0 +1,2 @@
+# The relay, test clients and tests use only the Python standard library (Python 3.11+).
+# tools/check_c_header.py additionally needs MSVC (Visual Studio 2022 Build Tools).
