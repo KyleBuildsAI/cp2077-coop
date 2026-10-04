@@ -38,6 +38,9 @@ SKIP_NAMES = {"role.txt", "monitor_status.txt", "coop_monitor_history.csv", "coo
               "coop_stats_host.txt", "coop_stats_joiner.txt", "coop_events.log"}
 # The same by pattern: history files the monitor rotated out, its interrupted status swap, logs.
 SKIP_PATTERNS = ("coop_monitor_history*.csv", "monitor_status.txt.tmp", "*.log")
+# Bot autostart switch (init.lua Bot.FILE): belongs only in the test host's mod folder. A cloned
+# instance is usually the joiner, and the bot would replace its player's real movement.
+HOST_ONLY_NAMES = {"testpattern.txt"}
 SKIP_DIRS = {os.path.join("r6", "logs"), os.path.join("red4ext", "logs")}
 
 SCRIPTS_DIR = os.path.join("r6", "scripts", "CP2077Coop")
@@ -74,12 +77,16 @@ def make_instance(source, dest):
         sys.exit("source and destination must be on the same drive for hardlinks")
 
     linked = copied = copied_bytes = 0
+    skipped_bot = False
     for root, dirs, files in os.walk(source):
         relative_root = os.path.relpath(root, source)
         dirs[:] = [d for d in dirs if os.path.normpath(os.path.join(relative_root, d)) not in SKIP_DIRS]
         os.makedirs(os.path.join(dest, relative_root), exist_ok=True)
         for name in files:
             if is_skipped(name):
+                continue
+            if name in HOST_ONLY_NAMES:
+                skipped_bot = True
                 continue
             relative = os.path.normpath(os.path.join(relative_root, name))
             src_file = os.path.join(source, relative)
@@ -92,6 +99,9 @@ def make_instance(source, dest):
                 copied += 1
                 copied_bytes += os.path.getsize(src_file)
     print(f"created {dest}: {linked} files hardlinked, {copied} copied ({copied_bytes / 1e9:.2f} GB)")
+    if skipped_bot:
+        print("  testpattern.txt not copied: the new instance does not auto-start the test bot "
+              "(create it only in the host's mod folder)")
 
 
 def package_scripts():

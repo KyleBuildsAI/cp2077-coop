@@ -38,6 +38,8 @@ D16 the build's version (what devkit.py reads from init.lua) is the first
 Usage: python test_diagnostics.py path/to/init.lua
 """
 import codecs
+import contextlib
+import io
 import math
 import os
 import random
@@ -975,6 +977,28 @@ def test_devkit_skips_runtime_leftovers():
             and all(cloned[relative] == (relative in DEVKIT_KEPT) for relative in cloned))
 
 
+# ------------------------------------------------------------------ D18
+
+def test_make_instance_leaves_bot_switch():
+    root = tempfile.mkdtemp(prefix="coopdevkit_")
+    try:
+        source, dest = os.path.join(root, "host"), os.path.join(root, "joiner")
+        os.makedirs(os.path.join(source, "bin", "x64"))
+        open(os.path.join(source, "bin", "x64", "Cyberpunk2077.exe"), "wb").close()
+        os.makedirs(os.path.join(source, MOD_DIR))
+        for name in ("init.lua", "testpattern.txt", "role.txt"):
+            open(os.path.join(source, MOD_DIR, name), "w", encoding="utf-8").close()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            devkit.make_instance(source, dest)
+        copied = sorted(os.listdir(os.path.join(dest, MOD_DIR)))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+    note = "testpattern.txt not copied" in output.getvalue()
+    print(f"  clone's mod folder {copied}; note printed {note}")
+    return copied == ["init.lua"] and note
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -994,6 +1018,7 @@ if __name__ == "__main__":
         "D15 STATS: frame p99, hard corrections per minute (not fast follow), partner flags per second": test_frame_corrections_flags_stats,
         "D16 the init.lua version (x.y.z, header banner too) in every [STATS] line, the panel title and the Version row": test_version_everywhere,
         "D17 devkit deploy and make-instance skip rotated history, the status tmp swap and logs": test_devkit_skips_runtime_leftovers,
+        "D18 make-instance leaves the test-bot switch (testpattern.txt) and role.txt behind": test_make_instance_leaves_bot_switch,
     }
     results = {}
     for name, test in tests.items():
