@@ -41,7 +41,7 @@ folder on its own when it is run without the runner.
 |---|---|
 | `run_all.ps1` | Runs every group below: LuaJIT load (catches the 60-upvalue limit), redscript compile, the tests, the movement sim, the relay and the `coop-tools` syntax check |
 | `make_sandbox.py` | Builds and refreshes the redscript compile sandbox |
-| `test_state_sync.py` | State payload round trip through float32 and `%.6f`. The host sends world state and the joiner applies it |
+| `test_state_sync.py` | State payload round trip through float32 and `%.6f`. Before the partner's first ping the host sends only flags; after it, world state, which the joiner applies |
 | `test_two_players.py` | Two instances through a simulated LA-Warsaw-Russia relay: RTT, rates, join, role conflict, join give-up, STALE/LOST, panel buttons. Shared harness for most tests |
 | `test_bot.py` | Test-pattern bot: the joiner sees every phase (walk, run, sprint, crouch, weapons, vehicle), car pose and drift bound |
 | `test_combat.py` | A hit packet does not move the avatar or reset its state |
@@ -50,7 +50,7 @@ folder on its own when it is run without the runner.
 | `test_timing.py` | Packet timing and ordering at different frame rates, stale and torn packets, no globals, upvalue limit |
 | `test_avatar.py` | How the avatar walks, turns, catches up and settles |
 | `test_robustness.py` | Missing redscript, failed spawns, stale time and weather |
-| `test_diagnostics.py` | Stats and event files, `coop_monitor.py`, how the panel grades the connection |
+| `test_diagnostics.py` | Stats and event files, `coop_monitor.py`, how the panel grades the connection, old-partner handling (role, version, constant vector length), the panel's monitor path and stale `monitor_status.txt`, the history CSV locked by Excel, the Codeware/DLL load check, `server.ini` encodings, ping output in any Windows language. The monitor runs write their history to a temp file (`--history`) |
 | `test_relay.py` | `coop-tools\coop_relay.py`: forwarding, WELCOME, latency, loss |
 | `coop_sim30.py` | Movement sim at 30 Hz: idle, moving and vehicle error, teleports, move commands (prints numbers, no pass/fail) |
 | `coop_sim.py` | The same sim at 20 Hz, kept for comparison. Not run by `run_all.ps1` |
