@@ -56,9 +56,9 @@ def upvalue(lua, name):
     return lua.eval("findUpvalue")(lua.globals().events["onUpdate"], name)
 
 
-def receiver(mode="v2", extra="", role="host"):
+def receiver(mode="v2", extra="", role="host", config=""):
     with open("transport.ini", "w", encoding="utf-8") as f:
-        f.write(f"mode={mode}\nprobe_disabled=true\nroom=offline-test\n")
+        f.write(f"mode={mode}\nprobe_disabled=true\nroom=offline-test\n{config}")
     try:
         preload = "package.preload['net_transport'] = function()\n" + MODULE_SOURCE + "\nend\n"
         lua = live.make_receiver(role=role, extra=preload + MOCK + live.VEHICLE_MOCK + extra)
@@ -137,6 +137,106 @@ def test_native_buffered_target_does_not_reverse_steering_direction():
     assert (steer.dirX, steer.dirY) == (0.0, 0.0)
 
 
+RETAINED_MOVE_MOCK = r"""
+retainedController = {starts=0, stops=0, cancels=0}
+function retainedController:SendCommand(command)
+    self.starts = self.starts + 1
+    command.state = 1
+end
+function retainedController:StopExecutingCommand(command) self.stops = self.stops + 1 end
+function retainedController:CancelCommand(command) self.cancels = self.cancels + 1; command.state = 3 end
+retainedNpc = { GetAIControllerComponent = function() return retainedController end }
+retainedUpdates = 0
+function player:CP2077Coop_RetargetRemoteMove(command,x,y,z)
+    if command == nil then return -1 end
+    if command.state ~= 2 then return command.state end
+    retainedUpdates = retainedUpdates + 1
+    command.movementTarget = {wp={v={x=x,y=y,z=z}}}
+    return 2
+end
+"""
+
+
+def test_retained_command_contract_and_fallback():
+    lua = receiver(extra=RETAINED_MOVE_MOCK, config="native_retarget=true\n")
+    state, steer, move, cancel = [upvalue(lua, name) for name in ("S", "Steer", "moveRemoteAI", "cancelMoveCommand")]
+    g = lua.globals()
+    state.remoteHandle = g.retainedNpc
+    state.remoteVelocityX, state.remoteVelocityY = 3.0, 0.0
+    assert move(8.0, 0.0, 0.0, "Run", False)
+    steer.remember(8.0, 0.0, 0.0, "Run", False)
+    first = state.activeMoveCommand
+    assert g.retainedController.starts == 1 and state.nativeCommandsStarted == 1
+    for _ in range(4):
+        assert steer.retarget(g.player, 9.0, 0.0, 0.0, "Run", False, 1.0) == (True, False)
+    assert g.retainedUpdates == 0 and g.retainedController.cancels == 0
+    # A queued command is given time to start; after that, the same handle gets
+    # exact targets without StopExecutingCommand/CancelCommand/SendCommand.
+    first.state = 2
+    for x in range(9, 19):
+        assert steer.retarget(g.player, x, 0.0, 0.0, "Run", False, 1 / 60) == (True, False)
+    assert g.retainedController.starts == 1 and g.retainedController.cancels == 0
+    assert g.retainedUpdates == 10 and state.nativeRetargets == 10
+    assert state.activeMoveCommand.movementTarget.wp.v.x == 18
+    assert state.nativePendingFor == 0.0
+    assert steer.retarget(g.player, 19, 0, 0, "Sprint", False, 1 / 60) == (False, True)
+    assert steer.retarget(g.player, 19, 0, 0, "Run", True, 1 / 60) == (False, True)
+    current = lua.table_from({"x": 0.0, "y": 0.0, "z": 0.0})
+    assert not steer.shouldReissue(current, 19, 0, 0, "Run", False, 0.01, True)
+    assert steer.shouldReissue(current, 19, 0, 0, "Run", False, 0.25, True)
+    assert move(19, 0, 0, "Sprint", False)
+    assert first.state == 3 and g.retainedController.starts == 2 and g.retainedController.cancels == 1
+    active = state.activeMoveCommand
+    for terminal in (3, 4, 5, 6, -1):
+        active.state = terminal
+        assert steer.retarget(g.player, 20, 0, 0, "Sprint", False, 1 / 60) == (False, True)
+    active.state = 1
+    state.nativePendingFor = 0
+    for _ in range(4):
+        assert steer.retarget(g.player, 20, 0, 0, "Sprint", False, 1) == (True, False)
+    assert steer.retarget(g.player, 20, 0, 0, "Sprint", False, 1) == (False, True)
+    # Missing older bridge retains the existing command path.
+    bridge = g.player.CP2077Coop_RetargetRemoteMove
+    g.player.CP2077Coop_RetargetRemoteMove = None
+    assert steer.retarget(g.player, 20, 0, 0, "Sprint", False, 1 / 60) == (False, False)
+    lua.execute("function brokenRetarget() error('bridge unavailable') end")
+    g.player.CP2077Coop_RetargetRemoteMove = g.brokenRetarget
+    assert steer.retarget(g.player, 20, 0, 0, "Sprint", False, 1 / 60) == (False, True)
+    assert state.nativeRetargetErrorReported
+    g.player.CP2077Coop_RetargetRemoteMove = bridge
+    cancel()
+    assert state.activeMoveCommand is None and state.activeMoveType is None
+    assert steer.retarget(g.player, 20, 0, 0, "Sprint", False, 1 / 60) == (False, True)
+    assert state.nativeCommandsStarted == 2 and state.nativeRetargets == 10
+    assert move(21, 0, 0, "Sprint", False)
+    before_teleport = state.activeMoveCommand
+    before_teleport.state = 2
+    upvalue(lua, "hardCorrectRemote")(g.player, 22, 0, 0, False)
+    assert before_teleport.state == 3 and state.activeMoveCommand is None
+    assert move(23, 0, 0, "Sprint", False)
+    before_reset = state.activeMoveCommand
+    before_reset.state = 2
+    upvalue(lua, "resetRemote")()
+    assert before_reset.state == 3 and state.activeMoveCommand is None and state.activeMoveType is None
+    assert state.nativeCommandsStarted == 4 and state.nativeRetargets == 10
+
+
+def test_retained_target_hook_requires_opt_in():
+    for config, enabled in (("", False), ("native_retarget=true\n", True)):
+        lua = receiver(config=config)
+        welcome(lua)
+        movement(lua)
+        steer = upvalue(lua, "Steer")
+        lua.execute("retargetHookCalls=0; function retainedHook() retargetHookCalls=retargetHookCalls+1; return true,false end")
+        steer.retarget = lua.globals().retainedHook
+        # The initial peer epoch teardown starts the normal respawn cooldown.
+        # Keep real movement metadata fresh until the delayed avatar exists.
+        for sequence in range(2, 32):
+            movement(lua, sequence=sequence)
+            frame(lua, 9)
+        assert (lua.globals().retargetHookCalls > 0) == enabled, f"enabled={enabled} calls={lua.globals().retargetHookCalls} npc={lua.globals().npc} snap={upvalue(lua, 'S').spawnSnapPending} initialized={upvalue(lua, 'S').remoteInitialized} config={upvalue(lua, 'Sync').transportConfig.native_retarget}"
+
+
 def test_v2_world_flags_cosmetic_car_and_departure():
     lua = receiver()
     welcome(lua)
@@ -208,6 +308,8 @@ if __name__ == "__main__":
     failed = 0
     for test in (test_native_sample_is_not_a_packet_or_second_prediction,
                  test_native_buffered_target_does_not_reverse_steering_direction,
+                 test_retained_command_contract_and_fallback,
+                 test_retained_target_hook_requires_opt_in,
                  test_v2_world_flags_cosmetic_car_and_departure,
                  test_auto_fallback_and_explicit_error_never_replays_old_slot,
                  test_role_unload_reload_shutdown_own_native_lifecycle):
