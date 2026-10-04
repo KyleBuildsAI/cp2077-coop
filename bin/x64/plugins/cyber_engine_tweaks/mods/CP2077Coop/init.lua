@@ -1790,6 +1790,16 @@ function Sync.receivePayload(payload)
 
         Sync.remoteVehicleIndex = value
 
+        -- Każda wersja wysyła indeks tylko wtedy, gdy jej własne flagi
+        -- mówią "w pojeździe". Gdy ten pakiet flag zginął albo DLL go
+        -- nadpisał, updateRemoteVehicle uznałby gracza za pieszego,
+        -- wyrzucił indeks i czekał sekundę na następny. Następny pakiet
+        -- flag nadpisuje remoteFlags, a starsze pakiety są odrzucane,
+        -- więc to nie przetrwa wyjścia z auta.
+        if not Sync.hasFlag(Sync.remoteFlags, Sync.FLAG_IN_VEHICLE) then
+            Sync.remoteFlags = Sync.remoteFlags + Sync.FLAG_IN_VEHICLE
+        end
+
     elseif packetType == Mods.TYPE_HI
         or packetType == Mods.TYPE_LO
     then

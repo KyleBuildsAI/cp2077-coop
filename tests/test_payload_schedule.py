@@ -20,6 +20,10 @@ P4  vehicle index: only after a flags slot that says "in a vehicle", within
 P5  partner reloads (6 s silent) and resets without a pause: the other side sends
     its list again, the reloaded side compares again, the panel ends exact, and
     both go back to one pair every 10 s (no endless re-send)
+P6  car entry with no random loss: the joiner shows the host's car within 0.3 s,
+    also when the first "in a vehicle" flags packet is lost, within 0.5 s when the
+    joiner runs at 24 / 27 fps (the DLL keeps only the newest packet), and never
+    hides it on the way
 
 "Mods compared" is logged after two received cycles from the union of both. A
 pair lost in both (about 1 run in 24 here, far more at the live 16% loss) makes
@@ -33,6 +37,7 @@ import os
 import random
 import sys
 
+import test_live_bugs as live
 import test_timing as timing
 
 TYPE_STRIDE = 512
@@ -368,6 +373,80 @@ def test_vehicle_index():
             and abs(rate(times) - 1.0) <= 0.1 and not late and not wrong and seen == {VEHICLE_INDEX})
 
 
+# ------------------------------------------------------------------ P6
+
+CAR_MOUNT = 12.0
+CAR_LIMITS = {"none": 0.3, "drop first 'in a vehicle' flags": 0.3}
+
+
+def wire_payload(packet):
+    length = (packet[3] ** 2 + packet[4] ** 2) ** 0.5
+    if length < 0.5:
+        return None
+    return int(length - 1.0 + 0.5)
+
+
+def car_entry(mode, receiver_fps=60.0, seed=33):
+    """Host gets into a car at CAR_MOUNT; seconds until the joiner shows it, its hides, what was dropped."""
+    host, joiner = make_pair(SHARED + HOST_ONLY, SHARED + JOINER_ONLY, seed=seed)
+    joiner.lua.execute(live.VEHICLE_MOCK)
+    joiner.peer.dt = 1.0 / receiver_fps
+    seen = {"flags": 0, "vehicle": 0}
+    dropped = []
+    send = host.peer.send_burst
+
+    def send_burst(t, pushes, peer):
+        payload = wire_payload(pushes[-1])
+        if payload is not None and t >= CAR_MOUNT - 0.05:
+            if kind(payload) == FLAGS and payload & IN_VEHICLE:
+                seen["flags"] += 1
+                if mode == "drop first 'in a vehicle' flags" and seen["flags"] == 1:
+                    host.peer.local_sequence += len(pushes)
+                    dropped.append((round(t, 3), "flags"))
+                    return
+            if kind(payload) == VEHICLE:
+                seen["vehicle"] += 1
+                if mode == "drop first vehicle index" and seen["vehicle"] == 1:
+                    host.peer.local_sequence += len(pushes)
+                    dropped.append((round(t, 3), "vehicle"))
+                    return
+        send(t, pushes, peer)
+
+    host.peer.send_burst = send_burst
+    shown = {}
+
+    def on_frame(peer, t):
+        if peer is host.peer:
+            if t >= CAR_MOUNT and host.lua.globals().localFlags != IN_VEHICLE:
+                host.set_flags(t, IN_VEHICLE)
+                shown["hides before"] = int(joiner.lua.globals().carHides)  # sync ON hides once
+        elif "t" not in shown and joiner.lua.globals().carPose is not None:
+            shown["t"] = t
+
+    saved_loss = timing.LOSS
+    timing.LOSS = 0.0  # only the packets this test drops
+    try:
+        timing.run_pair(host.peer, joiner.peer, CAR_MOUNT + 3.0, on_frame)
+    finally:
+        timing.LOSS = saved_loss
+    delay = shown["t"] - CAR_MOUNT if "t" in shown else None
+    return delay, int(joiner.lua.globals().carHides) - shown["hides before"], dropped
+
+
+def test_car_entry_under_loss():
+    ok = True
+    cases = [(mode, 60.0, 33) for mode in CAR_LIMITS] + [("none", fps, seed) for fps in (24.0, 27.0) for seed in (33, 34)]
+    for mode, fps, seed in cases:
+        delay, hides, dropped = car_entry(mode, fps, seed)
+        limit = CAR_LIMITS[mode] if fps == 60.0 else 0.5
+        passed = delay is not None and delay <= limit and hides == 0
+        print(f"  {mode:32s} joiner {fps:.0f} fps seed {seed}: car shown "
+              f"{'never' if delay is None else f'+{delay:.2f} s'} after mounting (limit {limit} s), "
+              f"car hides after mounting {hides}, dropped {dropped} {'ok' if passed else 'TOO LATE'}")
+        ok = ok and passed
+    return ok
+
+
 # ------------------------------------------------------------------ P5
 
 def test_partner_reload():
@@ -416,6 +495,7 @@ if __name__ == "__main__":
         "P3 long mod lists: burst ends, flags >= 85 % after it, exact comparison": test_long_lists,
         "P4 vehicle index after the 'in a vehicle' flags, 1 Hz while mounted": test_vehicle_index,
         "P5 partner reload / reset: lists sent again, compared exactly, back to one pair per 10 s": test_partner_reload,
+        "P6 car entry: a lost 'in a vehicle' flags packet or a 24/27 fps joiner still shows the car within 0.3-0.5 s": test_car_entry_under_loss,
     }
     for name, test in tests.items():
         print(f"-- {name}")
