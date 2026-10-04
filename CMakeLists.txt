@@ -82,12 +82,15 @@ target_link_libraries(coopnet_core PUBLIC ws2_32 coopnet_version)
 
 # -----------------------------------------------------------------------------
 # Protocol v2 (no RED4ext, no Winsock): the codec (port of relay/coopnet/proto.py and
-# snapshot.py), the per-hop link (port of reliability.py) and the relay clock estimate.
+# snapshot.py), the per-hop link (port of reliability.py), the relay clock estimate and the
+# snapshot interpolation buffer (port of interp.py's InterpBuffer).
 # -----------------------------------------------------------------------------
 set(COOPNET_V2_SOURCES
   src/v2/ClockSync.cpp
   src/v2/ClockSync.hpp
   src/v2/coop_proto_v2.h
+  src/v2/SnapshotBuffer.cpp
+  src/v2/SnapshotBuffer.hpp
   src/v2/V2Codec.cpp
   src/v2/V2Codec.hpp
   src/v2/V2Delta.cpp
@@ -129,8 +132,9 @@ target_compile_options(coopnet_plugin_probe PRIVATE ${COOPNET_WARNINGS})
 add_dependencies(coopnet_plugin_probe CP2077CoopNet)
 
 # v2: codec unit tests, golden vectors against proto.py (tools/v2_golden.py), the fuzzer, the
-# Connection tests and reliability.py trace replay (tools/v2_link_trace.py), the clock tests,
-# and the UDP client that tools/run_v2_loopback.py runs against relay_v2.py.
+# Connection tests and reliability.py trace replay (tools/v2_link_trace.py), the clock tests, the
+# SnapshotBuffer tests and interp.py trace replay (tools/v2_interp_trace.py), and the UDP client
+# that tools/run_v2_loopback.py runs against relay_v2.py.
 set(COOPNET_V2_TEST_SUPPORT tests/V2TestSupport.cpp tests/V2TestSupport.hpp)
 set(COOPNET_V2_TEST_PROGRAMS
   "tests=tests/V2Tests.cpp"
@@ -138,6 +142,7 @@ set(COOPNET_V2_TEST_PROGRAMS
   "fuzz=tests/V2Fuzz.cpp"
   "reliability_tests=tests/V2ReliabilityTests.cpp"
   "clock_tests=tests/V2ClockTests.cpp"
+  "interp_tests=tests/V2InterpTests.cpp"
   "loopback_client=tests/V2LoopbackClient.cpp"
 )
 foreach(program IN LISTS COOPNET_V2_TEST_PROGRAMS)
