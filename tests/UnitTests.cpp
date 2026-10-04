@@ -1,19 +1,25 @@
 // Deterministic tests for the frame codec and the reliability layer (no sockets, simulated clock),
-// plus the Net_Version string.
+// plus the logic behind the Net_NowMs / Net_Version natives.
 
+#include "core/Clock.hpp"
 #include "core/Protocol.hpp"
 #include "core/Reliability.hpp"
 #include "core/Version.hpp"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <deque>
 #include <random>
 #include <regex>
+#include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -435,6 +441,85 @@ void TestLossyTransfers()
     // More than 65536 messages: exercises 16-bit sequence wrap-around on both sides.
     CHECK(RunLossyTransfer({"sequence wrap", 70'000, 0, 0.05, 0.02, 5'000, 5'000, 4}).ok);
 }
+// ---- Net_NowMs ---------------------------------------------------------------------------------
+
+// The conversion is constexpr, so the epoch constant is also checked at compile time.
+static_assert(FileTimeTicksToUnixMs(static_cast<uint64_t>(kFileTimeTicksAtUnixEpoch)) == 0.0);
+
+void TestClockConversion()
+{
+    std::puts("Net_NowMs: FILETIME -> Unix epoch milliseconds");
+    const auto epoch = static_cast<uint64_t>(kFileTimeTicksAtUnixEpoch);
+    CHECK(FileTimeTicksToUnixMs(epoch) == 0.0);
+    // 2000-01-01T00:00:00Z: FILETIME 125911584000000000, Unix 946684800000 ms (independent constants).
+    CHECK(FileTimeTicksToUnixMs(125'911'584'000'000'000ULL) == 946'684'800'000.0);
+    // 2026-01-01T00:00:00Z = 1767225600 s: whole milliseconds stay exact.
+    const uint64_t newYear2026 = epoch + 1'767'225'600ULL * 10'000'000ULL;
+    CHECK(FileTimeTicksToUnixMs(newYear2026) == 1'767'225'600'000.0);
+    // 12345 ticks = 1.2345 ms: the fraction survives and floor() gives the whole millisecond.
+    const double withFraction = FileTimeTicksToUnixMs(newYear2026 + 12'345);
+    CHECK(std::fabs(withFraction - 1'767'225'600'001.2345) < 0.001);
+    CHECK(std::floor(withFraction) == 1'767'225'600'001.0);
+    // One 100 ns tick near the epoch, and a time before 1970.
+    CHECK(std::fabs(FileTimeTicksToUnixMs(epoch + 1) - 0.0001) < 1e-12);
+    CHECK(FileTimeTicksToUnixMs(epoch - 10'000) == -1.0);
+}
+
+void TestClockNow()
+{
+    std::puts("Net_NowMs: live clock (GetSystemTimePreciseAsFileTime)");
+    using namespace std::chrono;
+
+    const double now = UnixNowMs();
+    const auto systemMs = static_cast<double>(duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    const double timeMs = static_cast<double>(std::time(nullptr)) * 1000.0;
+    std::printf("    now=%.4f ms, system_clock-now=%.3f ms, time()-now=%.0f ms\n", now, systemMs - now, timeMs - now);
+    CHECK(now > 1'700'000'000'000.0 && now < 4'102'444'800'000.0); // between 2023-11 and 2100
+    CHECK(std::fabs(systemMs - now) < 50.0);
+    CHECK(std::fabs(timeMs - now) < 2000.0);
+    CHECK(now < 9'007'199'254'740'992.0); // below 2^53: every whole millisecond is exact
+
+    // Monotonic within tolerance over a tight loop, with sub-millisecond resolution, and cheap.
+    constexpr int kCalls = 200'000;
+    double previous = UnixNowMs();
+    double maxBackwardMs = 0.0;
+    int fractionalValues = 0;
+    std::set<double> distinct;
+    const auto loopStart = steady_clock::now();
+    for (int call = 0; call < kCalls; ++call)
+    {
+        const double value = UnixNowMs();
+        maxBackwardMs = std::max(maxBackwardMs, previous - value);
+        if (value != std::floor(value))
+        {
+            ++fractionalValues;
+        }
+        if (distinct.size() < 4096)
+        {
+            distinct.insert(value);
+        }
+        previous = value;
+    }
+    const double loopNs = static_cast<double>(duration_cast<nanoseconds>(steady_clock::now() - loopStart).count());
+    std::printf("    %d calls: max backward step %.4f ms, %d with a sub-ms fraction, >=%zu distinct, %.1f ns/call\n",
+                kCalls, maxBackwardMs, fractionalValues, distinct.size(), loopNs / kCalls);
+    CHECK(maxBackwardMs <= 1.0);
+    CHECK(fractionalValues > kCalls / 2);
+    CHECK(distinct.size() > 100);
+    CHECK(loopNs / kCalls < 2000.0); // per-frame stamping must be free compared to a 16 ms frame
+
+    // Elapsed wall time tracks the steady (QPC) clock across a sleep.
+    const double wallStart = UnixNowMs();
+    const auto steadyStart = steady_clock::now();
+    std::this_thread::sleep_for(milliseconds(60));
+    const double wallElapsed = UnixNowMs() - wallStart;
+    const double steadyElapsed =
+        static_cast<double>(duration_cast<microseconds>(steady_clock::now() - steadyStart).count()) / 1000.0;
+    std::printf("    60 ms sleep: Net_NowMs advanced %.3f ms, steady_clock %.3f ms\n", wallElapsed, steadyElapsed);
+    CHECK(wallElapsed >= 59.0 && wallElapsed < 1000.0);
+    CHECK(std::fabs(wallElapsed - steadyElapsed) < 5.0);
+}
+
 // ---- Net_Version -------------------------------------------------------------------------------
 
 void TestVersionString()
@@ -470,6 +555,8 @@ int main()
     TestFastRetransmit();
     TestSackHorizon();
     TestLossyTransfers();
+    TestClockConversion();
+    TestClockNow();
     TestVersionString();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

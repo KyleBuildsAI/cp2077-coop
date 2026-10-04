@@ -14,7 +14,7 @@ import pefile
 REQUIRED_EXPORTS = {"Main", "Query", "Supports"}
 NATIVE_NAMES = [
     "Net_Connect", "Net_ConnectRoom", "Net_Disconnect", "Net_Send", "Net_SendTo", "Net_Poll", "Net_Stats",
-    "Net_LocalId",
+    "Net_LocalId", "Net_NowMs", "Net_Version",
 ]
 REDIST_DLLS = {"msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"}
 

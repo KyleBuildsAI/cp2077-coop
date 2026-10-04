@@ -55,3 +55,19 @@ public static func CoopNet_PollAll(maxMessages: Int32) -> array<CoopNetMessage> 
     }
     return messages;
 }
+
+// Milliseconds elapsed since a Net_NowMs() stamp, as a Float (fine for spans; a Float cannot hold
+// the absolute epoch value precisely, so keep absolute stamps as Double). Double literals need "d".
+public static func CoopNet_ElapsedMs(startMs: Double) -> Float {
+    return Cast<Float>(Net_NowMs() - startMs);
+}
+
+// Calls Net_Version and Net_NowMs from redscript, which proves the natives resolve on the
+// redscript side too. From the CET console: print(Game.CoopNet_SelfTest())
+public static func CoopNet_SelfTest() -> String {
+    let first = Net_NowMs();
+    let second = Net_NowMs();
+    let clockOk = first > 1700000000000.0d && second >= first;
+    let verdict = clockOk ? "clock ok" : "clock BAD";
+    return "redscript ok: " + Net_Version() + ", Net_NowMs=" + ToString(second) + ", " + verdict;
+}

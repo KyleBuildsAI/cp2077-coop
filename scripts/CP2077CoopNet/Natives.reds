@@ -14,3 +14,11 @@ public static native func Net_SendTo(peer: Int32, channel: Int32, payload: Strin
 public static native func Net_Poll() -> String
 public static native func Net_Stats() -> String
 public static native func Net_LocalId() -> Int32
+
+// Wall clock: milliseconds since the Unix epoch (UTC) from GetSystemTimePreciseAsFileTime, with a
+// sub-millisecond fraction. Double rather than Int64 because CET turns Int64 into LuaJIT cdata.
+// Two game instances on one PC share this clock, so their log stamps can be compared directly.
+public static native func Net_NowMs() -> Double
+
+// "CP2077CoopNet <major.minor.patch> proto <wire protocol version>", e.g. "CP2077CoopNet 0.1.1 proto 1".
+public static native func Net_Version() -> String

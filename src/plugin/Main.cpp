@@ -9,9 +9,12 @@
 //   Net_Poll() -> String          ("" when empty, otherwise "<sender>|<channel>|<payload>")
 //   Net_Stats() -> String         (JSON)
 //   Net_LocalId() -> Int32
+//   Net_NowMs() -> Double         (ms since the Unix epoch, UTC, sub-ms fraction; see core/Clock.hpp)
+//   Net_Version() -> String       ("CP2077CoopNet <semver> proto <n>")
 //
-// From CET: Game.Net_Connect("127.0.0.1", 11779), Game.Net_Poll(), ...
+// From CET: Game.Net_Connect("127.0.0.1", 11779), Game.Net_Poll(), Game.Net_NowMs(), ...
 
+#include "core/Clock.hpp"
 #include "core/Transport.hpp"
 #include "core/Version.hpp"
 
@@ -236,6 +239,29 @@ void NetLocalId(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aO
     }
 }
 
+// Double, not Int64: CET turns 64-bit integers into LuaJIT cdata, a Double is a plain Lua number.
+void NetNowMs(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, double* aOut, int64_t)
+{
+    aFrame->code++;
+    if (aOut != nullptr)
+    {
+        *aOut = coopnet::UnixNowMs();
+    }
+}
+
+void NetVersion(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::CString* aOut, int64_t)
+{
+    aFrame->code++;
+    try
+    {
+        ReturnString(aOut, coopnet::kVersionString);
+    }
+    catch (const std::exception& error)
+    {
+        LogException("Net_Version", error);
+    }
+}
+
 // ---- registration ----------------------------------------------------------------------------
 
 struct NativeParam
@@ -283,6 +309,8 @@ void PostRegisterTypes()
     RegisterGlobal<RED4ext::CString*>(rtti, "Net_Poll", &NetPoll, {}, "String");
     RegisterGlobal<RED4ext::CString*>(rtti, "Net_Stats", &NetStats, {}, "String");
     RegisterGlobal<int32_t*>(rtti, "Net_LocalId", &NetLocalId, {}, "Int32");
+    RegisterGlobal<double*>(rtti, "Net_NowMs", &NetNowMs, {}, "Double");
+    RegisterGlobal<RED4ext::CString*>(rtti, "Net_Version", &NetVersion, {}, "String");
     Log(coopnet::LogLevel::Info, "registered Net_* natives");
 }
 

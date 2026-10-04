@@ -41,6 +41,8 @@ target_compile_definitions(coopnet_version INTERFACE
 # Transport core (no RED4ext dependency, shared by the plugin and the tests)
 # -----------------------------------------------------------------------------
 add_library(coopnet_core STATIC
+  src/core/Clock.cpp
+  src/core/Clock.hpp
   src/core/Protocol.cpp
   src/core/Protocol.hpp
   src/core/Reliability.cpp
