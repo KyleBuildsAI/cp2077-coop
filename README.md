@@ -12,7 +12,7 @@ All of these ship inside the release zip:
 - [Cyber Engine Tweaks](https://www.nexusmods.com/cyberpunk2077/mods/107) (Lua bridge)
 - [RED4ext](https://www.nexusmods.com/cyberpunk2077/mods/2380) (loads the network plugin)
 - [redscript](https://www.nexusmods.com/cyberpunk2077/mods/1511) (script compiler)
-- [Codeware](https://www.nexusmods.com/cyberpunk2077/mods/7780) 1.18.0 (entity spawning)
+- [Codeware](https://www.nexusmods.com/cyberpunk2077/mods/7780) 1.18.0 (entity spawning, hiding the avatar while the other player drives)
 
 ## Install
 
@@ -50,4 +50,5 @@ plus `EVENT` lines) and `r6/logs/redscript_rCURRENT.log`.
 | `r6/scripts/CP2077Coop/natives.reds` | Declarations of functions exported by `CP2077Coop.dll` |
 | `r6/scripts/CP2077Coop/remote.reds` | Spawning and teleporting the remote avatar |
 | `r6/scripts/CP2077Coop/state.reds` | Reading and applying crouch, weapon, time and weather |
+| `r6/scripts/CP2077Coop/vehicle.reds` | The other player's car (placed every frame where they are now), mounted vehicle pose, avatar hidden while they drive |
 | `red4ext/plugins/CP2077Coop/` | Network plugin (binary, source kept separately by Jakub) |

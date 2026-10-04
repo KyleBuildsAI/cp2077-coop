@@ -95,6 +95,24 @@ public func CP2077Coop_GetMountedVehicleIndex() -> Int32 {
     return ArrayFindFirst(CP2077Coop_VehicleList(), vehicle.GetRecordID()) + 1;
 }
 
+// Pose sent over the network while driving: [x, y, z, forwardX, forwardY] of
+// the vehicle origin, empty when on foot. The other side places its copy of
+// the car exactly there (the player's seat is offset from the origin).
+@addMethod(PlayerPuppet)
+public func CP2077Coop_GetMountedVehiclePose() -> array<Float> {
+    let vehicle: wref<VehicleObject>;
+    let pose: array<Float>;
+
+    if !VehicleComponent.GetVehicle(this.GetGame(), this, vehicle) || !IsDefined(vehicle) {
+        return pose;
+    }
+
+    let position = vehicle.GetWorldPosition();
+    let forward = vehicle.GetWorldForward();
+
+    return [position.X, position.Y, position.Z, forward.X, forward.Y];
+}
+
 
 // ------------------------------------------------------------
 // REMOTE VEHICLE
@@ -181,4 +199,51 @@ public func CP2077Coop_HideRemoteVehicle() -> Void {
     if IsDefined(system) && system.IsReady() && system.IsPopulated(n"CP2077Coop.RemoteVehicle") {
         system.DeleteTagged(n"CP2077Coop.RemoteVehicle");
     }
+}
+
+// ------------------------------------------------------------
+// REMOTE AVATAR WHILE THE REMOTE PLAYER DRIVES
+// ------------------------------------------------------------
+
+// Parts hidden by CP2077Coop_SetRemoteAvatarVisible(false), shown again later.
+@addField(PlayerPuppet)
+private let m_coopHiddenAvatarParts: array<wref<IComponent>>;
+
+// The car stands in for the remote player while they drive, so the avatar
+// waits out of sight instead of being pushed into the car's body. Hides only
+// the meshes that are on now and shows exactly those again. Needs Codeware.
+@if(ModuleExists("Codeware"))
+@addMethod(PlayerPuppet)
+public func CP2077Coop_SetRemoteAvatarVisible(visible: Bool) -> Bool {
+    if visible {
+        for part in this.m_coopHiddenAvatarParts {
+            if IsDefined(part) {
+                part.Toggle(true);
+            }
+        }
+
+        ArrayClear(this.m_coopHiddenAvatarParts);
+        return true;
+    }
+
+    let system = GameInstance.GetDynamicEntitySystem();
+
+    if !IsDefined(system) || !system.IsReady() {
+        return false;
+    }
+
+    let entities = system.GetTagged(n"CP2077Coop.Remote");
+
+    if ArraySize(entities) == 0 {
+        return false;
+    }
+
+    for component in entities[0].GetComponents() {
+        if IsDefined(component as IVisualComponent) && component.IsEnabled() {
+            component.Toggle(false);
+            ArrayPush(this.m_coopHiddenAvatarParts, component);
+        }
+    }
+
+    return true;
 }

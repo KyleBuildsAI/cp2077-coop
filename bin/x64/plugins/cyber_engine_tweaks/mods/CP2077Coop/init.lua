@@ -127,6 +127,10 @@ S.remoteForwardY = 1.0
 S.lastFacingX = nil
 S.lastFacingY = nil
 
+-- drugi gracz jedzie pokazanym autem: avatar ukryty, nie podąża
+S.avatarParked = false
+S.avatarUnhidePending = false
+
 
 ------------------------------------------------------------
 -- RAW NETWORK POSITION / VELOCITY
@@ -1113,39 +1117,256 @@ function Sync.onPong(token)
 end
 
 
--- Pojazd drugiego gracza: spawn + teleport przy każdym nowym pakiecie,
--- usunięcie po wyjściu z auta.
-function Sync.applyRemoteVehicle(player, x, y, z, forwardX, forwardY)
+-- Pojazd drugiego gracza (vehicle.reds spawnuje i przesuwa auto).
+-- Teleport auta tylko przy pakiecie = auto o ~ping z tyłu i skacze
+-- co 33 ms. Teraz każdy pakiet zapisuje pozę i prędkość, a
+-- Sync.updateRemoteVehicle co klatkę stawia auto tam, gdzie gracz
+-- jest TERAZ: ostatnia poza + prędkość * (wiek pakietu + opóźnienie
+-- w jedną stronę), po łuku, z kierunkiem obróconym o skręt.
+Sync.VEHICLE_MAX_LEAD = 0.35
+-- 1/s: jak szybko pokazane auto dochodzi do pozy ekstrapolowanej
+Sync.VEHICLE_SMOOTHING = 10.0
+-- dalej = teleport auta bez wygładzania (szybka podróż, restart)
+Sync.VEHICLE_SNAP_DISTANCE = 5.0
+-- m/s; szybciej = teleport gracza, nie jazda
+Sync.VEHICLE_MAX_SPEED = 120.0
+-- rad/s
+Sync.VEHICLE_MAX_YAW_RATE = 4.0
+-- prędkość z ostatnich N+1 pakietów (szum klatek nadawcy się uśrednia)
+Sync.VEHICLE_HISTORY = 4
+-- większa luka w sekwencji = brak wiarygodnej prędkości
+Sync.VEHICLE_MAX_GAP = 6
 
-    if player.CP2077Coop_ShowRemoteVehicle == nil then
+Sync.poseHistory = {}
+
+
+-- Obrót wektora (x, y) o kąt w radianach (przeciwnie do wskazówek zegara).
+function Sync.rotate2(x, y, angle)
+
+    local cosine = math.cos(angle)
+    local sine = math.sin(angle)
+
+    return
+        x * cosine - y * sine,
+        x * sine + y * cosine
+end
+
+
+-- Każdy nowy pakiet ruchu: poza, prędkość i prędkość skrętu drugiego gracza.
+function Sync.recordRemotePose(sequence, x, y, z, forwardX, forwardY)
+
+    local history = Sync.poseHistory
+    local newest = history[#history]
+
+    -- restart drugiego klienta albo długa przerwa: liczymy od nowa
+    if newest ~= nil
+        and (
+            sequence <= newest.sequence
+            or sequence - newest.sequence > Sync.VEHICLE_MAX_GAP
+        )
+    then
+        history = {}
+    end
+
+    history[#history + 1] = {
+        sequence = sequence,
+        x = x,
+        y = y,
+        z = z,
+        forwardX = forwardX,
+        forwardY = forwardY
+    }
+
+    while #history > Sync.VEHICLE_HISTORY do
+        table.remove(history, 1)
+    end
+
+    Sync.poseHistory = history
+
+    Sync.poseVelX = 0.0
+    Sync.poseVelY = 0.0
+    Sync.poseVelZ = 0.0
+    Sync.poseYawRate = 0.0
+    Sync.poseSpan = 0.0
+
+    local oldest = history[1]
+
+    local span =
+        (sequence - oldest.sequence) *
+        SEND_INTERVAL
+
+    if span > 0.0 then
+
+        local velX = (x - oldest.x) / span
+        local velY = (y - oldest.y) / span
+        local velZ = (z - oldest.z) / span
+
+        if math.sqrt(velX * velX + velY * velY + velZ * velZ) <=
+            Sync.VEHICLE_MAX_SPEED
+        then
+
+            Sync.poseVelX = velX
+            Sync.poseVelY = velY
+            Sync.poseVelZ = velZ
+            Sync.poseSpan = span
+
+            local cross =
+                oldest.forwardX * forwardY -
+                oldest.forwardY * forwardX
+
+            local dot =
+                oldest.forwardX * forwardX +
+                oldest.forwardY * forwardY
+
+            Sync.poseYawRate =
+                math.max(
+                    -Sync.VEHICLE_MAX_YAW_RATE,
+                    math.min(
+                        Sync.VEHICLE_MAX_YAW_RATE,
+                        math.atan2(cross, dot) / span
+                    )
+                )
+        else
+
+            -- skok (szybka podróż): bez prędkości, auto przeskoczy
+            Sync.poseHistory = { history[#history] }
+        end
+    end
+
+    Sync.poseX = x
+    Sync.poseY = y
+    Sync.poseZ = z
+    Sync.poseForwardX = forwardX
+    Sync.poseForwardY = forwardY
+    Sync.poseClock = Sync.clock
+end
+
+
+-- Opóźnienie pakietu w jedną stronę (s). RTT zawiera też czekanie
+-- pongu na najbliższy slot wysyłki drugiej strony i kwantyzację
+-- klatek (razem ~SEND_INTERVAL), czego pakiet ruchu nie ma.
+function Sync.oneWayLatency()
+
+    if Sync.rttMs == nil then
+        return 0.0
+    end
+
+    return
+        math.max(
+            0.0,
+            Sync.rttMs / 1000.0 - SEND_INTERVAL
+        ) * 0.5
+end
+
+
+-- Gdzie drugi gracz jest teraz: x, y, z, kierunek, prędkość w tej chwili.
+-- Prędkość z kilku pakietów wskazuje kierunek ze środka tego odcinka,
+-- więc obracamy ją o skręt z połowy odcinka i połowy wyprzedzenia (łuk).
+function Sync.extrapolateRemotePose()
+
+    local lead =
+        (Sync.clock - Sync.poseClock) +
+        Sync.oneWayLatency()
+
+    local clamped =
+        lead >= Sync.VEHICLE_MAX_LEAD
+
+    lead =
+        math.min(
+            lead,
+            Sync.VEHICLE_MAX_LEAD
+        )
+
+    local yawRate =
+        Sync.poseYawRate
+
+    local chordX, chordY =
+        Sync.rotate2(
+            Sync.poseVelX,
+            Sync.poseVelY,
+            yawRate * (Sync.poseSpan + lead) * 0.5
+        )
+
+    local forwardX, forwardY =
+        Sync.rotate2(
+            Sync.poseForwardX,
+            Sync.poseForwardY,
+            yawRate * lead
+        )
+
+    local velX, velY, velZ = 0.0, 0.0, 0.0
+
+    -- po przekroczeniu limitu wyprzedzenia auto stoi w miejscu
+    if not clamped then
+
+        velX, velY =
+            Sync.rotate2(
+                Sync.poseVelX,
+                Sync.poseVelY,
+                yawRate * (Sync.poseSpan * 0.5 + lead)
+            )
+
+        velZ = Sync.poseVelZ
+    end
+
+    return
+        Sync.poseX + chordX * lead,
+        Sync.poseY + chordY * lead,
+        Sync.poseZ + Sync.poseVelZ * lead,
+        forwardX,
+        forwardY,
+        velX,
+        velY,
+        velZ,
+        clamped and 0.0 or yawRate
+end
+
+
+-- Pozycja i kierunek do wysłania, gdy gracz siedzi w aucie: środek
+-- auta (druga strona stawia tam swoją kopię auta), a nie fotel gracza.
+function Sync.mountedVehiclePose(player, pos, forward)
+
+    if player.CP2077Coop_GetMountedVehiclePose == nil then
+        return pos, forward
+    end
+
+    local pose =
+        player:CP2077Coop_GetMountedVehiclePose()
+
+    if pose == nil or #pose < 5 then
+        return pos, forward
+    end
+
+    return
+        { x = pose[1], y = pose[2], z = pose[3], w = 1.0 },
+        { x = pose[4], y = pose[5], z = 0.0 }
+end
+
+
+-- Ukrycie / pokazanie avatara (vehicle.reds, wymaga Codeware).
+function Sync.setAvatarVisible(player, visible)
+
+    if player.CP2077Coop_SetRemoteAvatarVisible == nil then
         return
     end
 
-    local inVehicle =
-        Sync.hasFlag(
-            Sync.remoteFlags,
-            Sync.FLAG_IN_VEHICLE
-        )
+    player:CP2077Coop_SetRemoteAvatarVisible(visible)
+end
 
-    if inVehicle then
 
-        if Sync.remoteVehicleIndex ~= nil then
+-- Auto znika (reset, utrata połączenia, restart drugiego klienta).
+-- Wróci z następnym pakietem typu pojazd.
+function Sync.hideRemoteVehicle(player)
 
-            Sync.vehicleShown =
-                player:CP2077Coop_ShowRemoteVehicle(
-                    Sync.remoteVehicleIndex,
-                    x, y, z,
-                    forwardX, forwardY
-                ) or Sync.vehicleShown
-        end
-
-    elseif Sync.vehicleShown or Sync.remoteVehicleIndex ~= nil then
-
+    if player ~= nil
+        and player.CP2077Coop_HideRemoteVehicle ~= nil
+    then
         player:CP2077Coop_HideRemoteVehicle()
-
-        Sync.vehicleShown = false
-        Sync.remoteVehicleIndex = nil
     end
+
+    Sync.vehicleShown = false
+    Sync.remoteVehicleIndex = nil
+    Sync.carX = nil
 end
 
 
@@ -1355,6 +1576,9 @@ function Sync.reset()
     Sync.remoteVehicleIndex = nil
     Sync.vehicleShown = false
     Sync.vehicleIndexOverride = nil
+    Sync.poseHistory = {}
+    Sync.poseX = nil
+    Sync.carX = nil
 
     Mods.resetRemote()
 end
@@ -2771,6 +2995,201 @@ end
 
 
 ------------------------------------------------------------
+-- REMOTE VEHICLE (co klatkę)
+------------------------------------------------------------
+
+function Sync.updateRemoteVehicle(player, delta)
+
+    if player.CP2077Coop_ShowRemoteVehicle == nil then
+        return
+    end
+
+    local lost =
+        Diag.connectionState() == "LOST"
+
+    local driving =
+        not lost
+        and Sync.hasFlag(
+            Sync.remoteFlags,
+            Sync.FLAG_IN_VEHICLE
+        )
+
+    if not driving then
+
+        if Sync.vehicleShown
+            or Sync.remoteVehicleIndex ~= nil
+        then
+
+            Sync.hideRemoteVehicle(player)
+
+            if lost then
+                print("[CP2077Coop] EVENT remote vehicle hidden: connection lost")
+            end
+        end
+
+        return
+    end
+
+    if Sync.remoteVehicleIndex == nil
+        or Sync.poseX == nil
+    then
+        return
+    end
+
+
+    local x, y, z, forwardX, forwardY, velX, velY, velZ, yawRate =
+        Sync.extrapolateRemotePose()
+
+    if Sync.carX == nil
+        or distance3(
+            Sync.carX,
+            Sync.carY,
+            Sync.carZ,
+            x,
+            y,
+            z
+        ) > Sync.VEHICLE_SNAP_DISTANCE
+    then
+
+        Sync.carX = x
+        Sync.carY = y
+        Sync.carZ = z
+        Sync.carForwardX = forwardX
+        Sync.carForwardY = forwardY
+
+    else
+
+        -- jedzie dalej z prędkością gracza, a skok celu przy nowym
+        -- pakiecie (jitter sieci) wygładzamy zamiast pokazywać
+        local blend =
+            math.min(
+                1.0,
+                delta * Sync.VEHICLE_SMOOTHING
+            )
+
+        Sync.carX = Sync.carX + velX * delta
+        Sync.carY = Sync.carY + velY * delta
+        Sync.carZ = Sync.carZ + velZ * delta
+
+        Sync.carX = Sync.carX + (x - Sync.carX) * blend
+        Sync.carY = Sync.carY + (y - Sync.carY) * blend
+        Sync.carZ = Sync.carZ + (z - Sync.carZ) * blend
+
+        local headingX, headingY =
+            Sync.rotate2(
+                Sync.carForwardX,
+                Sync.carForwardY,
+                yawRate * delta
+            )
+
+        headingX = headingX + (forwardX - headingX) * blend
+        headingY = headingY + (forwardY - headingY) * blend
+
+        local headingLength =
+            math.sqrt(
+                headingX * headingX +
+                headingY * headingY
+            )
+
+        if headingLength > 0.001 then
+
+            Sync.carForwardX = headingX / headingLength
+            Sync.carForwardY = headingY / headingLength
+        end
+    end
+
+    Sync.vehicleShown =
+        player:CP2077Coop_ShowRemoteVehicle(
+            Sync.remoteVehicleIndex,
+            Sync.carX,
+            Sync.carY,
+            Sync.carZ,
+            Sync.carForwardX,
+            Sync.carForwardY
+        ) or Sync.vehicleShown
+end
+
+
+-- Drugi gracz jedzie pokazanym autem: avatar nie jedzie za nim
+-- (teleport / AIMoveTo w karoserię = szarpanie auta i NPC).
+-- Avatar czeka ukryty; po wyjściu z auta najpierw snap do gracza
+-- (jak po spawnie), potem się pokazuje.
+-- true = w tej klatce avatar stoi.
+function Sync.parkAvatar(player)
+
+    local driving =
+        Sync.vehicleShown
+        and Sync.hasFlag(
+            Sync.remoteFlags,
+            Sync.FLAG_IN_VEHICLE
+        )
+
+    if driving then
+
+        if not S.avatarParked then
+
+            S.avatarParked = true
+            S.avatarUnhidePending = false
+            S.spawnSnapPending = false
+
+            cancelMoveCommand()
+            Steer.reset()
+
+            -- broń avatara to osobny obiekt (nie znika z avatarem);
+            -- flagi wrócą w całości po wyjściu z auta
+            if Sync.appliedFlags >= 0
+                and Sync.hasScripts(player)
+                and Sync.hasFlag(Sync.appliedFlags, Sync.FLAG_WEAPON_DRAWN)
+            then
+                player:CP2077Coop_ApplyRemoteWeapon(
+                    Sync.weaponClass(Sync.appliedFlags),
+                    false
+                )
+            end
+
+            Sync.appliedFlags = -1
+            Diag.avatarError = nil
+
+            Sync.setAvatarVisible(player, false)
+
+            print("[CP2077Coop] EVENT remote is driving: avatar parked")
+        end
+
+        return true
+    end
+
+    if S.avatarParked then
+
+        S.avatarParked = false
+        S.avatarUnhidePending = true
+
+        S.lastCommandX = nil
+        S.lastCommandY = nil
+        S.lastCommandZ = nil
+
+        S.spawnSnapPending = true
+        S.spawnSnapElapsed = 0.0
+        S.spawnSnapAccumulator = SPAWN_SNAP_INTERVAL
+
+        return false
+    end
+
+    if S.avatarUnhidePending
+        and not S.spawnSnapPending
+    then
+
+        S.avatarUnhidePending = false
+        S.lastFacingX = nil
+        S.lastFacingY = nil
+
+        Sync.setAvatarVisible(player, true)
+    end
+
+    return false
+end
+
+
+------------------------------------------------------------
 -- TELEPORT REMOTE AVATAR
 ------------------------------------------------------------
 
@@ -2964,6 +3383,23 @@ end
 local function resetRemote()
 
     cancelMoveCommand()
+
+    -- auto drugiego gracza i ukryty avatar nie mogą zostać w świecie
+    -- (Sync.reset tylko zapomina o nich)
+    local player =
+        Game.GetPlayer()
+
+    if player ~= nil then
+
+        Sync.hideRemoteVehicle(player)
+
+        if S.avatarParked or S.avatarUnhidePending then
+            Sync.setAvatarVisible(player, true)
+        end
+    end
+
+    S.avatarParked = false
+    S.avatarUnhidePending = false
 
     S.remoteInitialized = false
     S.remoteHandle = nil
@@ -3267,6 +3703,21 @@ registerForEvent(
                     GetWorldForward()
 
 
+            -- w aucie: środek i kierunek auta, nie fotel gracza
+            if Sync.hasFlag(
+                Sync.localFlags,
+                Sync.FLAG_IN_VEHICLE
+            ) then
+
+                pos, forward =
+                    Sync.mountedVehiclePose(
+                        player,
+                        pos,
+                        forward
+                    )
+            end
+
+
             -- bot testowy podmienia pozycję i kierunek
             if Bot.active then
 
@@ -3321,6 +3772,17 @@ registerForEvent(
 
             Diag.onSent()
         end
+
+
+        ----------------------------------------------------
+        -- REMOTE VEHICLE: pozycja "teraz", też bez nowego
+        -- pakietu; znika przy utracie połączenia
+        ----------------------------------------------------
+
+        Sync.updateRemoteVehicle(
+            player,
+            delta
+        )
 
 
         ----------------------------------------------------
@@ -3424,10 +3886,19 @@ registerForEvent(
             S.remoteForwardX = forwardX
             S.remoteForwardY = forwardY
 
+            -- restart drugiego klienta: stare auto znika, pokaże się
+            -- znowu po pakiecie z modelem pojazdu
+            if isRestart
+                and (Sync.vehicleShown or Sync.remoteVehicleIndex ~= nil)
+            then
+                Sync.hideRemoteVehicle(player)
+            end
+
             Sync.receivePayload(payload)
 
-            Sync.applyRemoteVehicle(
-                player,
+            -- auto rysuje Sync.updateRemoteVehicle co klatkę
+            Sync.recordRemotePose(
+                sequence,
                 rx, ry, rz,
                 forwardX, forwardY
             )
@@ -3851,6 +4322,23 @@ registerForEvent(
 
 
         if S.remoteHandle == nil then
+            return
+        end
+
+
+        ----------------------------------------------------
+        -- REMOTE DRIVES A SHOWN CAR
+        ----------------------------------------------------
+
+        -- avatar czeka ukryty; czas i pogoda hosta działają dalej
+        if Sync.parkAvatar(player) then
+
+            Sync.applyWorldState(
+                player,
+                IS_HOST,
+                delta
+            )
+
             return
         end
 
