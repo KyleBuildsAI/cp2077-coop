@@ -13,6 +13,8 @@ Delivery model (per hop, the relay re-sequences for every receiver):
   RTO with exponential backoff, and are delivered exactly once, in order.
   Every retransmission goes out in a new packet with a new sequence, so each
   ack yields an unambiguous RTT sample (no Karn problem).
+* A DATA packet holds at most MAX_MESSAGES_PER_PACKET messages, the limit
+  decode_messages enforces on the receiving side.
 """
 from __future__ import annotations
 
@@ -147,7 +149,7 @@ class Connection:
             else:
                 mtype, peer, body = item
                 encoded = proto.encode_message(mtype, peer, body)
-            if parts and size + len(encoded) > self.max_packet:
+            if parts and (size + len(encoded) > self.max_packet or len(parts) >= proto.MAX_MESSAGES_PER_PACKET):
                 packets.append(self._finish_packet(now, parts, rel_items))
                 parts, rel_items, size = [], [], proto.PACKET_HEADER.size
             parts.append(encoded)

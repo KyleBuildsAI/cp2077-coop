@@ -130,6 +130,16 @@ class ReliabilityTests(unittest.TestCase):
         self.assertAlmostEqual(a.srtt, 0.1, delta=0.005)
         self.assertGreaterEqual(a.rto, 0.1)
 
+    def test_packets_hold_at_most_96_messages(self):
+        conn = Connection(token=1)
+        for _ in range(200):
+            self.assertTrue(conn.queue_reliable(0x20, 0, b"", 0.0))
+        packets = conn.build_packets(0.0, [(0x10, 0, b"") for _ in range(50)])
+        counts = [len(proto.decode_messages(proto.decode_packet(packet)[5])) for packet in packets]
+        self.assertEqual(sum(counts), 250)
+        self.assertLessEqual(max(counts), proto.MAX_MESSAGES_PER_PACKET)
+        self.assertEqual(len(packets), 3)
+
     def test_ack_bits(self):
         conn = Connection()
         for seq in (1, 2, 4, 7):
