@@ -155,6 +155,10 @@ S.lastFacingY = nil
 S.facingAtX = 0.0
 S.facingAtY = 0.0
 
+-- błąd w poziomie przy poprzednim sprawdzeniu obrotu (czy avatar
+-- jeszcze dochodzi); duża wartość = nowe AIMoveTo, zmierzyć od nowa
+S.rotateLastError = 999.0
+
 -- drugi gracz jedzie pokazanym autem: avatar ukryty, nie podąża
 S.avatarParked = false
 S.avatarUnhidePending = false
@@ -445,6 +449,7 @@ local function moveRemoteAI(
     -- ustawić avatar od nowa, nawet gdy gracz się nie obrócił
     S.lastFacingX = nil
     S.lastFacingY = nil
+    S.rotateLastError = 999.0
 
     return true
 end
@@ -5226,6 +5231,17 @@ registerForEvent(
 
                 S.rotateAccumulator = 0.0
 
+                -- avatar jeszcze dochodzi (AIMoveTo w toku, błąd maleje):
+                -- obrót anulowałby ostatnie centymetry dojścia (avatar
+                -- stawał do 0.35 m od gracza), więc czeka, aż stanie
+                local approaching =
+                    S.activeMoveCommand ~= nil
+                    and settleError <
+                        S.rotateLastError -
+                        0.01
+
+                S.rotateLastError = settleError
+
                 local facingChanged = 999.0
 
 
@@ -5251,7 +5267,9 @@ registerForEvent(
                 end
 
 
-                if facingChanged > 0.03 then
+                if facingChanged > 0.03
+                    and not approaching
+                then
 
                     cancelMoveCommand()
 
