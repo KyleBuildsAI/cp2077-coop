@@ -32,3 +32,6 @@ coop_stats_*.txt
 coop-tools/coop_monitor_history.csv
 modlist.txt
 __pycache__/
+
+# Offline test suite dependencies (installed by tests/run_all.ps1)
+tests/.deps/

@@ -61,6 +61,16 @@ Logs, all in `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/` unless noted
   CET buffers it, so recent lines can be missing until the game exits
 - `r6/logs/redscript_rCURRENT.log`: script compile errors
 
+## Tests
+
+The offline suite needs no running game. Run it before every commit:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run_all.ps1
+```
+
+See [tests/README.md](tests/README.md) for requirements and what each test covers.
+
 ## Source layout
 
 | Path | Purpose |
@@ -71,3 +81,4 @@ Logs, all in `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/` unless noted
 | `r6/scripts/CP2077Coop/state.reds` | Reading and applying crouch, weapon, time and weather |
 | `r6/scripts/CP2077Coop/vehicle.reds` | The other player's car (placed every frame where they are now), mounted vehicle pose, avatar hidden while they drive |
 | `red4ext/plugins/CP2077Coop/` | Network plugin (binary, source kept separately by Jakub) |
+| `tests/` | Offline test suite: LuaJIT harness, simulations, redscript compile sandbox |
