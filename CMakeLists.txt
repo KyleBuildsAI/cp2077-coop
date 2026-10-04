@@ -129,7 +129,8 @@ target_compile_options(coopnet_plugin_probe PRIVATE ${COOPNET_WARNINGS})
 add_dependencies(coopnet_plugin_probe CP2077CoopNet)
 
 # v2: codec unit tests, golden vectors against proto.py (tools/v2_golden.py), the fuzzer, the
-# Connection tests and reliability.py trace replay (tools/v2_link_trace.py) and the clock tests.
+# Connection tests and reliability.py trace replay (tools/v2_link_trace.py), the clock tests,
+# and the UDP client that tools/run_v2_loopback.py runs against relay_v2.py.
 set(COOPNET_V2_TEST_SUPPORT tests/V2TestSupport.cpp tests/V2TestSupport.hpp)
 set(COOPNET_V2_TEST_PROGRAMS
   "tests=tests/V2Tests.cpp"
@@ -137,6 +138,7 @@ set(COOPNET_V2_TEST_PROGRAMS
   "fuzz=tests/V2Fuzz.cpp"
   "reliability_tests=tests/V2ReliabilityTests.cpp"
   "clock_tests=tests/V2ClockTests.cpp"
+  "loopback_client=tests/V2LoopbackClient.cpp"
 )
 foreach(program IN LISTS COOPNET_V2_TEST_PROGRAMS)
   string(REPLACE "=" ";" parts "${program}")
@@ -146,6 +148,8 @@ foreach(program IN LISTS COOPNET_V2_TEST_PROGRAMS)
   target_link_libraries(coopnet_v2_${name} PRIVATE coopnet_v2)
   target_compile_options(coopnet_v2_${name} PRIVATE ${COOPNET_WARNINGS} /WX)
 endforeach()
+target_compile_definitions(coopnet_v2_loopback_client PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
+target_link_libraries(coopnet_v2_loopback_client PRIVATE ws2_32)
 
 # The fuzzer again, codec included, under AddressSanitizer: every input sits in a heap block of
 # exactly its size, so any over-read is reported. Needs the MSVC ASan runtime next to cl.exe.
