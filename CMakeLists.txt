@@ -154,6 +154,20 @@ endforeach()
 target_compile_definitions(coopnet_v2_loopback_client PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
 target_link_libraries(coopnet_v2_loopback_client PRIVATE ws2_32)
 
+# The C++ drop-in for the relay's client_v2.py that tools/run_v2_demo.py runs through every
+# run_demo.py scenario, as the host and as the joiner (plus its port of coopnet/testworld.py).
+add_executable(coopnet_v2_demo_client
+  tests/V2DemoClient.cpp
+  tests/V2DemoJson.cpp
+  tests/V2DemoJson.hpp
+  tests/V2DemoWorld.cpp
+  tests/V2DemoWorld.hpp
+  ${COOPNET_V2_TEST_SUPPORT}
+)
+target_link_libraries(coopnet_v2_demo_client PRIVATE coopnet_v2 coopnet_version ws2_32)
+target_compile_definitions(coopnet_v2_demo_client PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
+target_compile_options(coopnet_v2_demo_client PRIVATE ${COOPNET_WARNINGS} /WX)
+
 # The fuzzer again, codec included, under AddressSanitizer: every input sits in a heap block of
 # exactly its size, so any over-read is reported. Needs the MSVC ASan runtime next to cl.exe.
 get_filename_component(COOPNET_MSVC_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
