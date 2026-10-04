@@ -177,6 +177,16 @@ S.remoteVerticalJump = false
 
 S.settleAccumulator = 0.50
 
+-- dojście po zatrzymaniu (Steer.settleStep): cel, najmniejszy
+-- dotąd błąd, próby bez postępu, czy był już teleport, koniec
+S.settleTargetX = nil
+S.settleTargetY = nil
+S.settleTargetZ = nil
+S.settleBest = nil
+S.settleStalls = 0
+S.settleTeleported = false
+S.settleDone = false
+
 
 ------------------------------------------------------------
 -- ABSOLUTE WORLD TARGET
@@ -1678,6 +1688,16 @@ local Steer = {
     HARD_CORRECT_MAX_FAILS = 8,
     STUCK_DISTANCE = 1.0,
 
+    -- dojście po zatrzymaniu: tyle prób z rzędu bez zbliżenia się
+    -- o SETTLE_MIN_PROGRESS = cel nieosiągalny (krawędź navmesha,
+    -- maska auta, stół). Wtedy jeden teleport (gdy dalej niż
+    -- SETTLE_TELEPORT_ERROR albo inna wysokość), potem koniec prób
+    -- i zwykły obrót. Nowa seria, gdy NPC odejdzie o SETTLE_REARM.
+    SETTLE_MAX_STALLS = 3,
+    SETTLE_MIN_PROGRESS = 0.10,
+    SETTLE_TELEPORT_ERROR = 1.0,
+    SETTLE_REARM = 0.50,
+
     -- obrót w bezruchu: avatar przesunięty o tyle od ostatniego
     -- obrotu dostaje nowy (jego kierunek zmienił się z ruchem)
     FACING_MOVED = 0.15,
@@ -1933,6 +1953,113 @@ function Steer.resetHardCorrect()
 
     Steer.lastHardCorrectAt = -100.0
     Steer.hardCorrectStreak = 0
+end
+
+
+-- Nowa seria dojścia (gracz ruszył się, zmienił miejsce postoju).
+function Steer.resetSettle()
+
+    S.settleTargetX = nil
+    S.settleTargetY = nil
+    S.settleTargetZ = nil
+    S.settleBest = nil
+    S.settleStalls = 0
+    S.settleTeleported = false
+    S.settleDone = false
+end
+
+
+-- Co klatkę w bezruchu: nowa seria, gdy cel się przesunął, albo
+-- gdy NPC po zakończonej serii odszedł (popchnięty, ragdoll).
+function Steer.trackSettle(settleError)
+
+    if S.settleTargetX == nil
+        or distance3(
+            S.targetX,
+            S.targetY,
+            S.targetZ,
+            S.settleTargetX,
+            S.settleTargetY,
+            S.settleTargetZ
+        ) >= MIN_TARGET_CHANGE
+    then
+
+        Steer.resetSettle()
+
+        S.settleTargetX = S.targetX
+        S.settleTargetY = S.targetY
+        S.settleTargetZ = S.targetZ
+
+        return
+    end
+
+    -- ten sam cel, NPC odszedł po zakończonej serii: próbujemy
+    -- znowu (S.settleTeleported zostaje - bez drugiego teleportu)
+    if S.settleDone
+        and settleError >
+            S.settleBest +
+            Steer.SETTLE_REARM
+    then
+
+        S.settleDone = false
+        S.settleBest = nil
+        S.settleStalls = 0
+    end
+end
+
+
+-- Co IDLE_SETTLE_INTERVAL, gdy avatar stoi za daleko od celu.
+-- "move" = wyślij AIMoveTo, "wait" = idzie i się zbliża,
+-- "teleport" = nieosiągalny i daleko, "done" = przestań próbować.
+function Steer.settleStep(settleError, verticalError)
+
+    if S.settleBest == nil then
+
+        S.settleBest = settleError
+        S.settleStalls = 0
+
+        return "move"
+    end
+
+    if settleError <
+        S.settleBest -
+        Steer.SETTLE_MIN_PROGRESS
+    then
+
+        S.settleBest = settleError
+        S.settleStalls = 0
+
+        return "wait"
+    end
+
+    S.settleStalls =
+        S.settleStalls + 1
+
+    if S.settleStalls <
+        Steer.SETTLE_MAX_STALLS
+    then
+        return "move"
+    end
+
+    S.settleStalls = 0
+
+    if not S.settleTeleported
+        and (
+            settleError > Steer.SETTLE_TELEPORT_ERROR
+            or verticalError >= VERTICAL_SNAP
+        )
+    then
+
+        S.settleTeleported = true
+        S.settleBest = nil
+
+        return "teleport"
+    end
+
+    -- S.settleBest zostaje: punkt odniesienia dla SETTLE_REARM
+    S.settleDone = true
+
+    return "done"
 end
 
 
@@ -3826,6 +3953,7 @@ local function resetRemote()
     Sync.reset()
     Steer.reset()
     Steer.resetHardCorrect()
+    Steer.resetSettle()
 end
 
 
@@ -4909,6 +5037,10 @@ registerForEvent(
 
         if S.remoteMoving then
 
+            -- po zatrzymaniu: nowa seria dojścia, pierwsza próba od razu
+            Steer.resetSettle()
+            S.settleAccumulator = IDLE_SETTLE_INTERVAL
+
             -- Steer: rzadkie, "lepkie" komendy ruchu zamiast
             -- anulowania i wysyłania nowej co 0.12 s (AI stawało).
             local moveType =
@@ -4970,12 +5102,30 @@ registerForEvent(
             -- Po zatrzymaniu avatar często nie dochodzi do
             -- celu (obrót niżej anulował jego AIMoveTo).
             -- Dopóki stoi za daleko: idziemy na dokładną
-            -- pozycję (ponawiane co IDLE_SETTLE_INTERVAL)
-            -- i NIE obracamy, żeby nie anulować ruchu.
+            -- pozycję i NIE obracamy, żeby nie anulować ruchu.
+            -- Co IDLE_SETTLE_INTERVAL sprawdzamy postęp
+            -- (Steer.settleStep): AIMoveTo ponawiamy tylko,
+            -- gdy avatar się nie zbliża; cel nieosiągalny =
+            -- jeden teleport albo koniec prób i zwykły obrót.
+            -- Błąd w poziomie: sama różnica wysokości
+            -- (schody, krawężnik) nie zatrzymuje obrotu.
             ------------------------------------------------
 
-            if errorDistance >
-                IDLE_SETTLE_DISTANCE
+            local settleError =
+                distance2(
+                    current.x,
+                    current.y,
+                    S.targetX,
+                    S.targetY
+                )
+
+            Steer.trackSettle(settleError)
+
+            if not S.settleDone
+                and (
+                    settleError > IDLE_SETTLE_DISTANCE
+                    or verticalError >= VERTICAL_SNAP
+                )
             then
 
                 S.settleAccumulator =
@@ -4988,28 +5138,76 @@ registerForEvent(
 
                     S.settleAccumulator = 0.0
 
-                    -- daleko w tyle: truchtem, blisko: spokojnie
-                    local settleMoveType = "Walk"
+                    local settleStep =
+                        Steer.settleStep(
+                            settleError,
+                            verticalError
+                        )
 
-                    if errorDistance > 1.5 then
-                        settleMoveType = "Run"
-                    end
+                    if settleStep == "move" then
 
-                    if moveRemoteAI(
-                        S.targetX,
-                        S.targetY,
-                        S.targetZ,
-                        settleMoveType,
-                        Sync.isRemoteCrouching()
-                    ) then
+                        -- daleko w tyle: truchtem, blisko: spokojnie
+                        local settleMoveType = "Walk"
+
+                        if errorDistance > 1.5 then
+                            settleMoveType = "Run"
+                        end
+
+                        if moveRemoteAI(
+                            S.targetX,
+                            S.targetY,
+                            S.targetZ,
+                            settleMoveType,
+                            Sync.isRemoteCrouching()
+                        ) then
+
+                            S.lastCommandX = S.targetX
+                            S.lastCommandY = S.targetY
+                            S.lastCommandZ = S.targetZ
+                        end
+
+                    elseif settleStep == "teleport" then
+
+                        print(
+                            string.format(
+                                "[CP2077Coop] EVENT avatar cannot walk to the remote spot: teleport, error=%.2f",
+                                errorDistance
+                            )
+                        )
+
+                        hardCorrectRemote(
+                            player,
+                            S.targetX,
+                            S.targetY,
+                            S.targetZ
+                        )
 
                         S.lastCommandX = S.targetX
                         S.lastCommandY = S.targetY
                         S.lastCommandZ = S.targetZ
+
+                    elseif settleStep == "done" then
+
+                        print(
+                            string.format(
+                                "[CP2077Coop] EVENT avatar cannot reach the remote spot: stays %.2f m away",
+                                errorDistance
+                            )
+                        )
+
+                        cancelMoveCommand()
                     end
                 end
 
-                return
+                if not S.settleDone then
+                    return
+                end
+
+            elseif not S.settleDone then
+
+                -- w tolerancji: kolejna seria liczy postęp od zera
+                S.settleBest = nil
+                S.settleStalls = 0
             end
 
             -- pierwsza korekta od razu po kolejnym zatrzymaniu
