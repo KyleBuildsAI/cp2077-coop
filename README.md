@@ -7,13 +7,15 @@ remote players rendered 100-150 ms in the past with interpolation and bounded ex
 replaces the "latest position only, extra bits squeezed into the forward vector" limit of
 `CP2077Coop.dll`.
 
-Version 0.2.0-alpha.3 (wire protocol v2.1, magic 0xCB77).
-Status: builds, unit and integration tests pass outside the game.
+Version 0.2.0-alpha.4 (wire protocol v2.1, magic 0xCB77).
+Status: builds, unit and integration tests pass outside the game, and every end-to-end scenario of
+the relay repo passes with C++ clients built from the plugin's protocol modules on both ends.
 0.1.0 was loaded in both bench games on 2026-10-04 (Phase 1 go: `Game.Net_*` callable from CET,
 about 1 % unreliable loss at 1 % simulated, 0 reliable order errors, 0.03 ms per frame to drain
 `Net_Poll`, no crash on load, save load or quit). **0.1.1, 0.1.2 and the 0.2.0 alphas have not been
-loaded in the game yet.** [INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1 install and in-game
-check for 0.1.2 (CPN2 framing, port 11779); it does not apply to this build.
+loaded in the game yet.** [INSTALL_PHASE2.md](INSTALL_PHASE2.md) is the install and in-game check for
+this build (next to Jakub's DLL, `relay_v2.py` on 11778, CET commands); it has not been carried out.
+[INSTALL_PHASE1.md](INSTALL_PHASE1.md) is the Phase 1 guide for 0.1.2 (CPN2 framing, port 11779).
 
 **Phase 2 (one wire format, v2).** The plugin moved from its own CPN2 framing to protocol v2 from
 the relay repo (`coopnet/proto.py`, `include/coop_proto_v2.h`). Each milestone bumps the version to
@@ -21,9 +23,25 @@ the relay repo (`coopnet/proto.py`, `include/coop_proto_v2.h`). Each milestone b
 1. alpha.1: the C++ codec in `src/v2`, see [Protocol v2 codec](#protocol-v2-codec-srcv2).
 2. alpha.2: the per-hop link (port of `reliability.py`) and the relay clock estimate, see
    [Protocol v2 link and clock](#protocol-v2-link-and-clock-srcv2).
-3. alpha.3 (this build): the snapshot buffer (port of `interp.py`), the transport switch to v2 and
-   the new natives `Net_ConnectV2`, `Net_PushPlayer` and `Net_SampleRemote`. See
+3. alpha.3: the snapshot buffer (port of `interp.py`), the transport switch to v2 and the new
+   natives `Net_ConnectV2`, `Net_PushPlayer` and `Net_SampleRemote`. See
    [Transport](#transport-protocol-v2) and [Snapshot buffer](#snapshot-buffer-srcv2).
+4. alpha.4 (this build): end to end offline. A C++ client built from the plugin's protocol modules
+   runs every `run_demo.py` scenario through `relay_v2.py` as the host, as the joiner and on both
+   ends, including the clean, US and transatlantic link profiles over a scripted walk, run, sprint
+   and turn course. See [End-to-end demo](#end-to-end-demo-c-client).
+
+0.2.0-alpha.4 in short:
+- `tests/V2DemoClient.cpp` (`coopnet_v2_demo_client`) is a drop-in for the relay's `client_v2.py`
+  on the plugin's codec, delta snapshots, `Connection`, `ClockSync` and `SnapshotBuffer`.
+  `tests/V2DemoWorld.cpp` ports the relay's test world (CPython's Mersenne Twister included) and the
+  new scripted course. `tools/run_v2_demo.py` runs the pairings and prints the measurements;
+  `build.ps1 -Demo` (and `-All`) runs it.
+- Relay repo changes (branch `feat/phase2-v2`): the course scenarios and link profiles, a client
+  executable per role in `run_demo.py`, a drain at the end of every run so a reliable stream is never
+  cut off while it is being repaired, and a fix in `relay_v2.py`: rate limits are now charged when a
+  reliable message first arrives, so a burst released by a repaired gap is no longer dropped.
+- No plugin code changed apart from the version: the DLL is 0.2.0-alpha.3's code under a new version.
 
 0.2.0-alpha.3 in short:
 - `Transport` runs the v2 cookie handshake (room, room key hash, role), the v2 link, the relay
@@ -66,8 +84,11 @@ tools/v2_golden.py      golden vectors between the C++ v2 codec and the relay's 
 tools/v2_link_trace.py  records reliability.py in its test scenarios and replays the calls on the C++ link
 tools/v2_interp_trace.py records interp.py's InterpBuffer and replays the calls on SnapshotBuffer
 tools/run_v2_loopback.py two C++ v2 test clients through relay_v2.py over UDP
+tools/run_v2_demo.py    every run_demo.py scenario with the C++ demo client as host, joiner or both
 tests/                  unit tests (with a scripted fake relay), the Transport loopback, the plugin
                         probe, the Lua helper test, and the v2 codec, link, clock and interp tests
+tests/V2Demo*           the C++ demo client (client_v2.py's role), its port of testworld.py, JSON
+INSTALL_PHASE2.md       install next to Jakub's DLL, relay_v2.py on 11778, CET checks (not done yet)
 ```
 
 ## Build
@@ -83,8 +104,10 @@ powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Loopback
 powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Clean -All   # fresh build dir, every offline test
 ```
 
-`-Clean` deletes `build\` first. `-All` adds `tests\test_lua_helper.py`, the relay's unit tests and
-its `tools\check_c_header.py` to the run; the Lua test needs `lupa` (`pip install lupa`, or
+`-Clean` deletes `build\` first. `-Demo` runs the relay's `run_demo.py` scenarios with its Python
+clients (the reference, about 5 minutes) and then with the C++ demo client as host, joiner and on
+both ends (`tools\run_v2_demo.py`, about 25 minutes). `-All` implies `-Loopback` and `-Demo` and adds
+`tests\test_lua_helper.py`, the relay's unit tests and its `tools\check_c_header.py` to the run; the Lua test needs `lupa` (`pip install lupa`, or
 `PYTHONPATH` pointing at a folder that has it). The version lives in one place,
 `project(CP2077CoopNet VERSION ...)` plus `COOPNET_PRERELEASE_TYPE` and `COOPNET_PRERELEASE_NUMBER`
 in `CMakeLists.txt`: `Query()` (as a RED4ext pre-release), `Net_Version()`, `Net_Stats` and the
@@ -110,6 +133,8 @@ build\Release\coopnet_v2_interp_tests.exe
 python tools\v2_interp_trace.py run --exe build\Release\coopnet_v2_interp_tests.exe
 python tools\run_loopback.py --exe build\Release\coopnet_loopback.exe                        # -Loopback
 python tools\run_v2_loopback.py --exe build\Release\coopnet_v2_loopback_client.exe          # -Loopback
+python ..\relay\run_demo.py --out build\run_demo_python                                      # -Demo
+python tools\run_v2_demo.py --exe build\Release\coopnet_v2_demo_client.exe                   # -Demo
 python tests\test_lua_helper.py                                                              # -All
 python -m unittest discover -s tests            # in the relay checkout                      # -All
 python ..\relay\tools\check_c_header.py                                                      # -All
@@ -135,6 +160,10 @@ python "D:\Downloads\syncfix\MP=Jakub\coop-tools\scc_check.py" <sandbox>
 
 ## Install
 
+[INSTALL_PHASE2.md](INSTALL_PHASE2.md) has the full bench procedure for this build (both games
+closed, next to Jakub's `CP2077Coop.dll`, `relay_v2.py` in place of `coop_relay.py`, log lines and
+CET console checks). It has not been carried out yet. The layout:
+
 ```
 <game>\red4ext\plugins\CP2077CoopNet\CP2077CoopNet.dll
 <game>\red4ext\plugins\CP2077CoopNet\Scripts\Natives.reds
@@ -154,13 +183,13 @@ parameter type and the return type resolved in RTTI, and looking its name up aga
 `RegisterFunction` returned the function the plugin created (`src/core/NativeRegistration.hpp`):
 
 ```
-CP2077CoopNet 0.2.0-alpha.3 proto 2.1: registered Net_* natives (13/13): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version, Net_ConnectV2, Net_PushPlayer, Net_SampleRemote; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
+CP2077CoopNet 0.2.0-alpha.4 proto 2.1: registered Net_* natives (13/13): Net_Connect, Net_ConnectRoom, Net_Disconnect, Net_Send, Net_SendTo, Net_Poll, Net_Stats, Net_LocalId, Net_NowMs, Net_Version, Net_ConnectV2, Net_PushPlayer, Net_SampleRemote; scripts added: <game>\red4ext\plugins\CP2077CoopNet\Scripts
 ```
 
 If a native or the Scripts folder failed, the same line is logged at error level with
 `MISSING: Net_X (<failed step>)` or `scripts NOT added: <reason>`. The line does not prove that a
 call works; `print(Game.CoopNet_SelfTest())` in the CET console calls the natives from redscript and
-prints `redscript ok: CP2077CoopNet 0.2.0-alpha.3 proto 2.1, Net_NowMs=<n>, clock ok, pose parse ok,
+prints `redscript ok: CP2077CoopNet 0.2.0-alpha.4 proto 2.1, Net_NowMs=<n>, clock ok, pose parse ok,
 Net_SampleRemote(1)=''` while not connected.
 
 String results (`Net_Poll`, `Net_Stats`, `Net_Version`, `Net_SampleRemote`) are copy-assigned into
@@ -177,11 +206,13 @@ on the same UDP port, so v1 keeps working when it replaces the bench's `coop_rel
 cd ..\relay
 python relay_v2.py                                          # 127.0.0.1:11778
 python relay_v2.py --host 0.0.0.0 --port 11778              # reachable from the LAN or internet
-python relay_v2.py --latency-ms 115 --jitter-ms 20 --loss-pct 1   # the Phase 2 bench link
+python relay_v2.py --latency-ms 95 --jitter-ms 40 --loss-pct 1    # bench link: 115 +-20 ms one way, 1 % loss
+python relay_v2.py --latency-ms 20 --jitter-ms 20 --loss-pct 1    # US link: 30 +-10 ms one way, 1 % loss
 ```
 
 Its link simulation delays, jitters, drops or duplicates every datagram it sends (each client's
-downlink). Rooms hold 2 players unless `--room-size` says otherwise. Jakub's Warsaw relay only
+downlink); the jitter is uniform in `[latency, latency + jitter]`, so the two lines above give the
+transatlantic and US profiles of the end-to-end demo between the two players. Rooms hold 2 players unless `--room-size` says otherwise. Jakub's Warsaw relay only
 forwards `CP1,...` text packets and cannot carry protocol v2.
 
 ## API
@@ -198,7 +229,7 @@ forwards `CP1,...` text packets and cannot carry protocol v2.
 | `Net_Stats() -> String` | JSON | `CoopNet.stats()` decodes it |
 | `Net_LocalId() -> Int32` | peer id, 0 until welcomed | `CoopNet.localId()` |
 | `Net_NowMs() -> Double` | ms since the Unix epoch (UTC), sub-ms fraction | `CoopNet.nowMs()` |
-| `Net_Version() -> String` | `"CP2077CoopNet 0.2.0-alpha.3 proto 2.1"` | `CoopNet.version()`, `parseVersion` |
+| `Net_Version() -> String` | `"CP2077CoopNet 0.2.0-alpha.4 proto 2.1"` | `CoopNet.version()`, `parseVersion` |
 | `Net_PushPlayer(x, y, z, yaw, pitch, vx, vy, vz: Float, moveState, flags, health: Int32) -> Bool` | 0.2.0-alpha.3 | `CoopNet.pushPlayer(state)` |
 | `Net_SampleRemote(peer: Int32) -> String` | 0.2.0-alpha.3, `""` until that player sent something | `CoopNet.sampleRemote(peer)` |
 
@@ -336,6 +367,137 @@ CoopNet.send(CoopNet.EVENT, "weapon|draw|Items.Preset_Overture_Default")
   a `WSACleanup` that dropped the last reference in between crashed that thread inside WS2_32 (seen in
   4 of 11 unit test runs; this was possible since 0.1.2 whenever a disconnect interrupted a lookup).
 
+## End-to-end demo (C++ client)
+
+The Phase 2 exit check: every scenario of the relay repo's `run_demo.py` through `relay_v2.py` over
+real UDP on 127.0.0.1, with C++ clients built from the plugin's protocol modules on either or both
+ends. Run it with `build.ps1 -Demo` (part of `-All`) or directly:
+
+```powershell
+python tools\run_v2_demo.py --exe build\Release\coopnet_v2_demo_client.exe                     # 23 runs, ~25 min
+python tools\run_v2_demo.py --exe build\Release\coopnet_v2_demo_client.exe --pairings cpp-both --only course-us
+python ..\relay\run_demo.py --host-exe build\Release\coopnet_v2_demo_client.exe               # run_demo itself
+```
+
+* **The client.** `coopnet_v2_demo_client` (`tests/V2DemoClient.cpp`) takes `client_v2.py`'s
+  arguments, follows its schedule and writes the same JSON report, so `run_demo.py --host-exe` /
+  `--joiner-exe` can put it on either end. Every datagram goes through the plugin's `coopnet_v2`
+  library: `V2Codec` (handshake, 30 Hz `PLAYER_SNAPSHOT` with the vehicle block on the demo path,
+  the scripted reliable events), `V2Delta` (the host's 10 Hz delta `ENTITY_SNAPSHOT` of about 80
+  NPCs and vehicles with interest management; the joiner decodes and acks), `Connection`,
+  `ClockSync` and `SnapshotBuffer` (60 Hz rendering of the other player and every NPC). Its session
+  logic follows `client_v2.py`, not the plugin's `Transport`; `Transport` itself (thread, pacing,
+  natives) is covered by `run_loopback.py`.
+* **The world.** `tests/V2DemoWorld.cpp` ports the relay's `coopnet/testworld.py`: the entity table
+  from seed 7 with CPython's Mersenne Twister (`init_by_array`, 53-bit `random()`, `uniform()`), the
+  entity and player ground truth, and the scripted course. Before any run the runner compares a dump
+  (`--dump-world`) with `testworld.py`: the table must be identical and the truth within 1e-9, or the
+  two clients would measure each other against different paths.
+* **Pairings.** `cpp-host` (C++ host, Python joiner), `cpp-joiner` (Python host, C++ joiner) and
+  `cpp-both`. `bridge` has no joiner, so it runs with a C++ host only (`cpp-host`, `cpp-both`).
+* **Scenarios.** Each client impairs its own uplink and downlink (latency + uniform jitter, loss,
+  duplicates), so every relay hop sees the leg model:
+
+  | scenario | per leg | between the players (one way) | s |
+  |---|---|---|---|
+  | clean | 0 | 0 | 12 |
+  | realistic | host 18 + [0, 6] ms, 1 %; joiner 78 + [0, 18] ms, 2 % (RU and LA via Warsaw) | 96-120 ms, 3 % | 25 |
+  | stress | 60 + [0, 40] ms, 10 % loss, 2 % duplicates | 120-200 ms, 19 % | 25 |
+  | brutal | 90 + [0, 60] ms, 20 % loss, 5 % duplicates | 180-300 ms, 36 % | 25 |
+  | bridge | v2 host 18 + [0, 6] ms, 1 %, plus a v1 client in the bridged room | | 12 |
+  | course-clean | 0 | 0 | 45 |
+  | course-us | 10 + [0, 10] ms, 0.5 % | 30 +-10 ms, 1 % | 45 |
+  | course-transatlantic | 47.5 + [0, 20] ms, 0.5 % | 115 +-20 ms, 1 % | 45 |
+
+  `clean` and `realistic` also run two v1 clients in the v1 pool next to v2. The `course-*`
+  scenarios run both players over a scripted on-foot loop of 39.6 s instead of the demo circle and
+  drive: walk 1.6 m/s, run 4.5 m/s, sprint 7.5 m/s, turns (1.5 m radius at walk and run speed, a
+  -60/+120/-60 degree zigzag, 5 m at sprint speed), braking from a sprint, standing, starting again.
+  Velocity is continuous; the host and the joiner are 9 s apart on the loop.
+* **End of a run.** Events stop 4 s before the end, each reliable stream ends with a
+  `"<name> done"` chat, and a client quits only once the relay acked all of its events and the
+  other's marker arrived (at most 20 s later). Without this, events still being repaired under the
+  brutal profile were counted as lost: the first C++ run of `cpp-both/brutal` had 4 events of 182 in
+  flight when it stopped.
+
+**What is measured** (all from the clients' and the relay's reports):
+* **Snapshot loss**: 30 Hz `PLAYER_SNAPSHOT`s missing between the first and the last one the
+  receiver got, against the simulated loss `1 - (1 - up)(1 - down)`. `run_demo.py`'s own delivery
+  check (delivered / sent within 5 points of the expected) also counts the start (the receiver not
+  yet in the room) and the end.
+* **Reliable violations**: per direction, the positions where the received event stream differs
+  from the sent one plus missing or extra events (equip, vehicle, hit, death, time/weather, chat,
+  teleport, world facts, mod list, a 30-event burst). Must be 0, and so must the relay's protocol
+  violations.
+* **Clock**: each client's relay clock estimate minus the truth (both sides read
+  `QueryPerformanceCounter`, which is also `time.perf_counter()`). The course scenarios hold the
+  plugin's estimator (C++ `ClockSync`) within 5 ms of the truth and of the other client;
+  `run_v2_demo.py` also checks every exchange of a C++ client after a 5 s warm-up, and the gap
+  between two C++ instances at the same moment. `client_v2.py` keeps `interp.py`'s lowest-RTT
+  estimate and its looser bound.
+* **Pose error**: the distance between the remote player drawn by `SnapshotBuffer` at the render
+  time and the sender's ground truth at that same render time (the deliberate render delay of
+  about 100 ms plus the latency floor is not an error), and the yaw difference; per kind of movement
+  on the course.
+
+**Results** (`build.ps1 -Clean -All`, 2026-10-04, 0.2.0-alpha.4): 23 of 23 runs passed (the Python
+reference: 8 of 8). 9,923 reliable events, 0 order violations, 0 relay violations, 0 rate drops,
+every stream drained before the end. Loss = network loss over the received span (simulated in
+brackets); clock = final error of host / joiner, and for C++ clients the largest error over the
+run; pose = p95 error of the joiner's view of the host / the host's view of the joiner.
+
+| pairing | scenario | loss h->j / j->h (sim.) | clock host / joiner (ms) | C++ max / pair (ms) | render delay | pose p95 (mm) | yaw p95 |
+|---|---|---|---|---|---|---|---|
+| cpp-host | clean | 0.0 / 0.0 % (0) | -0.37 / -0.48 | 0.65 / - | 100 ms | 6 / 14 | 0.03 |
+| cpp-host | realistic | 2.6 / 3.5 % (3.0) | -0.23 / -1.32 | 0.86 / - | 199 ms | 6 / 14 | 0.03 |
+| cpp-host | stress | 18.4 / 17.9 % (19.0) | -0.71 / +2.48 | 1.91 / - | 223 ms | 6 / 14 | 0.20 |
+| cpp-host | brutal | 36.5 / 36.1 % (36.0) | +1.75 / -0.06 | 2.21 / - | 315 ms | 6 / 15 | 1.21 |
+| cpp-host | course-clean | 0.0 / 0.0 % (0) | -0.40 / -0.60 | 0.68 / - | 100 ms | 5 / 6 | 0.10 |
+| cpp-host | course-us | 1.4 / 0.4 % (1.0) | +0.59 / -1.86 | 0.65 / - | 123 ms | 6 / 6 | 0.11 |
+| cpp-host | course-transatlantic | 1.4 / 0.7 % (1.0) | -0.51 / -1.96 | 1.32 / - | 199 ms | 6 / 5 | 0.10 |
+| cpp-joiner | clean | 0.0 / 0.0 % (0) | -0.47 / -0.16 | 0.63 / - | 101 ms | 6 / 14 | 0.03 |
+| cpp-joiner | realistic | 2.2 / 2.6 % (3.0) | -1.89 / -0.32 | 0.80 / - | 201 ms | 5 / 14 | 0.03 |
+| cpp-joiner | stress | 18.1 / 19.2 % (19.0) | -2.56 / -1.31 | 3.36 / - | 227 ms | 6 / 14 | 0.17 |
+| cpp-joiner | brutal | 37.6 / 37.4 % (36.0) | -6.08 / +1.41 | 1.81 / - | 314 ms | 6 / 14 | 1.53 |
+| cpp-joiner | course-clean | 0.0 / 0.0 % (0) | -0.49 / -0.39 | 0.69 / - | 101 ms | 6 / 6 | 0.09 |
+| cpp-joiner | course-us | 1.0 / 1.5 % (1.0) | -0.50 / -0.06 | 1.16 / - | 124 ms | 5 / 6 | 0.09 |
+| cpp-joiner | course-transatlantic | 1.1 / 1.4 % (1.0) | -3.52 / -0.11 | 1.60 / - | 200 ms | 5 / 6 | 0.12 |
+| cpp-both | clean | 0.0 / 0.0 % (0) | -0.14 / -0.30 | 0.63 / 0.45 | 101 ms | 6 / 14 | 0.03 |
+| cpp-both | realistic | 3.0 / 2.8 % (3.0) | -0.82 / +1.01 | 1.39 / 1.82 | 201 ms | 6 / 14 | 0.03 |
+| cpp-both | stress | 17.7 / 19.8 % (19.0) | +0.86 / -1.98 | 1.98 / 2.84 | 226 ms | 5 / 15 | 0.05 |
+| cpp-both | brutal | 35.5 / 35.8 % (36.0) | -3.53 / +3.23 | 6.67 / 6.75 | 307 ms | 6 / 14 | 1.07 |
+| cpp-both | course-clean | 0.0 / 0.0 % (0) | -0.32 / -0.41 | 0.76 / 0.54 | 101 ms | 5 / 6 | 0.10 |
+| cpp-both | course-us | 1.3 / 0.6 % (1.0) | +0.39 / -0.35 | 1.41 / 1.37 | 124 ms | 6 / 5 | 0.09 |
+| cpp-both | course-transatlantic | 0.8 / 0.5 % (1.0) | -0.03 / -0.51 | 1.81 / 2.11 | 200 ms | 5 / 5 | 0.09 |
+
+`bridge` passed for `cpp-host` and `cpp-both`: the v1 client got the C++ host's position (RP1,
+error under 1 mm), flags, time and weather through the relay, and the host rendered the v1 player.
+The NPC alignment (joiner's interpolated NPCs against the host's truth) stayed at 8-10 mm p95 in
+every other run (11-29 mm under brutal), and every delta entity snapshot the joiner decoded matched the
+host's view exactly. The "pose" column is p95 over all frames; 1.4 mm walking, 4 mm running and
+7 mm sprinting are the Hermite spline's error between 30 Hz samples:
+
+| course, p95 position error (mm) / p95 yaw error (deg) | walk | run | sprint | turn | stop |
+|---|---|---|---|---|---|
+| clean, all pairings and both views | 1.4-1.5 / 0 | 3.8-4.3 / 0 | 6.4-7.0 / 0 | 4.8-6.0 / 0.13-0.16 | 3.5-5.6 / 0 |
+| US, all pairings and both views | 1.4-1.5 / 0 | 3.8-4.1 / 0 | 6.6-7.1 / 0 | 4.7-5.4 / 0.15-0.16 | 3.4-5.7 / 0 |
+| transatlantic, all pairings and both views | 1.4-1.5 / 0 | 3.9-4.2 / 0 | 6.2-7.0 / 0 | 4.5-5.4 / 0.13-0.17 | 2.6-5.3 / 0 |
+
+Reading the numbers:
+* The clock criterion (under 5 ms between the two instances) holds on every realistic link with C++
+  on both ends: at most 2.11 ms over a whole run (course-transatlantic) and 2.84 ms under the stress
+  profile. Only brutal (20 % loss per leg, 60 ms jitter) reaches 6.67 ms for one client and 6.75 ms
+  between the two; the Python client's lowest-RTT estimate reached 6.08 ms there (8.31 ms in the
+  Python reference run).
+* Loss matches the simulation: under 1 % (US, transatlantic) the received span lost 0.4-1.5 %. The
+  `all` loss that `run_demo.py` checks is up to 2.5 % on clean links with a Python client, because a
+  Python process starts about 0.3 s later and misses the first snapshots; with C++ on both ends it
+  is 0.0 %.
+* The render delay is the latency floor plus the adaptive 100-150 ms interpolation delay: 100 ms on a
+  clean link, 124 ms on the US profile and 200 ms on the transatlantic one. A sprinting player is
+  therefore drawn about 1.5 m behind where they really are on the transatlantic link; the error
+  columns measure how well the drawn path matches the real path once that delay is accounted for.
+
 ## Protocol v2 codec (src/v2)
 
 The C++ port of `relay/coopnet/proto.py` (protocol 2.1) and of the delta encoder in
@@ -470,90 +632,89 @@ monotonic clock.
 
 ## Tests (latest run)
 
-`tools\build.ps1 -Clean -All` from a fresh build dir on 2026-10-04 for 0.2.0-alpha.3: exit 0, no
-compiler or MSBuild warnings.
+`tools\build.ps1 -Clean -All` from a fresh build dir on 2026-10-04 for 0.2.0-alpha.4 (dllproto
+`feat/phase2-v2`, relay `feat/phase2-v2` at `ac4cfea`): exit 0, no compiler or MSBuild warnings.
+Staged in `dist\red4ext\plugins\CP2077CoopNet\`:
 
-* `coopnet_tests.exe`: 200 checks, 0 failures.
-  * Net_NowMs (FILETIME conversion, agreement with `system_clock`, no backward step over 200,000
-    calls, sub-ms values, cost), the Net_Version format (`proto 2.1`), the startup line with 13
-    natives, the registration checks with a fake RTTI (including the 11-parameter `Float` signature of
-    `Net_PushPlayer`), and String results into a live slot (100 polls leak nothing; the old move
-    assignment leaks 99).
-  * Transport argument checks: rooms, ports, roles and keys; refused sends (channels 0 and 32, 1001
-    bytes, invalid UTF-8, NUL, target 0, not connected); player states (NaN, outside the world, move
-    state 14, `DRIVING`, flags above 0xFFFF, health 256); the pose text format.
-  * Stopping while the relay name resolves: `Disconnect`, a second `Connect` and the destructor each
-    return in 0.1-0.2 ms against 1.2 s for a blocking lookup.
-  * The v2 handshake and session against a scripted fake relay on 127.0.0.1: 8 HELLOs of 240 bytes in
-    1.8 s and `no_answer` after 1.5 s (not before 1.3 s); AUTH carrying the cookie, the room key hash
-    and the HELLO's nonce; `rejected bad_key ...` and the error state; an expired cookie (`bad_cookie`)
-    starts over silently; `welcome 7 joiner`; the relay clock synced after 3 TIME_REQ in 207 ms, 0.09 ms
-    off; `peer_join 3 host`; newest-wins unreliable script messages (an older and an equal counter are
-    dropped, another channel is independent) and reliable ones in order; the client's broadcast and
-    targeted script messages and its `PLAYER_SNAPSHOT` (sample time within 1 ms of the relay clock at
-    the push, every field quantized as proto.py does); a remote player at 6 m/s rendered for 179 frames
-    100 ms in the past with at most 6 mm error; a relay `server_shutdown` (peer leaves, fresh HELLO
-    without resume), relay silence (`relay_lost` after 5.003 s, HELLO with the old token as
-    `resume_token`) and a kick (error, stopped).
-  * The DNS stop timings are skipped, with a note, on machines where such lookups fail at once.
+| file | bytes | SHA256 |
+|---|---|---|
+| `CP2077CoopNet.dll` | 509952 | `55042BDB77F3272B21059C820D092A99CFC3936F30E7E73DE535B5F9598D9CEA` |
+| `Scripts\Helpers.reds` | 6931 | `C47CBF71EB26568C2E5F5714BC78B31FEA0F0DD057B7C7A238FCCED4E57AEB45` |
+| `Scripts\Natives.reds` | 3183 | `90AF4CFB3AE4A08BD2E644D607ECCBB143C18BFB36BD36A1C81BDBD7034F1201` |
+
+MSVC stamps each build, so a rebuild gives a different DLL hash.
+
+* **End to end** (new, see [End-to-end demo](#end-to-end-demo-c-client)): the relay's `run_demo.py`
+  with its Python clients 8/8 scenarios; `run_v2_demo.py` world check OK (entity table identical,
+  truth within 1e-9) and 23/23 runs with the C++ demo client as host, as joiner and on both ends:
+  9,923 reliable events, 0 order violations, 0 relay violations; on the course profiles every C++
+  relay clock estimate within 1.81 ms of the truth over the whole run and two C++ instances within
+  2.11 ms of each other.
+* `coopnet_tests.exe`: 200 checks, 0 failures. Net_NowMs (FILETIME conversion, agreement with
+  `system_clock`, no backward step over 200,000 calls at 36.5 ns per call), the Net_Version format
+  (`proto 2.1`), the startup line with 13 natives, the registration checks with a fake RTTI, String
+  results into a live slot (100 polls leak nothing; the old move assignment leaks 99), the Transport
+  argument checks, stopping while the relay name resolves (0.1-0.2 ms against 1.24 s for a blocking
+  lookup), and the v2 handshake and session against a scripted fake relay (8 HELLOs of 240 bytes in
+  1.8 s and `no_answer`; `rejected bad_key`; the relay clock synced after 3 TIME_REQ in 206 ms,
+  0.21 ms off; script messages; the `PLAYER_SNAPSHOT` fields; a rendered remote player; relay
+  shutdown, relay silence with `relay_lost` after 5.002 s and `resume_token`, and a kick).
 * `run_loopback.py`: two plugin Transports through `relay_v2.py` (rooms of 3), each profile also
   checking that a wrong key is rejected (`bad_key`) and a second host too (`role_taken`), and that the
   relay counted 0 violations, 0 malformed datagrams, 0 rate drops and 0 kicks:
 
   | relay link | reliable A->B / B->A | unreliable A->B (60 Hz) | B renders A (30 Hz, 6 m/s circle): error p95 / max, delay p50 | teleport |
   |---|---|---|---|---|
-  | clean | 400 / 200 in order | 525 of 525 | 5.4 / 9.5 mm, 100.3 ms, 98.7 % interpolated | 0 frames between |
-  | 115 ms + 20 ms jitter, 1 % loss (bench) | 400 / 200 in order | 494 of 533 (24 stale) | 5.4 / 8.5 mm, 216.3 ms, 98.9 % interpolated | 0 frames between |
-  | 60 ms + 40 ms jitter, 10 % loss, 2 % dup | 300 / 150 in order | 318 of 420 (61 stale) | 5.4 / 9.3 mm, 158.3 ms, 97.2 % interpolated | 0 frames between |
-  | relay restart (20 ms + 5 ms) | 20 / 20 in order after rejoining | | | |
+  | clean | 400 / 200 in order | 526 of 527 | 5.5 / 8.6 mm, 100.3 ms, 98.9 % interpolated | 0 frames between |
+  | 115 ms + 20 ms jitter, 1 % loss (bench) | 400 / 200 in order | 495 of 530 (19 stale) | 5.4 / 10.1 mm, 218.7 ms, 98.7 % interpolated | 0 frames between |
+  | 60 ms + 40 ms jitter, 10 % loss, 2 % dup | 300 / 150 in order | 311 of 420 (65 stale) | 5.4 / 8.8 mm, 161.6 ms, 97.7 % interpolated | 0 frames between |
+  | relay restart (20 ms + 5 ms) | rejoined after 9.42 s with the same peer ids | | | |
 
   The error is measured against the true path at the render time on B's relay clock, so it includes
   the two clients' clock disagreement. A 1000-byte reliable message arrived once in every profile, and
-  B saw A leave with reason `quit` within 0.13 s.
-* `coopnet_v2_interp_tests.exe`: 42 checks: `test_interp.py`'s `InterpTests` (p95 error under 1 cm
-  at 120 ms + 40 ms jitter and 10 % loss, delay within 100..150 ms; bounded extrapolation; teleport
-  and late samples; playout snap), Python modulo and `lerp_angle`, pitch/state/velocity, history and
-  transit window, five simulated links, and 0.7 us per `RenderTime` + `SampleAt`.
-* `v2_interp_trace.py`: 37 scenarios, 3,725 pushes, 10,013 renders, 10,493 samples, 521 delays and 37
-  timing resets of `interp.py` replayed on `SnapshotBuffer`: 95,279 values compared, 0 mismatches.
-* `verify_exports.py`: Main/Query/Supports exported, `Supports()` returns 1, no VC++ redist imports
-  (kernel32, user32, version, ws2_32 only). The 13 names in `LoadReport.hpp`, the registrations in
-  `Main.cpp` and the declarations in `Natives.reds` agree, and every name is in the image. The image
-  holds `CP2077CoopNet 0.2.0-alpha.3 proto 2.1`, and the log marker occurs exactly once.
-  `coopnet_plugin_probe.exe`: LoadLibrary + Query gives 0.2.0 with pre-release alpha (1) number 3,
-  runtime 3.0.80.51928 and SDK 1.0.0.
-* `test_lua_helper.py`: 36 checks under LuaJIT 2.1 (connect paths, roles, `pushPlayer` argument
-  order and defaults, `sampleRemote`/`parsePose`, `parseVersion` for `proto 2.1`, `proto 1` and junk).
-* Redscript: `Natives.reds` and `Helpers.reds` compile with `scc_check.py` in a sandbox against the
-  2.31 `final.redscripts` and Codeware 1.18.0 (`OK: compiled r6\scripts,
-  red4ext\plugins\CP2077CoopNet\Scripts, red4ext\plugins\Codeware\Scripts`); a misspelled `StrSplit`
-  fails the same check with `UNRESOLVED_FN`.
-* Unchanged since alpha.2 and green again: `coopnet_v2_tests.exe` 24,076 checks; `v2_golden.py`
-  7,920 + 7,447 checks; `coopnet_v2_fuzz.exe` and `coopnet_v2_fuzz_asan.exe` 20,000 inputs each;
+  B saw A leave with reason `quit` within 0.14 s.
+* `run_v2_loopback.py`: 3/3 profiles; relay clock error after warm-up at most 0.29, 0.97 and 1.32 ms,
+  the two clients within 0.34, 1.67 and 1.53 ms of each other.
+* `verify_exports.py`: Main/Query/Supports exported, `Supports()` returns 1, imports kernel32, user32,
+  version and ws2_32 only, the 13 native names agree with `LoadReport.hpp`, `Main.cpp` and
+  `Natives.reds`, the image holds `CP2077CoopNet 0.2.0-alpha.4 proto 2.1`.
+  `coopnet_plugin_probe.exe`: `version=0.2.0 prerelease type=1 number=4 sdk=1.0.0
+  runtime=3.0.80.51928`, PROBE PASS.
+* `test_lua_helper.py`: 36 checks under LuaJIT 2.1 (mocked `Net_Version` reports 0.2.0-alpha.4).
+* Redscript: `Natives.reds` and `Helpers.reds` (unchanged since alpha.3) compile with `scc_check.py`
+  in a fresh sandbox (`%TEMP%\cp2077coopnet_scc_alpha4`: `engine\tools`, `final.redscripts` and
+  Codeware's `Scripts` copied from Test B): `OK: compiled r6\scripts,
+  red4ext\plugins\CP2077CoopNet\Scripts, red4ext\plugins\Codeware\Scripts`.
+* Unchanged code, green again: `coopnet_v2_tests.exe` 24,076 checks; `v2_golden.py` 7,920 + 7,447
+  checks; `coopnet_v2_fuzz.exe` and `coopnet_v2_fuzz_asan.exe` 20,000 inputs each;
   `coopnet_v2_reliability_tests.exe` 38,493 checks; `v2_link_trace.py` 8 scenarios, 85,424 calls,
-  0 mismatches; `coopnet_v2_clock_tests.exe` 9,501 checks; `run_v2_loopback.py` 3/3 profiles (relay
-  clock error after warm-up at most 0.41, 1.26 and 3.29 ms; the two clients within 0.43, 1.91 and
-  2.45 ms of each other).
-* Relay repo: 78 unit tests OK; `check_c_header.py`: 30 structs and 130 constants, 348 checks match.
+  0 mismatches; `coopnet_v2_clock_tests.exe` 9,501 checks; `coopnet_v2_interp_tests.exe` 42 checks;
+  `v2_interp_trace.py` 95,279 values, 0 mismatches.
+* Relay repo: 89 unit tests OK (78 before; new: the test-world course and two rate-limit tests);
+  `check_c_header.py`: 30 structs and 130 constants, 348 checks match.
 
 ## Known limits
 
 * Only 0.1.0 has run in the game. The 0.1.1 natives, the 0.1.2 fixes and every 0.2.0 alpha are
-  verified offline only. Not tried in the game yet: the three new natives (in particular `Float`
-  parameters from CET and redscript and the 11-parameter `Net_PushPlayer`), `StrSplit` and
-  `StringToFloat` in `CoopNet_ParsePose` at runtime (compile-checked only), and `Net_SampleRemote`
-  per frame.
-* `relay_v2.py` applies its chat and reliable-message rate limits after a reliable message was
-  acknowledged, so a burst released when a repaired gap unblocks the stream can be dropped silently
-  (run_demo's brutal scenario shows it). The transport releases reliable messages at 50/s (burst 100)
-  to stay below the 60/s bucket, which avoids it unless a gap stays open for more than about 2 s.
+  verified offline only; [INSTALL_PHASE2.md](INSTALL_PHASE2.md) is ready but not carried out. Not
+  tried in the game yet: the three new natives (in particular `Float` parameters from CET and
+  redscript and the 11-parameter `Net_PushPlayer`), `StrSplit` and `StringToFloat` in
+  `CoopNet_ParsePose` at runtime (compile-checked only), and `Net_SampleRemote` per frame.
+* The end-to-end demo runs the plugin's protocol modules in a test client, not the plugin's
+  `Transport`: `Transport` still ignores entity snapshots, equip, hit and the other gameplay messages
+  (they are counted), and `Net_PushPlayer` has no vehicle block (`DRIVING` is refused; Phase 4).
+  `Transport` is covered by `run_loopback.py` (two Transports through `relay_v2.py`).
+* The relay clock stays within 5 ms on the realistic profiles; under the brutal profile (20 % loss,
+  60 ms jitter per leg) a C++ client was 6.67 ms off and two C++ instances 6.75 ms apart.
+* The rate-limit bug in `relay_v2.py` (limits charged when a repaired gap released a burst, so
+  acked events could be dropped) is fixed in the relay at `38a59ac`. Relays older than that still
+  have it; the transport keeps releasing reliable messages at 50/s (burst 100), below the relay's
+  60/s bucket.
+* Under heavy loss a lost event waits for its resend with exponential backoff (up to 8 x RTO), so the
+  last events of a stream can take several seconds; the demo's drain waits for them.
 * Unreliable script messages are newest-wins per channel: with jitter larger than the send interval
-  the relay link reorders them and the late ones are dropped (counted as `unrelStale`): 24 of 533
+  the relay link reorders them and the late ones are dropped (counted as `unrelStale`): 19 of 530
   messages at 60 Hz over 115 ms + 20 ms jitter with 1 % loss.
-* `Net_PushPlayer` has no vehicle block yet (`DRIVING` is refused); vehicles are Phase 4.
-* Gameplay messages other than `PLAYER_SNAPSHOT` and `SCRIPT_MSG` (entity snapshots, equip, hit,
-  ...) from other v2 clients are ignored and counted. The run_demo scenarios with C++ clients on both
-  ends (Phase 2 exit criterion) are the next milestone.
 * No encryption. The room key only keeps strangers out of a room (its hash is checked by the relay,
   which must be trusted).
 * IPv4 only. One reliable stream per hop, so a lost event delays later events on every reliable
