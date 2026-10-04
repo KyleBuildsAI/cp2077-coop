@@ -4642,8 +4642,12 @@ function Sync.updateRemoteVehicle(player, delta)
         return
     end
 
+    -- stan z początku klatki (Diag.updateConnectionState, przed Sync.tick),
+    -- jak panel i logi: po Sync.tick jedna długa lokalna klatka (przeciąganie
+    -- okna, autozapis) liczyła się jak utrata połączenia i chowała auto,
+    -- choć pakiety szły cały czas
     local lost =
-        Diag.connectionState() == "LOST"
+        Diag.lastState == "LOST"
 
     local driving =
         not lost

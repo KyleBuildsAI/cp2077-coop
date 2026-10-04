@@ -488,6 +488,31 @@ def test_car_hidden_on_lost_and_reset():
     return lost_hidden and shown_again and shown_before and reset_hidden and reset_shown
 
 
+def test_car_kept_through_long_local_frame():
+    # one 5.5 s local frame (window drag, autosave) while the remote drives:
+    # packets kept arriving, so the car stays and the avatar stays parked
+    receiver = make_receiver(extra=VEHICLE_MOCK)
+    remote = ScriptedRemote(receiver, drive_path, loss=0.0)
+    g = receiver.globals()
+    t = run(receiver, remote, 3.0, 60)
+    hides_before = g.carHides
+    long_frame = 5.5
+    t += long_frame
+    g.simTime = t
+    remote.tick(t)
+    g.tickSpawn()
+    g.events["onUpdate"](long_frame)
+    receiver.eval("stepNpc")(long_frame)
+    receiver.eval("stepAi")()
+    remote.read_outbox(t)
+    run(receiver, remote, 10.5, 60, start=t + 1 / 60)
+    calls = [c.visible for c in g.visibleCalls.values()]
+    lost_logs = [l for l in logs(receiver) if "connection lost" in l or "-> LOST" in l]
+    print(f"  5.5 s local frame while driving: car hides {g.carHides - hides_before}, "
+          f"car shown at 10.5 s={g.carPose is not None}, avatar visibility calls {calls}, LOST logs {lost_logs}")
+    return g.carHides == hides_before and g.carPose is not None and calls == [False] and not lost_logs
+
+
 if __name__ == "__main__":
     tests = {
         "LIVE-1 join teleport passes EulerAngles, joiner faces host, test area uses it too": test_join_teleport_uses_euler_angles,
@@ -497,6 +522,7 @@ if __name__ == "__main__":
         "LIVE-3 receiver extrapolates the car to now every frame": test_car_extrapolated_every_frame,
         "LIVE-3 avatar parked hidden while the remote drives, snaps back on exit": test_avatar_parked_while_driving,
         "LIVE-3 car hidden on connection LOST and on reset": test_car_hidden_on_lost_and_reset,
+        "LIVE-3 one 5.5 s local frame while the remote drives keeps the car (no false LOST)": test_car_kept_through_long_local_frame,
     }
     results = {}
     for name, test in tests.items():
