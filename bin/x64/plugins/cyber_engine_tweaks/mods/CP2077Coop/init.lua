@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.30 WORLD + STATE + VEHICLE SYNC + DIAGNOSTICS + TEST BOT
+-- v0.0.31 WORLD + STATE + VEHICLE + COMBAT SYNC + DIAGNOSTICS + TEST BOT
 --
 -- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
 -- albo domyślnie poniżej. role.txt ma pierwszeństwo.
@@ -1218,6 +1218,221 @@ end
 
 
 ------------------------------------------------------------
+-- COMBAT SYNC (Jakub, v0.0.25 combatfix)
+--
+-- combat.reds wysyła trafienie NPC przez CP2077Coop_PushPlayerState:
+--   x/y/z = pozycja trafionego NPC, w = -777, forwardX = obrażenia,
+--   forwardY = 9999 (znacznik). To NIE jest ruch gracza.
+-- Odbiorca szuka najbliższego NPC przy tej pozycji i odejmuje HP.
+-- Pakiet bojowy sprawdzamy PRZED dekodowaniem stanu z długości
+-- kierunku (9999 rozwaliłoby kanał stanu).
+------------------------------------------------------------
+
+local Combat = {
+    MARKER_FORWARD_Y = 9999.0,
+    MARKER_TOLERANCE = 0.5,
+    -- jak daleko od gracza szukamy NPC
+    SCAN_RADIUS = 220.0,
+    -- maks. różnica pozycji, żeby uznać NPC za tego samego
+    MATCH_RADIUS = 4.0,
+    MAX_DAMAGE = 5000.0,
+    TRY_RAGDOLL = true,
+
+    hitsReceived = 0,
+    hitsApplied = 0,
+    hitsUnmatched = 0
+}
+
+
+function Combat.isPacket(rawForwardY)
+
+    return
+        math.abs(
+            rawForwardY -
+            Combat.MARKER_FORWARD_Y
+        ) <= Combat.MARKER_TOLERANCE
+end
+
+
+function Combat.findNearestNPCAt(player, x, y, z)
+
+    local best = nil
+    local bestDistance =
+        Combat.MATCH_RADIUS + 0.001
+
+    local ok, err =
+        pcall(function()
+
+            local query =
+                Game["TSQ_NPC;"]()
+
+            query.maxDistance =
+                Combat.SCAN_RADIUS
+
+            -- CET zwraca tablicę bezpośrednio albo jako drugą wartość
+            local first, second =
+                Game.GetTargetingSystem():
+                    GetTargetParts(player, query)
+
+            local parts =
+                second or first
+
+            if parts == nil then
+                return
+            end
+
+            for _, part in ipairs(parts) do
+
+                pcall(function()
+
+                    local component = part:GetComponent()
+
+                    if component == nil then
+                        return
+                    end
+
+                    local entity = component:GetEntity()
+
+                    if entity == nil
+                        or entity == S.remoteHandle
+                        or not entity:IsNPC()
+                        or entity:IsDead()
+                    then
+                        return
+                    end
+
+                    local pos = entity:GetWorldPosition()
+
+                    local d =
+                        distance3(pos.x, pos.y, pos.z, x, y, z)
+
+                    if d < bestDistance then
+                        bestDistance = d
+                        best = entity
+                    end
+                end)
+            end
+        end)
+
+    if not ok then
+
+        print("[CP2077Coop] COMBAT scan error: " .. tostring(err))
+        return nil, nil
+    end
+
+    return best, bestDistance
+end
+
+
+function Combat.tryHitReaction(target)
+
+    if not Combat.TRY_RAGDOLL then
+        return
+    end
+
+    -- best-effort: dostępność w CET zależy od builda
+    pcall(function()
+
+        local event =
+            Game.CreateForceRagdollEvent(
+                CName.new("CP2077Coop Remote Hit")
+            )
+
+        if event ~= nil then
+            target:QueueEvent(event)
+        end
+    end)
+end
+
+
+function Combat.applyRemoteHit(player, hitX, hitY, hitZ, rawDamage)
+
+    Combat.hitsReceived =
+        Combat.hitsReceived + 1
+
+    local damage =
+        math.max(
+            0.0,
+            math.min(rawDamage, Combat.MAX_DAMAGE)
+        )
+
+    if damage <= 0.0 then
+        return
+    end
+
+    local target, targetDistance =
+        Combat.findNearestNPCAt(player, hitX, hitY, hitZ)
+
+    if target == nil then
+
+        Combat.hitsUnmatched =
+            Combat.hitsUnmatched + 1
+
+        print(
+            string.format(
+                "[CP2077Coop] COMBAT HIT no NPC match @ %.2f %.2f %.2f dmg=%.2f",
+                hitX, hitY, hitZ, damage
+            )
+        )
+
+        return
+    end
+
+    local applied = false
+
+    local ok, err =
+        pcall(function()
+
+            if Game.GetGodModeSystem():
+                HasGodMode(
+                    target:GetEntityID(),
+                    gameGodModeType.Invulnerable
+                )
+            then
+                return
+            end
+
+            Game.GetStatPoolsSystem():
+                RequestChangingStatPoolValue(
+                    target:GetEntityID(),
+                    "Health",
+                    -damage,
+                    player,
+                    true,
+                    false
+                )
+
+            applied = true
+        end)
+
+    if not ok then
+
+        print("[CP2077Coop] COMBAT damage error: " .. tostring(err))
+        return
+    end
+
+    if not applied then
+
+        print("[CP2077Coop] COMBAT target invulnerable")
+        return
+    end
+
+    Combat.hitsApplied =
+        Combat.hitsApplied + 1
+
+    Combat.tryHitReaction(target)
+
+    print(
+        string.format(
+            "[CP2077Coop] COMBAT HIT applied dmg=%.2f match=%.2fm",
+            damage,
+            targetDistance or -1.0
+        )
+    )
+end
+
+
+------------------------------------------------------------
 -- TEST PATTERN BOT
 --
 -- Do testów bez drugiej osoby: zamiast prawdziwej pozycji
@@ -1400,7 +1615,7 @@ end
 ------------------------------------------------------------
 
 local Diag = {
-    VERSION = "0.0.30",
+    VERSION = "0.0.31",
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
@@ -1674,7 +1889,7 @@ function Diag.statsLine()
 
     return
         string.format(
-            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s conflict=%s peer_old=%s",
+            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s drift_avg_m=%s drift_max_m=%s remote_speed=%.1f move=%s remote_flags=%d bot=%s hits_in=%d hits_applied=%d hits_unmatched=%d conflict=%s peer_old=%s",
             Diag.connectionState(),
             IS_HOST and "host" or "joiner",
             Diag.formatMs(Sync.rttMs),
@@ -1693,6 +1908,9 @@ function Diag.statsLine()
             S.remoteMoving and (S.movementType or "-") or "idle",
             Sync.remoteFlags or 0,
             Bot.phaseName(),
+            Combat.hitsReceived,
+            Combat.hitsApplied,
+            Combat.hitsUnmatched,
             tostring(Diag.roleConflict()),
             tostring(Diag.peerLooksOutdated())
         )
@@ -2020,6 +2238,12 @@ function Diag.draw()
         Diag.row("Remote vehicle", "#" .. tostring(Sync.remoteVehicleIndex) .. (Sync.vehicleShown and " (shown)" or " (spawning)"), Sync.vehicleShown and "good" or "warn")
     end
     Diag.row("Your state", Diag.describeFlags(Sync.localFlags), "neutral")
+
+    Diag.row(
+        "Partner hits",
+        string.format("%d received, %d applied, %d no match", Combat.hitsReceived, Combat.hitsApplied, Combat.hitsUnmatched),
+        Combat.hitsUnmatched > Combat.hitsApplied and "warn" or "neutral"
+    )
 
     Diag.row(
         "Scripts",
@@ -2654,11 +2878,32 @@ registerForEvent(
                 Game.CP2077Coop_GetRemoteZ()
 
 
+            local rawForwardX =
+                Game.CP2077Coop_GetRemoteForwardX()
+
+            local rawForwardY =
+                Game.CP2077Coop_GetRemoteForwardY()
+
+
+            -- pakiet bojowy (combat.reds): x/y/z to pozycja NPC, nie gracza.
+            -- Nie dekodujemy stanu i nie ruszamy avatara w tej klatce.
+            if Combat.isPacket(rawForwardY) then
+
+                Combat.applyRemoteHit(
+                    player,
+                    rx, ry, rz,
+                    rawForwardX
+                )
+
+                return
+            end
+
+
             -- kierunek + zakodowany stan gry (patrz GAMEPLAY / WORLD STATE SYNC)
             local forwardX, forwardY, payload =
                 Sync.decodeForward(
-                    Game.CP2077Coop_GetRemoteForwardX(),
-                    Game.CP2077Coop_GetRemoteForwardY()
+                    rawForwardX,
+                    rawForwardY
                 )
 
             S.remoteForwardX = forwardX
