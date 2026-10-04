@@ -90,8 +90,11 @@ python coop-tools/coop_monitor.py
 Checks compile and crash logs, plugin loading (Codeware 1.18.0 and the coop DLL, by RED4ext's
 own "has been loaded" line), your ping to the relay and the in-game stats against expected ranges
 every 5 s, and appends to `coop-tools/coop_monitor_history.csv` (`--history PATH` for another file).
-The CSV can stay open in Excel: samples taken while Excel locks it are skipped with a WARN. When
-the columns change, the old file is kept as `coop_monitor_history-until-<time>.csv`.
+The CSV uses this PC's Windows list separator and decimal mark (`;` and `,` on Russian or Polish
+Windows), so a double-click opens it in columns in this PC's Excel; to open a file from a PC with
+another language, use Data > From Text/CSV and pick the separator. It can stay open in Excel:
+samples taken while Excel locks it are skipped with a WARN. When the columns or the separator
+change, the old file is kept as `coop_monitor_history-until-<time>.csv`.
 The ping works with any Windows language.
 
 It also feeds the relay address and ping into the in-game panel through `monitor_status.txt`. If

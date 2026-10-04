@@ -15,13 +15,16 @@ Usage (from the game folder):
     python coop-tools/coop_monitor.py --once          # single check, then exit
     python coop-tools/coop_monitor.py --history D:/coop/history.csv
 
-The history CSV can stay open in Excel: samples taken while Excel locks it are
+The history CSV uses the list separator and decimal mark of this PC's Windows
+locale (';' and ',' on Russian or Polish Windows), so it opens in columns in this
+PC's Excel. It can stay open in Excel: samples taken while Excel locks it are
 skipped (shown as a WARN) and writing resumes once it is closed.
 
 Only the Python standard library is used.
 """
 import argparse
 import codecs
+import csv
 import datetime
 import glob
 import json
@@ -384,26 +387,76 @@ def history_header(history_path):
         return handle.readline().rstrip("\r\n")
 
 
-def append_history(history_path, row):
+PLAIN_CSV = (",", ".")
+LOCALE_SLIST = 0x0C
+LOCALE_SDECIMAL = 0x0E
+DECIMAL_NUMBER = re.compile(r"-?\d+\.\d+")
+
+
+def excel_csv_format():
+    """(list separator, decimal mark) Excel uses when this PC opens a .csv by double-click.
+
+    Russian, Polish or German Windows use ';' and ','; a comma-separated file with
+    '.' decimals then opens as one column with numbers read as text or dates.
+    """
+    if os.name != "nt":
+        return PLAIN_CSV
+    import ctypes
+    buffer = ctypes.create_unicode_buffer(8)
+    values = []
+    for lctype in (LOCALE_SLIST, LOCALE_SDECIMAL):
+        if not ctypes.windll.kernel32.GetLocaleInfoEx(None, lctype, buffer, len(buffer)):
+            return PLAIN_CSV
+        values.append(buffer.value)
+    separator, decimal = values
+    if len(decimal) != 1:
+        return PLAIN_CSV
+    if len(separator) != 1 or separator == decimal or separator in "\"\r\n":
+        separator = ";" if decimal == "," else ","
+    return separator, decimal
+
+
+def localized(value, decimal):
+    """A plain decimal number with the locale's decimal mark; versions, times and text unchanged."""
+    text = str(value)
+    if decimal != "." and DECIMAL_NUMBER.fullmatch(text):
+        return text.replace(".", decimal)
+    return text
+
+
+def kept_history_name(history_path):
+    """<stem>-until-<time>.csv for a history file with other columns; never an existing file."""
+    stem, extension = os.path.splitext(history_path)
+    base = f"{stem}-until-{datetime.datetime.now():%Y%m%d-%H%M%S}"
+    candidate, number = base + extension, 2
+    while os.path.exists(candidate):  # two format changes within one second
+        candidate, number = f"{base}-{number}{extension}", number + 1
+    return candidate
+
+
+def append_history(history_path, row, csv_format=PLAIN_CSV):
     """Append one CSV row; returns an error string instead of raising.
 
     Excel locks a .csv it has open, so the write fails until it is closed; the monitor
-    keeps running and only that sample is lost. When the columns changed (newer
-    monitor), the old file is kept under a dated name, so Excel never shows rows
-    under the wrong headers.
+    keeps running and only that sample is lost. When the columns or the separator
+    changed (newer monitor, other locale), the old file is kept under a dated name, so
+    Excel never shows rows under the wrong headers. csv_format is (separator, decimal
+    mark); the monitor passes excel_csv_format().
     """
-    header = ",".join(row.keys())
+    separator, decimal = csv_format
+    header = separator.join(row.keys())
     name = os.path.basename(history_path)
     try:
         existing = history_header(history_path)
         if existing and existing != header:
-            stem, extension = os.path.splitext(history_path)
-            os.replace(history_path, f"{stem}-until-{datetime.datetime.now():%Y%m%d-%H%M%S}{extension}")
+            os.replace(history_path, kept_history_name(history_path))
             existing = None
+        # text mode: each line ends in CRLF on Windows, as in files written by older monitors
         with open(history_path, "a", encoding="utf-8") as handle:
             if not existing:
                 handle.write(header + "\n")
-            handle.write(",".join(str(value) for value in row.values()) + "\n")
+            csv.writer(handle, delimiter=separator, lineterminator="\n").writerow(
+                [localized(value, decimal) for value in row.values()])
     except OSError as error:
         return f"not written ({error.strerror or error}) - close {name} in Excel"
     return None
@@ -499,6 +552,7 @@ def run(args):
 def monitor_loop(args, game_dir, mod_dir, history_path, server):
     """Check, render, write history and the panel status every REFRESH_SECONDS."""
     ip, port, ini_problem, location = server
+    csv_format = excel_csv_format()  # once: a row never mixes two formats
     while True:
         checks = [(INFO, "game folder", game_dir)]
         if ini_problem:
@@ -528,7 +582,7 @@ def monitor_loop(args, game_dir, mod_dir, history_path, server):
             build = f"v{stats['version']}" if "version" in stats else "build before v0.0.32"
             checks.append((INFO, "in-game stats", f"{role} {build}, written {stats_age:.0f} s ago"))
             checks.extend(grade_stats(stats))
-            history_error = append_history(history_path, {
+            history_error = append_history(history_path, csv_format=csv_format, row={
                 "time": datetime.datetime.now().isoformat(timespec="seconds"),
                 "server_ping_ms": f"{server_ping:.0f}" if server_ping is not None else "",
                 **{key: stats.get(key, "") for key in HISTORY_STATS_KEYS},

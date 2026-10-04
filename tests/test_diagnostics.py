@@ -18,7 +18,8 @@ D8  without the monitor, the panel names the real path coop-tools/coop_monitor.p
 D9  monitor_status.txt left behind by a stopped monitor is shown as stale, not
     as a live ping; the monitor swaps the file in whole and removes it on Ctrl+C
 D10 the history CSV locked by Excel gives a WARN, not a crash; a header change
-    starts a new file (the D1/D10 runs write their history to a temp folder)
+    starts a new file; with a ';' / ',' locale the columns are split by ';' and
+    decimals use ',' (the D1/D10 runs write their history to a temp folder)
 D11 Codeware and the coop DLL count as loaded only by RED4ext's success line;
     a Codeware version other than 1.18.0 is a WARN
 D12 server.ini saved with a UTF-8 BOM still gives the relay IP (and a WARN),
@@ -154,13 +155,14 @@ def test_stats_and_events_files():
         history_rows = read(test_history).splitlines() if os.path.exists(test_history) else []
         repo_untouched = file_state(repo_history) == repo_history_before
         version = upvalue(host, "Diag").VERSION
-        header = history_rows[0].split(",") if history_rows else []
+        separator = monitor.excel_csv_format()[0]  # the monitor writes in this PC's Excel format
+        header = history_rows[0].split(separator) if history_rows else []
         baseline_columns = {"version", "frame_p99_ms", "hard_per_min", "flags_rx_ps"}
         detail_rows = [line.strip() for line in out.splitlines() if "in-game stats" in line or "sync detail" in line]
         end_to_end_ok = ("player round trip" in out and "in-game stats" in out and "end-to-end marker" in out and "none in the last" not in out
                          and len(history_rows) == 3 and repo_untouched
                          and out.count(f"v{version}, written") == 2 and out.count("sync detail") == 2
-                         and baseline_columns.issubset(header) and all(f",{version}," in row for row in history_rows[1:]))
+                         and baseline_columns.issubset(header) and all(f"{separator}{version}{separator}" in row for row in history_rows[1:]))
         print(f"  monitor --once: exit {run.returncode}, rows shown: {'player round trip' in out}, events shown: {'recent events' in out}; "
               f"--history file has {len(history_rows)} lines (header + host + joiner), repo history untouched {repo_untouched}")
         print(f"  version and baseline rows: {detail_rows[:2]}; history has {sorted(baseline_columns & set(header))}")
@@ -624,7 +626,20 @@ def test_history_locked_by_excel():
         header_ok = (refused and "Excel" in refused and renamed is None and len(kept) == 1
                      and old_rows == ["time,server_ping_ms", "2026-10-03T20:00:00,186"]
                      and read(history).splitlines() == ["time,rtt_ms", "2026-10-04T12:00:00,330"])
-        return bool(locked_ok and header_ok)
+
+        # Russian / Polish Excel: ';' between columns, ',' as the decimal mark; versions and
+        # times stay as they are; the ',' file above is kept once, not on every sample
+        locale_row = {"time": "2026-10-04T12:00:00", "pps_in": "29.8", "drift_avg_m": "1.5",
+                      "version": "0.0.40", "note": "a;b"}
+        first_semicolon = monitor.append_history(history, locale_row, csv_format=(";", ","))
+        second_semicolon = monitor.append_history(history, locale_row, csv_format=(";", ","))
+        kept_after = sorted(name for name in os.listdir(game) if name.startswith("history-until-"))
+        semicolon_lines = read(history).splitlines()
+        print(f"  ';' / ',' locale: {semicolon_lines}; dated files now {len(kept_after)}")
+        locale_row_text = '2026-10-04T12:00:00;29,8;1,5;0.0.40;"a;b"'
+        locale_ok = (first_semicolon is None and second_semicolon is None and len(kept_after) == 2
+                     and semicolon_lines == ["time;pps_in;drift_avg_m;version;note", locale_row_text, locale_row_text])
+        return bool(locked_ok and header_ok and locale_ok)
     finally:
         shutil.rmtree(game, ignore_errors=True)
 
@@ -1010,7 +1025,7 @@ if __name__ == "__main__":
         "D7 avatar drift is measured from where the partner really is": test_drift_against_real_position,
         "D8 panel names the real monitor path (coop-tools/)": test_panel_names_monitor_path,
         "D9 panel drops relay values once the monitor stops; status file swapped in whole": test_monitor_status_staleness,
-        "D10 history CSV open in Excel: monitor warns and keeps running; new columns start a new file": test_history_locked_by_excel,
+        "D10 history CSV open in Excel: monitor warns and keeps running; new columns start a new file; locale separators": test_history_locked_by_excel,
         "D11 Codeware / coop DLL graded by their RED4ext success line and version": test_plugin_load_lines,
         "D12 server.ini with a BOM, as UTF-16 or without a key is read or reported": test_server_ini_encodings,
         "D13 relay ping parsed in any Windows language (TTL= anchor) and on Linux/macOS": test_ping_any_language,
