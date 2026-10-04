@@ -19,7 +19,8 @@ players (one way): clean, us (30 +-10 ms, 1 % loss) and transatlantic (115 +-20 
 Each client impairs its uplink and its downlink, so a profile is split over four legs: per leg
 half the base latency, half the jitter spread (two uniform legs give the +-), and the loss that
 compounds to the profile's loss over two legs. They also report the interpolation error per kind
-of movement and require the relay clock estimates within 5 ms of the truth.
+of movement and hold the plugin's relay clock estimator (C++ ClockSync) within 5 ms of the truth
+and of the other client.
 
 Any client can be replaced by another implementation that takes client_v2.py's arguments and
 writes the same report (--host-exe / --joiner-exe, e.g. the C++ coopnet_v2_demo_client.exe).
@@ -89,6 +90,10 @@ SCENARIOS = {
 DEFAULT_ORDER = ["clean", "realistic", "stress", "brutal", "bridge", "course-clean", "course-us",
                  "course-transatlantic"]
 COURSE_CLOCK_LIMIT_MS = 5.0
+# The plugin's estimator (C++ ClockSync, interval intersection) is held to the Phase 2 limit of 5 ms on
+# the course profiles, per client and between the two clients. client_v2.py keeps interp.py's lowest-RTT
+# estimate, whose error is up to half the jitter of the chosen exchange, and the general bound.
+STRICT_CLOCK_ESTIMATORS = ("interval-intersection",)
 LINGER_MAX_S = 20.0  # client_v2.py LINGER_MAX_S
 
 THRESHOLDS = {
@@ -266,6 +271,7 @@ def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Che
         "spawns": encoder["spawns"], "removals": encoder["removals"],
         "view_size_end": entity["view_size_end"], "alignment_error_m": entity["alignment_error_m"]}
     clock_errors = {}
+    strict_clients = {}
     for client, label in ((host, "host"), (joiner, "joiner")):
         true_offset = (client["start_perf"] - relay["start_perf"]) * 1000.0
         estimate = client["clock"]["offset_ms"]
@@ -273,7 +279,8 @@ def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Che
         args = client["args"]
         asymmetry = abs(args["up_latency_ms"] - args["down_latency_ms"]) / 2.0
         bound = asymmetry + args["up_jitter_ms"] / 2.0 + args["down_jitter_ms"] / 2.0 + 5.0
-        if spec.get("path") == "course":
+        strict = spec.get("path") == "course" and client["clock"].get("estimator") in STRICT_CLOCK_ESTIMATORS
+        if strict:
             bound = COURSE_CLOCK_LIMIT_MS
         detail = "no estimate" if error is None else (f"offset error {error:+.2f} ms (bound {bound:.1f} ms), "
                                                       f"rtt to relay {client['clock']['rtt_ms']:.1f} ms")
@@ -281,10 +288,12 @@ def evaluate_pair(spec: dict, host: dict, joiner: dict, relay: dict, checks: Che
         metrics[f"clock_{label}"] = {"error_ms": None if error is None else round(error, 3),
                                      "rtt_ms": client["clock"]["rtt_ms"]}
         clock_errors[label] = error
+        strict_clients[label] = strict
     if spec.get("path") == "course" and None not in clock_errors.values():
         gap = abs(clock_errors["host"] - clock_errors["joiner"])
-        checks.add("clock instances agree", gap < COURSE_CLOCK_LIMIT_MS,
-                   f"|host - joiner| relay clock {gap:.2f} ms (limit {COURSE_CLOCK_LIMIT_MS} ms)")
+        if all(strict_clients.values()):
+            checks.add("clock instances agree", gap < COURSE_CLOCK_LIMIT_MS,
+                       f"|host - joiner| relay clock {gap:.2f} ms (limit {COURSE_CLOCK_LIMIT_MS} ms)")
         metrics["clock_instances_ms"] = round(gap, 3)
     for client, label in ((host, "host"), (joiner, "joiner")):
         drain = client.get("drain")

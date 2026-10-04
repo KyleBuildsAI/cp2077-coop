@@ -55,6 +55,7 @@ DRAIN_S = 4.0
 LINGER_MAX_S = 20.0
 ACK_FLUSH_S = 0.05
 DONE_SUFFIX = " done"
+CLOCK_ESTIMATOR = "lowest-rtt"  # interp.py ClockSync: midpoint of the lowest-RTT exchange in a window
 PLAYER_TARGET_BASE = 0xFF00
 HANDSHAKE_TIMEOUT_S = 10.0
 
@@ -725,7 +726,8 @@ class CoopClient:
 
     def build_report(self) -> dict:
         report = {
-            "args": vars(self.args), "start_perf": self.start, "welcome": self.welcome, "reject": self.reject,
+            "args": vars(self.args), "implementation": "python client_v2.py", "start_perf": self.start,
+            "welcome": self.welcome, "reject": self.reject,
             "peer_id": self.peer_id, "role": None if self.role is None else proto.Role(self.role).name,
             "disconnected": self.disconnected, "peers_seen": sorted(self.ever_seen_peers),
         }
@@ -744,7 +746,7 @@ class CoopClient:
         truth_accel = accelerations(self.truth_track)
         report.update({
             "clock": {"offset_ms": self.clock_sync.offset_ms, "rtt_ms": self.clock_sync.rtt_ms,
-                      "steps": self.clock_steps, "samples": self.clock_samples[-5:]},
+                      "estimator": CLOCK_ESTIMATOR, "steps": self.clock_steps, "samples": self.clock_samples[-5:]},
             "unsynced_dropped": self.unsynced_dropped,
             "link": self.conn.stats.as_dict(), "rtt_to_relay_ms": self.conn.rtt_ms(),
             "uplink": self.endpoint.uplink.as_dict(), "downlink": self.endpoint.downlink.as_dict(),
