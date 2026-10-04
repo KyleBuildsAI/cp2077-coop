@@ -47,7 +47,7 @@ def stats_line(t, final=1, loss=1.0, expected=9000, poll=0.03, r_viol=0, r_rx=30
             f"peer_u_sent=9000 peer_r_sent=300 lat_n={expected - lost} lat_min=95.000 lat_p50={lat_p50:.1f} "
             f"lat_p95=110.5 lat_max=130.000 lat_neg=0 rlat_n=300 rlat_p50=100.5 rlat_p95=112.5 rlat_max=400.000 "
             f"poll_frames=36000 poll_avg_ms={poll:.5f} poll_max_ms=1.000 poll_slow=10 poll_msgs=9300 "
-            f"poll_max_msgs=3 poll_capped=0 audit_lines=3000 errors=0")
+            f"poll_max_msgs=3 poll_capped=0 audit_lines=3000 errors=0 rx_last_ms={t - 100:.3f} peer_resets=0")
 
 
 def subject_audits(duration_ms=20000.0, state=lambda t: "walk", gap=None, yaw=90.0):
@@ -272,7 +272,7 @@ class LinkAndVerdictTests(unittest.TestCase):
 
     def test_loss_tolerance(self):
         self.assertAlmostEqual(sync_audit.loss_tolerance(1.0, 9000, 1.0), 1.0)
-        self.assertAlmostEqual(sync_audit.loss_tolerance(5.0, 100, 1.0), 3 * math.sqrt(0.05 * 0.95 / 100) * 100)
+        self.assertAlmostEqual(sync_audit.loss_tolerance(5.0, 100, 1.0), 4 * math.sqrt(0.05 * 0.95 / 100) * 100)
         self.assertAlmostEqual(sync_audit.loss_tolerance(1.0, 0, 0.5), 0.5)
 
     def test_clock_warning(self):
@@ -331,6 +331,122 @@ class CliTests(unittest.TestCase):
         result = run_cli(not_probe, not_probe)
         self.assertEqual(result.returncode, 2)
         self.assertIn("no SESSION line", result.stderr)
+
+
+class RecoveredReviewTests(unittest.TestCase):
+    def test_stalled_long_soak_fails_strict(self):
+        scenario = constant_offset_scenario("stalled_soak")
+        end = T0 + 1_800_000
+        sender = stats_line(end, expected=54000, r_sent=1800, r_rx=1800).replace("u_sent=9000", "u_sent=54000")
+        stalled = stats_line(end, expected=900, r_rx=10, r_sent=1800).replace(
+            f"rx_last_ms={end - 100:.3f}", f"rx_last_ms={T0 + 30_000:.3f}")
+        host, joiner = scenario.write(sender, stalled)
+        report = sync_audit.analyze(host, joiner)
+        check = next(c for c in report["verdict"]["checks"] if c["check"] == "delivery completeness joiner <- host")
+        self.assertFalse(check["ok"], check)
+        self.assertEqual(run_cli(host, joiner, "--strict").returncode, 1)
+
+    def test_zero_loss_on_long_one_percent_run_fails(self):
+        scenario = constant_offset_scenario("zero_loss")
+        host, joiner = scenario.write(stats_line(T0 + 20000, loss=0, expected=54000),
+                                     stats_line(T0 + 20000, loss=0, expected=54000))
+        report = sync_audit.analyze(host, joiner)
+        self.assertTrue(all(not c["ok"] for c in report["verdict"]["checks"] if c["check"].startswith("loss ")))
+
+    def test_missed_prefix_cannot_pass_on_last_few_seconds(self):
+        scenario = constant_offset_scenario("missed_prefix")
+        delayed = stats_line(T0 + 20000, expected=300, r_rx=10).replace("u_last=300", "u_last=9000")
+        delayed = delayed.replace("r_last=10", "r_last=300")
+        report = sync_audit.analyze(*scenario.write(joiner_stats=delayed))
+        check = next(c for c in report["verdict"]["checks"] if c["check"] == "delivery completeness joiner <- host")
+        self.assertFalse(check["ok"], check)
+
+    def test_recovered_stall_remains_failed_soak(self):
+        scenario = constant_offset_scenario("recovered_stall")
+        scenario.joiner_lines.insert(-1, viewer_audit(T0 + 8000, true_pose(T0 + 1000), T0 + 1000,
+                                                     T0 + 1100, 31))
+        report = sync_audit.analyze(*scenario.write())
+        check = next(c for c in report["verdict"]["checks"] if c["check"] == "probe freshness joiner <- host")
+        self.assertFalse(check["ok"])
+
+    def test_absent_middle_audits_fail_even_when_prefix_and_suffix_are_fresh(self):
+        scenario = constant_offset_scenario("middle_absent")
+        scenario.joiner_lines = [line for line in scenario.joiner_lines
+                                 if not line.startswith("AUDIT ") or not T0 + 3000 < float(
+                                     sync_audit.parse_fields(line)["t"]) < T0 + 10000]
+        report = sync_audit.analyze(*scenario.write(), min_duration_s=10)
+        checks = {c["check"]: c["ok"] for c in report["verdict"]["checks"]}
+        self.assertTrue(checks["delivery completeness joiner <- host"])
+        self.assertTrue(checks["duration"])
+        self.assertFalse(checks["audit continuity joiner"])
+        self.assertFalse(report["verdict"]["ok"])
+
+    def test_no_audits_and_short_coverage_cannot_inherit_header_duration(self):
+        scenario = constant_offset_scenario("no_audits", count=0)
+        report = sync_audit.analyze(*scenario.write(), min_duration_s=10)
+        self.assertEqual(report["duration_s"], 0)
+        self.assertFalse(report["verdict"]["ok"])
+        report = sync_audit.analyze(*constant_offset_scenario("short_coverage", count=20).write(), min_duration_s=10)
+        self.assertEqual(report["session_duration_s"], 20)
+        self.assertLess(report["duration_s"], 2)
+        self.assertFalse(report["verdict"]["ok"])
+
+    def test_logged_variable_render_delay_scores_actual_drawn_pose(self):
+        scenario = constant_offset_scenario("adaptive_drawn", count=0)
+        for i in range(100):
+            t = T0 + 500 + i * 100
+            delay = 100 + (i % 5) * 50
+            scenario.joiner_lines.append(viewer_audit(t, true_pose(t - 100), t - 100, t, i + 1,
+                                                       drawn=true_pose(t - delay)) + f" rd={delay}")
+        report = sync_audit.analyze(*scenario.write())
+        direction = report["directions"][0]
+        self.assertAlmostEqual(direction["error_m"]["drawn"]["max"], 0, places=5)
+        self.assertGreater(direction["by_state"]["walk"]["drawn_now"]["p95"], 1.0)
+        self.assertGreater(direction["drawn_delay_ms"]["max"], direction["drawn_delay_ms"]["p50"])
+
+    def test_missing_render_delay_uses_now_and_warns(self):
+        report = sync_audit.analyze(*constant_offset_scenario("drawn_no_delay", drawn_offset=(0, 0, 0)).write())
+        direction = report["directions"][0]
+        self.assertAlmostEqual(direction["error_m"]["drawn"]["p95"], 0.6, places=5)
+        self.assertTrue(any("missing rd" in warning for warning in report["warnings"]))
+
+    def test_no_drawn_samples_are_explicitly_not_screen_evidence(self):
+        report = sync_audit.analyze(*constant_offset_scenario("no_drawn").write())
+        self.assertTrue(any("do not measure screen error" in warning for warning in report["warnings"]))
+
+    def test_reload_preserves_history_and_fails_unqualified_soak(self):
+        scenario = constant_offset_scenario("reload_history")
+        scenario.host_lines = [session_line("host", t=T0 - 600000), stats_line(T0 - 1, loss=50)] + scenario.host_lines
+        paths = scenario.write()
+        report = sync_audit.analyze(*paths)
+        self.assertFalse(report["verdict"]["ok"])
+        self.assertEqual(len(report["session_history"][0]), 2)
+        self.assertEqual(report["session_history"][0][0]["stats"][0]["loss_pct"], "50.000")
+        self.assertTrue(sync_audit.analyze(*paths, session_index=-1)["verdict"]["ok"])
+
+    def test_peer_reset_fails_continuity_and_duration_gate(self):
+        scenario = constant_offset_scenario("peer_reset")
+        paths = scenario.write(joiner_stats=stats_line(T0 + 20000).replace("peer_resets=0", "peer_resets=1"))
+        report = sync_audit.analyze(*paths, min_duration_s=1800)
+        checks = {c["check"]: c["ok"] for c in report["verdict"]["checks"]}
+        self.assertFalse(checks["session continuity joiner"])
+        self.assertFalse(checks["duration"])
+
+    def test_stale_received_samples_are_excluded(self):
+        scenario = constant_offset_scenario("stale_samples", staleness=5000)
+        direction = sync_audit.analyze(*scenario.write())["directions"][0]
+        self.assertEqual(direction["stale_skipped"], 150)
+        self.assertEqual(direction["samples"], 0)
+        self.assertEqual(direction["staleness_ms"]["p95"], 5000)
+
+    def test_external_drain_without_cost_is_explicitly_unmeasured(self):
+        scenario = constant_offset_scenario("external_drain")
+        scenario.joiner_lines[0] += " ownpoll=0"
+        paths = scenario.write(joiner_stats=stats_line(T0 + 20000).replace("poll_frames=36000", "poll_frames=0")
+                               .replace("poll_avg_ms=0.03000", "poll_avg_ms=-"))
+        report = sync_audit.analyze(*paths)
+        self.assertTrue(any("external drain cost not measured" in warning for warning in report["warnings"]))
+        self.assertFalse(report["verdict"]["ok"])
 
 
 if __name__ == "__main__":

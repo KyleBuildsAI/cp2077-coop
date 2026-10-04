@@ -4,11 +4,12 @@
 -- folder), then in init.lua:
 --
 --   local NetProbe = require("netprobe")
---   registerForEvent("onInit", function()
---       NetProbe.init({ role = IS_HOST and "host" or "joiner" })  -- relay 127.0.0.1:11779 by default
---   end)
---   registerForEvent("onUpdate", function(delta) NetProbe.update(delta) end)
---   registerForEvent("onShutdown", function() NetProbe.shutdown() end)
+--   Inside the EXISTING onInit, after Diag.loadRole():
+--       NetProbe.init({ role = IS_HOST and "host" or "joiner", drawnProvider = readRemoteAvatarPose })
+--   Inside the EXISTING onUpdate: NetProbe.update(delta)
+--   Inside the EXISTING onShutdown: NetProbe.shutdown()
+-- CET keeps one callback per event: never register a second onInit/onUpdate/onShutdown.
+-- Add an onShutdown registration only if the mod has none. See README for the pose provider.
 --
 -- If the file stays in a subfolder (mods\<mod>\lua\netprobe.lua) use require("lua/netprobe").
 --
@@ -28,7 +29,7 @@
 -- NetProbe table, and all runtime state lives in NetProbe.s.
 
 local NetProbe = {
-    VERSION = "0.1.0",
+    VERSION = "0.1.1",
     PROTOCOL = "NP1",
     s = nil,        -- runtime state, created by init()
     warned = {},    -- one-shot log keys
@@ -49,15 +50,16 @@ NetProbe.DEFAULTS = {
     audit = true,            -- AUDIT lines on/off (STATS and EVENT lines are always written)
     auditHz = 10,
     auditDir = "",           -- prefix for the log file; "" = mod folder (CET io sandbox root)
-    auditAppend = false,     -- false truncates the log at init
+    auditAppend = true,      -- preserve every SESSION; false explicitly starts a new evidence file
     statsIntervalMs = 1000,
     maxPollPerFrame = 64,    -- bound on Net_Poll calls per frame
     connectTimeoutMs = 1500, -- logs once if no welcome arrives in time
     poseProvider = nil,      -- function() -> x, y, z, yawDeg; default: player position + forward yaw
     stateProvider = nil,     -- function(horizontalSpeed) -> string; default: speed buckets
     drawnProvider = nil,     -- function() -> x, y, z, yawDeg of the avatar drawn for the remote player
+    renderDelayProvider = nil, -- function() -> ms actually used to draw the remote; absent means unknown
     onOtherMessage = nil,    -- function(sender, channel, payload) for non-probe traffic (ownPoll only)
-    cpuClock = nil,          -- function() -> seconds; default os.clock
+    cpuClock = nil,          -- function() -> seconds; default Net_NowMs / 1000, os.clock fallback
     log = nil,               -- function(text); default print
 }
 
@@ -186,6 +188,7 @@ end
 
 -- Creates the state and connects. Returns true when the probe is active.
 function NetProbe.init(userConfig)
+    NetProbe.shutdown() -- close/flush a previous session before replacing state
     local cfg = NetProbe.mergeConfig(userConfig)
     local s = {
         cfg = cfg,
@@ -193,7 +196,7 @@ function NetProbe.init(userConfig)
         disabledReason = nil,
         clockSource = "fallback",
         fallbackMs = os.time() * 1000.0,
-        cpuClock = cfg.cpuClock or os.clock,
+        cpuClock = cfg.cpuClock,
         sid = 0,
         role = cfg.role,
         localId = 0,
@@ -217,7 +220,9 @@ function NetProbe.init(userConfig)
         state = "idle",
         peers = {},
         primary = nil,
-        poll = { frames = 0, sumMs = 0.0, maxMs = 0.0, msgs = 0, maxMsgs = 0, capped = 0, slowFrames = 0 },
+        poll = { frames = 0, sumMs = 0.0, maxMs = 0.0, msgs = 0, maxMsgs = 0, capped = 0, slowFrames = 0,
+            hist = NetProbe.newHistogram() },
+        peerResets = 0,
         auditLines = 0,
     }
     NetProbe.s = s
@@ -257,10 +262,10 @@ function NetProbe.init(userConfig)
         end
     end
     NetProbe.write(string.format(
-        "SESSION t=%.3f probe=%s role=%s sid=%d clock=%s plugin=%s relay=%s:%d room=%s uch=%d rch=%d send_hz=%s audit_hz=%s",
+        "SESSION t=%.3f probe=%s role=%s sid=%d clock=%s plugin=%s relay=%s:%d room=%s uch=%d rch=%d send_hz=%s audit_hz=%s ownpoll=%d r_interval_ms=%s",
         s.startMs, NetProbe.VERSION, s.role, s.sid, s.clockSource, plugin, cfg.relayHost, cfg.relayPort,
         cfg.room == "" and "default" or cfg.room, cfg.unreliableChannel, cfg.reliableChannel,
-        tostring(cfg.sendHz), tostring(cfg.auditHz)))
+        tostring(cfg.sendHz), tostring(cfg.auditHz), cfg.ownPoll and 1 or 0, tostring(cfg.reliableIntervalMs)))
 
     if cfg.connect then
         NetProbe.connect()
@@ -476,12 +481,18 @@ function NetProbe.nextDue(due, period, now)
     return nextTime
 end
 
--- Drains up to maxPollPerFrame messages and records the cost (os.clock delta) of the whole drain.
+function NetProbe.clockSeconds()
+    local s = NetProbe.s
+    if s.cpuClock ~= nil then return s.cpuClock() end
+    if s.clockSource == "Net_NowMs" then return NetProbe.nowMs() / 1000.0 end
+    return os.clock()
+end
+
+-- Drains up to maxPollPerFrame messages and records the precise-clock cost of the whole drain.
 function NetProbe.drain()
     local s = NetProbe.s
-    local poll = s.poll
     local limit = s.cfg.maxPollPerFrame
-    local started = s.cpuClock()
+    local started = NetProbe.clockSeconds()
     local count = 0
     for _ = 1, limit do
         local raw = Game.Net_Poll()
@@ -494,10 +505,20 @@ function NetProbe.drain()
             NetProbe.dispatch(tonumber(sender), tonumber(channel), payload)
         end
     end
-    local costMs = (s.cpuClock() - started) * 1000.0
+    NetProbe.recordDrain((NetProbe.clockSeconds() - started) * 1000.0, count, count >= limit)
+end
+
+-- External FIFO owners call this once per drain, including empty drains. Never add a second consumer.
+function NetProbe.recordDrain(costMs, count, capped)
+    local s = NetProbe.s
+    if s == nil or not s.active or type(costMs) ~= "number" or costMs ~= costMs
+        or costMs < 0 or costMs == math.huge or type(count) ~= "number" or count < 0
+        or count ~= count or count == math.huge or count ~= math.floor(count) then return false end
+    local poll = s.poll
     poll.frames = poll.frames + 1
     poll.sumMs = poll.sumMs + costMs
     poll.msgs = poll.msgs + count
+    NetProbe.histAdd(poll.hist, costMs * 1000.0) -- microsecond bins
     if costMs > poll.maxMs then
         poll.maxMs = costMs
     end
@@ -507,9 +528,20 @@ function NetProbe.drain()
     if count > poll.maxMsgs then
         poll.maxMsgs = count
     end
-    if count >= limit then
+    if capped then
         poll.capped = poll.capped + 1
     end
+    return true
+end
+
+function NetProbe.pollP99(poll)
+    local micros = NetProbe.histPercentile(poll.hist, 0.99)
+    if micros == nil then return nil end
+    -- The overflow bin has no finite upper bound; report a conservative measured maximum.
+    if micros >= NetProbe.LATENCY_BINS - 0.5 and poll.maxMs * 1000 >= NetProbe.LATENCY_BINS then
+        return poll.maxMs
+    end
+    return micros / 1000.0
 end
 
 function NetProbe.dispatch(sender, channel, payload)
@@ -557,7 +589,34 @@ function NetProbe.onTransportEvent(text)
         s.localId = tonumber(welcomeId)
         s.welcomed = true
     end
+    local left = tonumber(text:match("^peer_leave (%d+)"))
+    if left ~= nil and s.peers[left] ~= nil then
+        NetProbe.writeStats(false) -- preserve the completed peer epoch before removing it
+        s.peerResets = s.peerResets + 1
+        s.peers[left] = nil
+        NetProbe.choosePrimary()
+    elseif text:match("^relay_lost") or text:match("^disconnected") then
+        if next(s.peers) ~= nil then
+            NetProbe.writeStats(false)
+            s.peerResets = s.peerResets + 1
+        end
+        s.peers = {}
+        s.welcomed = false
+        NetProbe.choosePrimary()
+    end
     NetProbe.event(text)
+end
+
+function NetProbe.choosePrimary()
+    local s = NetProbe.s
+    local chosen = nil
+    for id, _ in pairs(s.peers) do
+        if chosen == nil or id < chosen then chosen = id end
+    end
+    if chosen ~= s.primary then
+        s.primary = chosen
+        NetProbe.event("primary_peer " .. tostring(chosen or "none"))
+    end
 end
 
 function NetProbe.peerFor(sender, sid)
@@ -568,13 +627,13 @@ function NetProbe.peerFor(sender, sid)
         s.peers[sender] = peer
         NetProbe.event(string.format("probe_peer %d sid=%s", sender, sid))
     elseif peer.sid ~= sid then
+        NetProbe.writeStats(false)
+        s.peerResets = s.peerResets + 1
         NetProbe.event(string.format("probe_peer_restart %d sid=%s->%s", sender, peer.sid, sid))
         peer = NetProbe.newPeer(sender, sid)
         s.peers[sender] = peer
     end
-    if s.primary == nil or sender < s.primary then
-        s.primary = sender
-    end
+    NetProbe.choosePrimary()
     return peer
 end
 
@@ -682,6 +741,12 @@ function NetProbe.writeAudit(now)
             parts[#parts + 1] = "drawn=-"
         end
     end
+    if s.cfg.renderDelayProvider ~= nil then
+        local ok, delay = pcall(s.cfg.renderDelayProvider)
+        if ok and type(delay) == "number" and delay == delay and delay >= 0 and delay < math.huge then
+            parts[#parts + 1] = string.format("rd=%.3f", delay)
+        end
+    end
     NetProbe.write(table.concat(parts, " "))
     s.auditLines = s.auditLines + 1
 end
@@ -740,6 +805,11 @@ function NetProbe.writeStats(final)
         poll.frames, fmt(poll.frames > 0 and poll.sumMs / poll.frames or nil, "%.5f"), fmt(poll.maxMs, "%.3f"),
         poll.slowFrames, poll.msgs, poll.maxMsgs, poll.capped,
         s.auditLines, s.errors)
+    line = line .. string.format(" peer_sid=%s peer_resets=%d u_first=%s r_first=%s rx_last_ms=%s poll_p99_ms=%s",
+        peer ~= nil and tostring(peer.sid) or "-", s.peerResets,
+        fmt(peer ~= nil and peer.firstSeq or nil, "%d"), fmt(peer ~= nil and peer.rFirst or nil, "%d"),
+        fmt(peer ~= nil and peer.pose ~= nil and peer.pose.sentMs or nil, "%.3f"),
+        fmt(NetProbe.pollP99(poll), "%.5f"))
     NetProbe.write(line)
 end
 

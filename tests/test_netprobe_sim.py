@@ -43,6 +43,7 @@ def run_session(net, seconds, audit_dir, seed=5, joiner_drawn_oracle=False, fram
             x, y, z, forward_x, forward_y = host_path.pose(net.now_ms - ORACLE_DELAY_MS)
             return x, y, z, harness.yaw_from_forward(forward_x, forward_y)
         joiner_config["drawnProvider"] = drawn
+        joiner_config["renderDelayProvider"] = lambda: ORACLE_DELAY_MS
     assert host.init(role="host", auditDir=audit_dir, **config)
     assert joiner.init(role="joiner", auditDir=audit_dir, **joiner_config)
     rng = random.Random(seed)
@@ -382,6 +383,9 @@ class ProbeUnitTests(unittest.TestCase):
         peer = probe.state().peers[3]
         self.assertEqual((peer.uRx, peer.rRx), (1, 1))
         self.assertAlmostEqual(peer.pose.yaw, 45.0)
+        self.assertTrue(probe.probe.recordDrain(0.05, 3, False))
+        self.assertEqual(probe.state().poll.frames, 1)
+        self.assertEqual(probe.state().poll.sumMs, 0.05)
 
     def test_other_messages_are_forwarded(self):
         net = harness.SimNet(loss_pct=0.0)
@@ -476,6 +480,76 @@ class ProbeUnitTests(unittest.TestCase):
         stats = harness.final_stats(self.dir + "probe_audit_host.log")
         self.assertEqual(int(stats["u_lost"]), 0)
         self.assertEqual(int(stats["u_ooo"]), 0)
+
+    def test_peer_departure_and_relay_loss_reselect_primary(self):
+        net = harness.SimNet(loss_pct=0)
+        probe = harness.ProbeInstance(net.endpoint())
+        probe.init(role="host", auditDir=self.dir, ownPoll=False)
+        for peer in (1, 3):
+            probe.probe.handleMessage(peer, 9, f"NP1|u|5|1|{net.now_ms}|1|2|3|45|run")
+        self.assertEqual(probe.state().primary, 1)
+        probe.probe.handleMessage(0, 0, "peer_leave 1 timeout")
+        self.assertIsNone(probe.state().peers[1])
+        self.assertEqual(probe.state().primary, 3)
+        probe.probe.handleMessage(0, 0, "relay_lost timeout")
+        self.assertIsNone(probe.state().primary)
+        probe.probe.handleMessage(2, 9, f"NP1|u|6|1|{net.now_ms}|4|5|6|90|walk")
+        self.assertEqual(probe.state().primary, 2)
+        self.assertEqual(probe.state().peers[2].pose.x, 4)
+        probe.shutdown()
+        events = harness.read_lines(self.dir + "probe_audit_host.log", "EVENT")
+        self.assertTrue(any("primary_peer 3" in line for line in events))
+        self.assertEqual(int(harness.final_stats(self.dir + "probe_audit_host.log")["peer_resets"]), 2)
+
+    def test_reinit_appends_complete_previous_session(self):
+        net = harness.SimNet(loss_pct=0)
+        probe = harness.ProbeInstance(net.endpoint())
+        probe.init(role="host", auditDir=self.dir)
+        probe.update(0.016)
+        net.advance(2000)
+        probe.init(role="host", auditDir=self.dir)
+        probe.update(0.016)
+        probe.shutdown()
+        sessions = sync_audit.load_sessions(self.dir + "probe_audit_host.log")
+        self.assertEqual(len(sessions), 2)
+        self.assertTrue(all(s.final_stats["final"] == "1" for s in sessions))
+        self.assertTrue(all(s.audits for s in sessions))
+
+    def test_precise_clock_and_external_drain_cost(self):
+        net = harness.SimNet(loss_pct=0)
+        endpoint = CountingEndpoint(net)
+        net.endpoints.append(endpoint)
+        endpoint.now_ms = lambda: harness.EPOCH_MS + endpoint.cpu_seconds * 1000
+        probe = harness.ProbeInstance(endpoint)
+        probe.init(role="host", auditDir=self.dir)
+        probe.update(0.016)
+        self.assertAlmostEqual(probe.state().poll.sumMs, endpoint.cpu_seconds * 1000, delta=0.001)
+        probe.probe.recordDrain(0.2, 5, False)
+        self.assertEqual(probe.state().poll.slowFrames, 1)
+        self.assertFalse(probe.probe.recordDrain(float("nan"), 1, False))
+        self.assertEqual(probe.state().poll.frames, 2)
+        probe.shutdown()
+        stats = harness.final_stats(self.dir + "probe_audit_host.log")
+        self.assertGreater(float(stats["poll_p99_ms"]), 0.19)
+
+    def test_poll_tail_overflow_never_underreports_a_large_stall(self):
+        probe = harness.ProbeInstance(harness.SimNet().endpoint())
+        probe.init(role="host", auditDir=self.dir, ownPoll=False)
+        probe.probe.recordDrain(50, 64, True)
+        probe.shutdown()
+        stats = harness.final_stats(self.dir + "probe_audit_host.log")
+        self.assertEqual(float(stats["poll_p99_ms"]), 50)
+
+    def test_render_delay_is_written_with_pose(self):
+        net = harness.SimNet(loss_pct=0)
+        probe = harness.ProbeInstance(net.endpoint())
+        probe.init(role="host", auditDir=self.dir, drawnProvider=lambda: (1, 2, 3, 45),
+                   renderDelayProvider=lambda: 175.25)
+        probe.update(0.016)
+        probe.shutdown()
+        audits = harness.read_lines(self.dir + "probe_audit_host.log", "AUDIT")
+        self.assertIn("rd=175.250", audits[0])
+        self.assertIn("drawn=1.000,2.000,3.000,45.00", audits[0])
 
 
 if __name__ == "__main__":
