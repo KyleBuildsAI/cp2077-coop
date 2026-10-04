@@ -18,7 +18,7 @@ same port, so the old DLL keeps working during migration.
 ## Run
 
 ```bash
-python -m unittest discover -s tests          # 75 unit tests (codecs, fuzzing, reliability, deltas, relay)
+python -m unittest discover -s tests          # 78 unit tests (codecs, fuzzing, reliability, deltas, relay)
 python run_demo.py                            # 5 end-to-end scenarios over real UDP (about 2 minutes)
 python run_demo.py --only realistic --duration 40
 python tools/check_c_header.py                # compile include/coop_proto_v2.h, compare layouts and constants
@@ -70,7 +70,10 @@ u64 hash of the sorted mod list. The room creator can require identical mods/gam
 
 **Channels** (per hop, client↔relay): each DATA packet acks the newest packet plus 32 before it.
 Unreliable messages are sent once. Reliable messages carry a u16 message sequence, are resent after
-an RTO (SRTT + 4·RTTVAR + 40 ms, exponential backoff) and delivered exactly once, in order. Message header:
+an RTO (SRTT + 4·RTTVAR + 40 ms, exponential backoff) and delivered exactly once, in order. RTT samples
+come only from acks carried by a packet that directly follows the previous one received: after a lost or
+reordered packet the first ack through can cover packets whose earlier acks were lost, and their apparent
+RTT includes the time the gap stayed open. A DATA packet holds at most 96 messages. Message header:
 `type|0x80 if reliable, peer, length u16 [, rel_seq u16]` (4 or 6 bytes). Clients name the destination
 peer; the relay rewrites it to the source peer.
 
