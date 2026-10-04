@@ -24,7 +24,7 @@ All of these ship inside the release zip:
 3. Pick a role in the in-game **CP2077 Coop** panel (open the CET overlay, click *Switch to HOST/JOINER*).
    The choice is saved to `role.txt` in the mod folder. One player must be host, the other joiner.
 
-**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.33*), the
+**Both players must run the same version**: the panel title (*CP2077 Coop v0.0.34*), the
 *Version* row at the top of the panel and `version=` at the start of every `[STATS]` line show it.
 The protocol changes between builds: a partner on an older build shows up as *Peer: no ping reply -
 other player on old version?* and *Role check: unknown*, not as a role problem. Update the older
@@ -51,13 +51,73 @@ as unavailable. Icon visibility with the game's map filters requires a live chec
 **Joining.** The joiner is teleported next to the host once their game has settled: 4 s in the
 world in a row, not in a car and not in a scene that holds the player (a car, a scene or the game
 moving the player after a load restarts the 4 s). Each attempt sends one teleport, waits up to
-2.5 s for the game to move the player and checks the result against the point it sent the player
+5 s for the game to move the player and checks the result against the point it sent the player
 to. There are up to 3 attempts, 2 s and then 4 s apart. The panel's *Join* row shows each step.
 If it gives up, *Teleport to host* runs the same steps again. The host's avatar appears after the
 join, or straight away while the joiner sits in a car or a scene. Every attempt is logged as a
 `WORLD SYNC` line with the measured error and how far the player moved.
 
-**What each packet carries.** Each of the 30 packets per second carries one extra 9-bit value
+### Opt-in native transport (v0.0.34)
+
+Missing `transport.ini` keeps the established **v1** gameplay path. The **v2** path is
+an experimental integration requiring the separately installed CP2077CoopNet native
+plugin (alpha.5 or later with `Net_ConnectV2`, `Net_PushPlayer`, `Net_SampleRemote`) and
+its v2 relay. It has offline coverage; two-game live validation is still required.
+
+Before enabling it, close both games and disable the standalone `CoopNetCheck`
+probe in each installation. The current probe supports an empty `disabled.txt`
+in its mod folder and prints `disabled.txt present: gameplay owns Net_Poll` on
+startup. Older probes without that gate must instead have
+`bin/x64/plugins/cyber_engine_tweaks/mods/CoopNetCheck/init.lua` renamed to
+`init.lua.disabled`. Disable any other `NetProbe` integration too: exactly one Lua
+owner may connect, drain `Net_Poll`, and disconnect. Set the flag below only after
+the probe is actually disabled; it does not disable another mod automatically.
+
+Create `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/transport.ini` in **each**
+game installation (same room/key/relay, opposite roles in `role.txt`):
+
+```ini
+mode=v2
+host=127.0.0.1
+port=11778
+room=codex-bench
+key=
+probe_disabled=true
+```
+
+Restart the games after changing this file. `mode=auto` allows fallback to v1
+before a v2 session starts if the relay/native API is unavailable or no compatible
+peer appears. A rejected key/role or loss after a v2 session starts stays in v2;
+it never silently reconnects through v1. Removing the file or choosing `mode=v1`
+restores the legacy path. The dev kit deploys `net_transport.lua` with `init.lua`
+and all `.reds`; it preserves each installation's `transport.ini` and excludes it
+from new clones. Native plugin installation is separate from this dev kit.
+
+Native player snapshots supply the interpolation buffer, velocity and sampled pose.
+Rendering uses that pose directly, without the v1 prediction pass. The current native
+API lacks a raw snapshot sequence/timestamp, so a separate `C3M1` movement envelope
+on unreliable channel 1 supplies real packet counts, newest-position markers and
+join targets. Repeated render queries are never counted as received packets. This
+transitional format sends positions twice; it is not a completed compact protocol.
+Legacy time/weather, ping and mod-list extras use reliable channel 16; channel 30
+negotiates the application session. The panel identifies the active transport and
+native sample mode/buffer delay.
+
+**Current limits:** cars are cosmetic pose/model stand-ins, with no shared driving
+physics, damage, passengers or authority. V2 suppresses legacy hit capture and does
+not replicate combat/NPC authority, health/death, inventory, quests or player look
+pitch (health and pitch fields are placeholders). The avatar remains a local NPC
+following the sampled target, so pathfinding and animation still affect the visible
+result. Default v1 retains its existing proximity-based ranged-hit approximation.
+Neither transport constitutes full-world multiplayer synchronization yet.
+
+The standard test bot's sprint lasts **3 seconds**. The offline A10 regression uses
+12 seconds and still has its documented measured-lag failure; a normal bot cycle
+does not establish the 12-second live sprint result. The Oil Fields west-lane start
+was inspected in-game, but the whole bot circle needs a clearance check before
+interpreting corrections as transport error.
+
+**What each v1 packet carries.** Each of the 30 packets per second carries one extra 9-bit value
 besides position and facing. Player flags (crouch, weapon, aim, fire, in a vehicle, role) go in
 every packet that has nothing else due, and never more than one slot late. In a steady session
 that is 86% of the host's packets and 93% of the joiner's. The rest:

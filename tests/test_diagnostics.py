@@ -961,6 +961,7 @@ DEVKIT_LEFTOVERS = [
     os.path.join("coop-tools", "coop_monitor_history.csv"),
     os.path.join("coop-tools", "coop_relay.log"),
     os.path.join(MOD_DIR, "monitor_status.txt.tmp"),
+    os.path.join(MOD_DIR, "transport.ini"),
     os.path.join(MOD_DIR, "coop_events.log"),
 ]
 DEVKIT_KEPT = [os.path.join("coop-tools", "coop_monitor.py"), os.path.join(MOD_DIR, "init.lua")]

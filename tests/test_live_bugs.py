@@ -275,7 +275,7 @@ def test_join_teleport_uses_euler_angles():
     g.clickButton = None
     g.events["onUpdate"](harness.FRAME_DT)
     area_logs = [l for l in logs(joiner) if "teleported to test area" in l]
-    at_area = abs(g.playerPos.x - (-1818.82)) < 0.01 and abs(g.playerPos.y - 3858.03) < 0.01
+    at_area = abs(g.playerPos.x - (-1855.4)) < 0.01 and abs(g.playerPos.y - 3857.4) < 0.01
     print(f"  test area: {area_logs[:1]} at area={at_area} yaw={g.playerYaw}")
     area_ok = bool(area_logs) and at_area and abs(g.playerYaw) < 0.5 and not [l for l in logs(joiner) if "TELEPORT ERROR" in l]
     return join_ok and area_ok

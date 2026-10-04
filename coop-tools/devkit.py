@@ -34,7 +34,7 @@ HARDLINK_DIRS = [os.path.join("archive", "pc", "content"), os.path.join("archive
 HARDLINK_EXTENSIONS = {".cache"}  # engine/shader caches
 
 # Never copied into a new instance or deployed: per-instance runtime output.
-SKIP_NAMES = {"role.txt", "monitor_status.txt", "coop_monitor_history.csv", "coop_relay.log",
+SKIP_NAMES = {"role.txt", "transport.ini", "monitor_status.txt", "coop_monitor_history.csv", "coop_relay.log",
               "coop_stats_host.txt", "coop_stats_joiner.txt", "coop_events.log"}
 # The same by pattern: history files the monitor rotated out, its interrupted status swap, logs.
 SKIP_PATTERNS = ("coop_monitor_history*.csv", "monitor_status.txt.tmp", "*.log")
@@ -48,6 +48,7 @@ SCRIPTS_DIR = os.path.join("r6", "scripts", "CP2077Coop")
 # Files deployed from this package into a game folder (plus every *.reds in SCRIPTS_DIR).
 DEPLOY_FILES = [
     os.path.join(MOD_DIR, "init.lua"),
+    os.path.join(MOD_DIR, "net_transport.lua"),
     os.path.join("red4ext", "plugins", "CP2077Coop", "CP2077Coop.dll"),
 ]
 DEPLOY_DIRS = ["coop-tools", os.path.join("red4ext", "plugins", "Codeware")]

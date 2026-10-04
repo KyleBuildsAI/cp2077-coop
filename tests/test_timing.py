@@ -630,7 +630,7 @@ end
 ALLOWED_GLOBALS = {
     # Lua / LuaJIT
     "assert", "bit", "error", "getmetatable", "io", "ipairs", "math", "next", "os", "pairs", "pcall",
-    "print", "select", "setmetatable", "string", "table", "tonumber", "tostring", "type", "unpack", "xpcall",
+    "print", "require", "select", "setmetatable", "string", "table", "tonumber", "tostring", "type", "unpack", "xpcall",
     # CET
     "registerForEvent", "registerHotkey", "registerInput", "Game", "GetMod", "GetSingleton", "IsDefined",
     "NewObject", "Observe", "ObserveAfter", "Override", "ImGui", "ImGuiCond", "ImGuiWindowFlags", "ImGuiCol",

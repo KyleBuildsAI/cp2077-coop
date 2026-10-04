@@ -20,7 +20,7 @@ J2  teleports never apply: 3 attempts, each logged with the measured result and
 J3  settle gate: a vehicle, a scene and a position jump (game still placing the
     player) each restart the 4 s; the first Teleport comes 4 s after the last one.
     While the player sits in a car the avatar spawns at once, as before.
-J4  a teleport the game applies after the 2.5 s wait still counts: joined during
+J4  a teleport the game applies after the 5 s wait still counts: joined during
     the pause, no second call.
 J5  the panel's "Join" row says what the join is doing in every phase (and the
     "Avatar" row that the spawn waits for it); the host's panel has no Join row.
@@ -56,7 +56,7 @@ FLAG_IN_VEHICLE = 16
 
 # the mod's join settings (Sync.JOIN_* and JOIN_OFFSET in init.lua)
 SETTLE = 4.0
-APPLY_TIMEOUT = 2.5
+APPLY_TIMEOUT = 5.0
 RETRY_DELAYS = (2.0, 4.0)
 TOLERANCE = 2.5
 JOIN_OFFSET = 1.75
@@ -288,9 +288,12 @@ def test_slow_game_joins():
         miss = math.hypot(px - last["x"], py - last["y"])
         host_moved = math.hypot(px - host_point[0], py - host_point[1])
         spawn = new.spawns()
-        spawn_near = bool(spawn) and spawn[0][0] > ok_t and math.hypot(spawn[0][1] - last["x"], spawn[0][2] - last["y"]) <= TOLERANCE
+        # This harness records LOCAL position at the spawn request, not the
+        # avatar coordinates. Join success and spawn may share the same frame;
+        # the watcher observes that success on the following frame.
+        spawn_near = bool(spawn) and spawn[0][0] >= joined[0][0] and math.hypot(spawn[0][1] - last["x"], spawn[0][2] - last["y"]) <= TOLERANCE
         print(f"    at OK ({ok_t:.2f} s): player {miss:.2f} m from the teleport point, {host_moved:.2f} m from the "
-              f"host's side point now (the host moved on); avatar spawn after OK next to the player: {spawn_near}")
+              f"host's side point now (the host moved on); avatar requested after local player landed: {spawn_near}")
         new_ok = (
             calls[0]["t"] >= LOAD_AT + SETTLE
             and len(calls) == len(attempts) <= 3
@@ -416,19 +419,34 @@ def test_settle_gate():
 # ------------------------------------------------------------------ J4
 
 def test_late_apply_counts():
-    session = Session(new_source(), standing_host, ignore_for=0.0, apply_delay=3.2)
+    session = Session(new_source(), standing_host, ignore_for=0.0, apply_delay=APPLY_TIMEOUT + 0.7)
     session.run(14.0)
     calls = session.calls()
     failed = session.lines("WORLD SYNC FAILED")
     joined = session.lines("WORLD SYNC OK")
-    print("  game applies the teleport 3.2 s after the call (wait is 2.5 s):")
+    print("  game applies the teleport 5.7 s after the call (wait is 5 s):")
     show(session, JOIN_LINES)
     return (
         len(calls) == 1
         and len(failed) == 1 and "position did not change" in failed[0][1]
         and len(joined) == 1 and "applied late" in joined[0][1]
-        and abs(joined[0][0] - (calls[0]["t"] + 3.2)) < 0.05
+        and abs(joined[0][0] - (calls[0]["t"] + APPLY_TIMEOUT + 0.7)) < 0.05
         and not session.lines("GAVE UP")
+        and session.g.updateErrors == 0
+    )
+
+
+def test_queued_teleport_applies_without_false_failure():
+    # Live outdoor potato-mode evidence: the first command applied after 3.7 s.
+    session = Session(new_source(), standing_host, ignore_for=0.0, apply_delay=3.7)
+    session.run(12.0)
+    calls, joined = session.calls(), session.lines("WORLD SYNC OK")
+    show(session, JOIN_LINES)
+    return (
+        len(calls) == 1 and len(joined) == 1
+        and "attempt=1/3" in joined[0][1] and "applied late" not in joined[0][1]
+        and abs(joined[0][0] - (calls[0]["t"] + 3.7)) < 0.05
+        and not session.lines("WORLD SYNC FAILED") and not session.lines("GAVE UP")
         and session.g.updateErrors == 0
     )
 
@@ -467,24 +485,24 @@ def test_panel_rows():
 
     # game ignores teleports for 7 s after the load: attempt 1 fails, attempt 2 joins
     slow = Session(new_source(), standing_host, ignore_for=7.0)
-    plan = ((3.0, "settle"), (6.0, "teleport"), (8.0, "retry"), (11.5, "done"))
-    slow.run(12.0, lambda s, t: [sample(s, t, at, label) for at, label in plan])
+    plan = ((3.0, "settle"), (6.0, "teleport"), (10.5, "retry"), (14.0, "done"))
+    slow.run(14.5, lambda s, t: [sample(s, t, at, label) for at, label in plan])
 
     # never applies; the player sits in a car for a moment first
     def car(session, t):
         session.g.localFlags = FLAG_IN_VEHICLE if 1.5 <= t < 2.0 else 0
         sample(session, t, 1.8, "vehicle")
-        sample(session, t, 23.0, "gave_up")
+        sample(session, t, 30.0, "gave_up")
 
     stuck = Session(new_source(), standing_host, ignore_for=1e9)
-    stuck.run(23.5, car)
+    stuck.run(30.5, car)
 
     rows = dict(seen)
     for label, (join, avatar) in seen:
         print(f"  {label:9} Join: {join}   Avatar: {avatar}")
     want = {
         "settle": (r"^waiting for the game to settle \([0-9.]+ / 4 s\)$", "warn"),
-        "teleport": (r"^attempt 1/3: waiting for the game to move you \([0-9.]+ / 2\.5 s\)$", "warn"),
+        "teleport": (r"^attempt 1/3: waiting for the game to move you \([0-9.]+ / 5\.0 s\)$", "warn"),
         "retry": (r"^attempt 1/3 failed \(position did not change\), next in [0-9.]+ s$", "warn"),
         "done": (r"^next to the host \(attempt 2/3, 0\.0 m from the teleport point\)$", "good"),
         "vehicle": (r"^waiting: you are in a vehicle$", "warn"),
@@ -631,7 +649,8 @@ if __name__ == "__main__":
         "J1 slow game: settle, one Teleport per attempt, measured at the teleport point, joins; old logic gives up": test_slow_game_joins,
         "J2 teleports never apply: 3 logged attempts, growing pauses, clean give-up; 'Teleport to host' same path": test_never_applies_then_manual,
         "J3 car, scene and position jump restart the 4 s settle; avatar spawns while in the car": test_settle_gate,
-        "J4 a teleport applied after the 2.5 s wait counts, no second call": test_late_apply_counts,
+        "J4 a teleport applied after the 5 s wait counts, no second call": test_late_apply_counts,
+        "J4b queued 3.7 s teleport succeeds on the first attempt without a false failure": test_queued_teleport_applies_without_false_failure,
         "J5 panel 'Join' row through settle, teleport, retry, done, vehicle, gave up; host has none": test_panel_rows,
         "J6 host still loading (silent, then a 60 m placement jump): no join at the stale point, joins the placed host": test_host_loads_late,
         "J7 host jumps during the attempt: landing at the old point fails the attempt, the next one joins the new spot": test_host_jumps_during_attempt,

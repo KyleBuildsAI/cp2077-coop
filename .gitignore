@@ -27,6 +27,8 @@ bin/x64/global.ini
 
 # Runtime files written by the mod and monitor
 role.txt
+# Per-instance native transport config may contain a private room key
+transport.ini
 monitor_status.txt
 monitor_status.txt.tmp
 coop_stats_*.txt

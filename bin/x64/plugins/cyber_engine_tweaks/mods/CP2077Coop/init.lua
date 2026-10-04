@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.33 WORLD + STATE + VEHICLE + COMBAT SYNC + PARTNER MARKER
+-- v0.0.34 WORLD + STATE + VEHICLE + COMBAT SYNC + V2 PLAYER TRANSPORT
 --
 -- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
 -- albo domyślnie poniżej. role.txt ma pierwszeństwo.
@@ -270,7 +270,7 @@ S.joinForwardY = nil
 -- tytule i pierwszym wierszu panelu oraz w każdej linii [STATS]
 -- (version=), więc stary build na stanowisku testowym od razu widać.
 local Diag = {
-    VERSION = "0.0.33",
+    VERSION = "0.0.34",
 
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
@@ -402,8 +402,9 @@ local Diag = {
     botToggleRequested = false,
     testAreaRequested = false,
 
-    -- pusty, płaski teren do testów (AMM: "The Oil Fields", Badlands)
-    TEST_AREA = { name = "Oil Fields (Badlands)", x = -1818.82, y = 3858.03, z = 7.16 }
+    -- Bench start in the Oil Fields (Badlands).
+    -- Start inspected in-game; the full bot circle still needs a clearance check.
+    TEST_AREA = { name = "Oil Fields west lane", x = -1855.4, y = 3857.4, z = 6.86 }
 }
 
 
@@ -1289,7 +1290,8 @@ local Sync = {
     -- JOIN_RETRY_DELAYS[n] s przed kolejną próbą.
     MAX_JOIN_ATTEMPTS = 3,
     JOIN_SETTLE_SECONDS = 4.0,
-    JOIN_APPLY_TIMEOUT = 2.5,
+    -- Live potato-mode teleport application took 3.7 s; avoid a false retry.
+    JOIN_APPLY_TIMEOUT = 5.0,
     JOIN_RETRY_DELAYS = { 2.0, 4.0 },
     -- tak blisko punktu teleportu = na miejscu
     JOIN_TOLERANCE = 2.5,
@@ -2310,6 +2312,104 @@ function Sync.tick(delta)
 end
 
 
+-- Native transport is explicitly opted into per installation. No config means
+-- the unchanged v1 path, including its existing DLL and packet format.
+function Sync.loadTransportConfig()
+    local config = { mode = "v1", host = "127.0.0.1", port = 11778, room = "coop", key = "" }
+    local file = io.open("transport.ini", "r")
+    if file ~= nil then
+        for line in file:lines() do
+            local key, value = line:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
+            if key == "mode" or key == "host" or key == "room" or key == "key" then
+                config[key] = value
+            elseif key == "port" then
+                config.port = tonumber(value)
+            elseif key == "probe_disabled" then
+                config.probeDisabled = value == "true"
+            end
+        end
+        file:close()
+    end
+    Sync.transportConfig = config
+    Sync.transportModule = nil
+    Sync.transportBlocked = false
+    if config.mode ~= "v1" then
+        local ok, module = pcall(require, "net_transport")
+        if ok and type(module) == "table" and type(module.new) == "function" then
+            Sync.transportModule = module
+        else
+            Sync.transportBlocked = config.mode ~= "auto"
+            Diag.log("[CP2077Coop] native transport module unavailable: " .. tostring(module)
+                .. (Sync.transportBlocked and " (v2 disabled; no v1 downgrade)" or " (auto falling back to v1)"))
+        end
+    end
+end
+
+function Sync.isV2()
+    return Sync.transportBlocked or (Sync.transport ~= nil and Sync.transport:isV2())
+end
+
+function Sync.hasRemotePlayer()
+    if Sync.isV2() then
+        if Sync.transport == nil then return false end
+        local status = Sync.transport:status()
+        return status.ready and status.peer ~= nil and status.peer ~= 0
+    end
+    return Game.CP2077Coop_HasRemotePlayer ~= nil and Game.CP2077Coop_HasRemotePlayer()
+end
+
+function Sync.restartTransport()
+    if Sync.transport ~= nil then Sync.transport:stop() end
+    Sync.transport = nil
+    Sync.v2Sample = nil
+    Sync.v2SendPrev = nil
+    Sync.v2PendingTeleport = false
+    Sync.transportEpoch = nil
+    if not S.syncActive or Sync.transportModule == nil then return end
+    local options = {}
+    for key, value in pairs(Sync.transportConfig) do options[key] = value end
+    options.role = IS_HOST and "host" or "joiner"
+    options.version = Diag.VERSION
+    options.natives = Game
+    options.log = function(message) Diag.log(tostring(message)) end
+    Sync.transport = Sync.transportModule.new(options)
+    Sync.transportEpoch = Sync.transport:status().epoch
+end
+
+function Sync.updateTransport(player, delta)
+    if Sync.transport == nil then
+        if player.CP2077Coop_SuppressLegacyCombat ~= nil then
+            player:CP2077Coop_SuppressLegacyCombat(Sync.isV2())
+        end
+        return
+    end
+    Sync.transport:update(delta)
+    local status = Sync.transport:status()
+    if Sync.transportEpoch ~= status.epoch then
+        Sync.transportEpoch = status.epoch
+        Sync.dropAvatar(player, "transport peer/session changed")
+        Sync.resetRemoteMarker()
+        -- Despawn before reset clears the bridge's ownership bookkeeping.
+        Sync.hideRemoteVehicle(player)
+        Sync.reset()
+        Diag.resetSession()
+        S.lastRemoteSequence = -1
+        S.previousRemoteX, S.previousRemoteY, S.previousRemoteZ = nil, nil, nil
+        S.hostSettled = 0.0
+        S.worldJoinComplete = IS_HOST
+        S.joinPhase, S.joinSettled = "settle", 0.0
+        S.joinAttempts, S.joinPhaseTime = 0, 0.0
+        Sync.v2Sample = nil
+        if not Sync.isV2() and Game.CP2077Coop_HasRemotePlayer() then
+            S.staleSequence = Game.CP2077Coop_GetRemoteSequence()
+        end
+    end
+    if player.CP2077Coop_SuppressLegacyCombat ~= nil then
+        player:CP2077Coop_SuppressLegacyCombat(Sync.isV2())
+    end
+end
+
+
 -- Lokalna pauza. CET wywołuje onUpdate także w menu ESC, na mapie
 -- i w ekwipunku, z deltą czasu rzeczywistego, a IsPreGame zostaje false.
 -- Świat wtedy stoi: teleport i komendy AI czekają, więc próby joina,
@@ -2939,7 +3039,7 @@ end
 function Sync.markerFresh()
     return S.syncActive and Sync.marker.at ~= nil
         and Sync.clock - Sync.marker.at < Diag.STALE_AFTER
-        and Game.CP2077Coop_HasRemotePlayer()
+        and Sync.hasRemotePlayer()
 end
 
 function Sync.updateRemoteMarker(player)
@@ -3052,6 +3152,10 @@ local Steer = {
 
 -- Punkt docelowy: ostatnia znana pozycja + prędkość * LEAD_TIME.
 function Steer.endpoint()
+
+    -- Native sampling already chose render time. AI pursues that point;
+    -- applying the v1 anticipation here would move the rendered target again.
+    if Sync.isV2() then return S.targetX, S.targetY, S.targetZ end
 
     local leadX =
         (S.remoteVelocityX or 0.0) *
@@ -3869,7 +3973,7 @@ function Diag.recordDrift(current)
 
     local lead = 0.0
 
-    if S.remoteMoving then
+    if S.remoteMoving and not Sync.isV2() then
 
         lead =
             math.min(
@@ -3884,9 +3988,9 @@ function Diag.recordDrift(current)
             current.y,
             current.z,
 
-            S.previousRemoteX + S.remoteVelocityX * lead,
-            S.previousRemoteY + S.remoteVelocityY * lead,
-            S.previousRemoteZ
+            Sync.isV2() and S.targetX or S.previousRemoteX + S.remoteVelocityX * lead,
+            Sync.isV2() and S.targetY or S.previousRemoteY + S.remoteVelocityY * lead,
+            Sync.isV2() and S.targetZ or S.previousRemoteZ
         )
 
     Diag.avatarError = distance
@@ -4757,11 +4861,13 @@ function Diag.draw()
         return
     end
 
-    ImGui.SetNextWindowPos(20, 300, ImGuiCond.FirstUseEver)
+    -- Once also repairs previously saved auto-sized windows at 720p.
+    ImGui.SetNextWindowPos(20, 60, ImGuiCond.Once)
+    ImGui.SetNextWindowSize(600, 580, ImGuiCond.Once)
 
     -- wersja w tytule (widać ją też po zwinięciu okna); "###" = stałe ID
     -- okna, więc pozycja zapisana przez ImGui nie zależy od wersji
-    if not ImGui.Begin("CP2077 Coop v" .. Diag.VERSION .. "###CP2077Coop", ImGuiWindowFlags.AlwaysAutoResize) then
+    if not ImGui.Begin("CP2077 Coop v" .. Diag.VERSION .. "###CP2077Coop", 0) then
 
         ImGui.End()
         return
@@ -4783,12 +4889,17 @@ function Diag.draw()
         stateLevel = "neutral"
     end
 
-    local hasRemote =
-        Game.CP2077Coop_HasRemotePlayer ~= nil
-        and Game.CP2077Coop_HasRemotePlayer()
+    local hasRemote = Sync.hasRemotePlayer()
 
     Diag.row("Version", Diag.VERSION, "neutral")
     Diag.row("Role", IS_HOST and "HOST" or "JOINER", "neutral")
+    local transportStatus = Sync.transport ~= nil and Sync.transport:status() or nil
+    Diag.row("Transport", transportStatus and (transportStatus.mode .. ": " .. (transportStatus.reason or "")) or (Sync.transportBlocked and "v2: module unavailable" or "v1"), "neutral")
+    if Sync.isV2() then
+        Diag.row("V2 scope", "players + world state; cosmetic cars; damage sync disabled", "warn")
+        local pose = Sync.v2Sample
+        Diag.row("Native sample", pose and string.format("%s / %.0f ms buffer", pose.mode, pose.delayMs) or "waiting", "neutral")
+    end
     Diag.row("Connection", state, stateLevel)
     Diag.row("Players", hasRemote and "2 / 2" or "1 / 2", hasRemote and "good" or "warn")
 
@@ -5323,6 +5434,24 @@ function Sync.updateRemoteVehicle(player, delta)
         return
     end
 
+    if Sync.isV2() then
+        -- This is still a cosmetic stand-in, not shared vehicle physics. The
+        -- native buffer already interpolated/extrapolated the car origin.
+        local pose = Sync.v2Sample
+        if pose == nil then return end
+        local along = pose.vx * pose.fx + pose.vy * pose.fy
+        local slope = 0.0
+        if math.abs(along) > Sync.VEHICLE_PITCH_MIN_SPEED then
+            slope = math.max(-Sync.VEHICLE_MAX_SLOPE, math.min(Sync.VEHICLE_MAX_SLOPE, pose.vz / along))
+        end
+        Sync.carX, Sync.carY, Sync.carZ = pose.x, pose.y, pose.z
+        Sync.carForwardX, Sync.carForwardY, Sync.carSlope = pose.fx, pose.fy, slope
+        Sync.vehicleShown = player:CP2077Coop_ShowRemoteVehicle(
+            Sync.remoteVehicleIndex, pose.x, pose.y, pose.z, pose.fx, pose.fy, slope
+        ) or Sync.vehicleShown
+        return
+    end
+
 
     local x, y, z, forwardX, forwardY, velX, velY, velZ, yawRate =
         Sync.extrapolateRemotePose()
@@ -5565,6 +5694,11 @@ end
 
 function Sync.sendLocalState(player, delta)
 
+    if Sync.isV2() then
+        Sync.sendV2State(player, delta)
+        return
+    end
+
     local pos, forward, source =
         Sync.localPose(player)
 
@@ -5693,6 +5827,110 @@ function Sync.sendLocalState(player, delta)
     S.sendPrevY = pos.y
     S.sendPrevZ = pos.z
     S.sendPrevSource = source
+end
+
+
+function Sync.sendV2State(player, delta)
+    if Sync.transport == nil then return end
+    Sync.readLocalFlags(player, IS_HOST)
+    local pos, forward, source = Sync.localPose(player)
+    local previous = Sync.v2SendPrev
+    local vx, vy, vz = 0.0, 0.0, 0.0
+    local teleported = previous == nil or previous.source ~= source
+    if previous ~= nil and delta > 0.0 and not teleported then
+        vx, vy, vz = (pos.x - previous.x) / delta, (pos.y - previous.y) / delta, (pos.z - previous.z) / delta
+        if math.sqrt(vx * vx + vy * vy + vz * vz) > Sync.VEHICLE_MAX_SPEED or delta > 1.0 then
+            vx, vy, vz, teleported = 0.0, 0.0, 0.0, true
+        end
+    end
+    Sync.v2SendPrev = { x = pos.x, y = pos.y, z = pos.z, source = source }
+    Sync.v2PendingTeleport = Sync.v2PendingTeleport or teleported
+    S.sendAccumulator = S.sendAccumulator + delta
+    if S.sendAccumulator < SEND_INTERVAL then return end
+    S.sendAccumulator = S.sendAccumulator % SEND_INTERVAL
+    local speed = math.sqrt(vx * vx + vy * vy)
+    local moveState = speed < 0.1 and 0 or (speed >= SPRINT_SPEED and 3 or (speed >= RUN_SPEED and 2 or 1))
+    if Sync.hasFlag(Sync.localFlags, Sync.FLAG_CROUCH) then moveState = speed < 0.1 and 4 or 5 end
+    if Sync.hasFlag(Sync.localFlags, Sync.FLAG_IN_VEHICLE) then moveState = 10 end
+    local payload = Sync.buildPayload(player, IS_HOST)
+    Sync.lastSentFlags = Sync.localFlags
+    local sent = Sync.transport:push({
+        x = pos.x, y = pos.y, z = pos.z, fx = forward.x, fy = forward.y,
+        vx = vx, vy = vy, vz = vz, moveState = moveState, flags = Sync.localFlags,
+        health = 255, pitch = 0.0, payload = payload, source = source,
+        vehicleIndex = Sync.mountedVehicleIndex(player), teleported = Sync.v2PendingTeleport
+    })
+    if sent then
+        Sync.v2PendingTeleport = false
+        Diag.onSent(1)
+    end
+end
+
+function Sync.receiveV2State(player, delta)
+    if Sync.transport == nil then return false end
+    -- C3 envelopes contain actual accepted movement metadata. A sample is only
+    -- a render query and never advances these counters or freshness clocks.
+    for _ = 1, 128 do
+        local packet = Sync.transport:takePacket()
+        if packet == nil then break end
+        local previous = S.lastRemoteSequence
+        local restarted = packet.reset or (previous >= 0 and packet.sequence <= previous)
+        if restarted then
+            Sync.hideRemoteVehicle(player)
+            Sync.forgetPeerVersion()
+        end
+        Diag.pollGap = SEND_INTERVAL
+        Diag.onPacket(packet.sequence, restarted and -1 or previous)
+        S.lastRemoteSequence = packet.sequence
+        local ticks = previous >= 0 and not restarted and math.max(1, packet.sequence - previous) or 1
+        Sync.peerDecodesPayload, Sync.peerHasRoleBit = true, true
+        Sync.receivePayload(packet.flags)
+        if Sync.hasFlag(packet.flags, Sync.FLAG_IN_VEHICLE) then
+            Sync.remoteVehicleIndex = packet.vehicleIndex
+        else
+            Sync.hideRemoteVehicle(player)
+        end
+        if not IS_HOST then Sync.noteHostPacket(packet.x, packet.y, packet.z, ticks, restarted) end
+        Sync.noteMarkerPosition(player, packet.x, packet.y, packet.z)
+        S.previousRemoteX, S.previousRemoteY, S.previousRemoteZ = packet.x, packet.y, packet.z
+    end
+    for _ = 1, 128 do
+        local extra = Sync.transport:takePayload()
+        if extra == nil then break end
+        -- Vehicle model is bundled with every accepted C3 pose. A delayed
+        -- reliable v1-style model extra must not put an on-foot peer in a car.
+        if math.floor(extra.payload / Sync.TYPE_STRIDE) ~= Sync.TYPE_VEHICLE then
+            Sync.receivePayload(extra.payload)
+        end
+    end
+    local pose = Sync.transport:sample()
+    Sync.v2Sample = pose
+    if pose == nil then
+        S.remoteMoving, S.remoteSpeed = false, 0.0
+        if Sync.vehicleShown then Sync.hideRemoteVehicle(player) end
+        cancelMoveCommand()
+        return false
+    end
+    -- Flags from the same native render timeline avoid entering a vehicle or
+    -- changing stance ahead of its buffered pose. Raw envelopes alone count RX.
+    Sync.remoteFlags = pose.flags
+    S.targetX, S.targetY, S.targetZ = pose.x, pose.y, pose.z
+    S.remoteForwardX, S.remoteForwardY = pose.fx, pose.fy
+    S.remoteVelocityX, S.remoteVelocityY, S.remoteVelocityZ = pose.vx, pose.vy, pose.vz
+    S.remoteSpeed = math.sqrt(pose.vx * pose.vx + pose.vy * pose.vy)
+    S.remoteMoving = pose.mode ~= "held" and (S.remoteSpeed > 0.1 or math.abs(pose.vz) > 0.1)
+    S.remoteVerticalJump = math.abs(pose.vz) > VERTICAL_SNAP / SEND_INTERVAL * 0.5
+    S.movementType = S.remoteSpeed >= SPRINT_SPEED and "Sprint" or (S.remoteSpeed >= RUN_SPEED and "Run" or "Walk")
+    Sync.poseX, Sync.poseY, Sync.poseZ = pose.x, pose.y, pose.z
+    Sync.updateAvatarRange(player)
+    if Sync.joinReady() then
+        Sync.beginJoinAttempt(player, S.previousRemoteX, S.previousRemoteY, S.previousRemoteZ, pose.fx, pose.fy)
+    end
+    if not S.remoteInitialized and Sync.joinAllowsSpawn() and Sync.frozen == nil and not Sync.remoteFar then
+        Sync.requestSpawn(player)
+    end
+    Sync.updateRemoteVehicle(player, delta)
+    return true
 end
 
 
@@ -6510,6 +6748,7 @@ local function resetRemote()
     Steer.reset()
     Steer.resetHardCorrect()
     Steer.resetSettle()
+    Sync.restartTransport()
 end
 
 
@@ -6523,6 +6762,7 @@ registerForEvent(
 
         Diag.loadRole()
         Mods.load()
+        Sync.loadTransportConfig()
 
         -- A CET script reload can leave the redscript player instance alive.
         local player = Game.GetPlayer()
@@ -6541,6 +6781,11 @@ registerForEvent(
 
 registerForEvent("onShutdown", function()
     Sync.resetRemoteMarker()
+    if Sync.transport ~= nil then Sync.transport:stop() end
+    local player = Game.GetPlayer()
+    if player ~= nil and player.CP2077Coop_SuppressLegacyCombat ~= nil then
+        player:CP2077Coop_SuppressLegacyCombat(false)
+    end
 end)
 
 
@@ -6653,6 +6898,7 @@ registerForEvent(
 
         -- menu / mapa / ekwipunek: świat stoi (Sync.frozen)
         Sync.updateFrozen(delta)
+        Sync.updateTransport(player, delta)
 
         -- Expire on movement silence even if the DLL keeps its last slot.
         -- Fresh packet updates below also work before the avatar has spawned.
@@ -6757,10 +7003,7 @@ registerForEvent(
         -- pakietu; znika przy utracie połączenia
         ----------------------------------------------------
 
-        Sync.updateRemoteVehicle(
-            player,
-            delta
-        )
+        if not Sync.isV2() then Sync.updateRemoteVehicle(player, delta) end
 
 
         ----------------------------------------------------
@@ -6792,6 +7035,9 @@ registerForEvent(
         -- NO FRESH REMOTE DATA
         ----------------------------------------------------
 
+        if Sync.isV2() then
+            if not Sync.receiveV2State(player, delta) then return end
+        else
         if not Game.CP2077Coop_HasRemotePlayer() then
             return
         end
@@ -7242,6 +7488,8 @@ registerForEvent(
                 )
             end
         end
+
+        end -- v1 packet receiver; v2 sampling above is a separate render path
 
 
         ----------------------------------------------------

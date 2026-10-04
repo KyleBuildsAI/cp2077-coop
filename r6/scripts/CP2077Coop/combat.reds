@@ -16,6 +16,21 @@
 // packet without overwriting normal movement state.
 // ============================================================
 
+// Opt-in v2 currently transports player snapshots, not authoritative hits.
+// Default false preserves the v1 damage path when Lua or the new module is absent.
+@addField(PlayerPuppet)
+private let CP2077Coop_LegacyCombatSuppressed: Bool;
+
+@addMethod(PlayerPuppet)
+public func CP2077Coop_SuppressLegacyCombat(suppressed: Bool) -> Void {
+    this.CP2077Coop_LegacyCombatSuppressed = suppressed;
+}
+
+@addMethod(PlayerPuppet)
+public func CP2077Coop_IsLegacyCombatSuppressed() -> Bool {
+    return this.CP2077Coop_LegacyCombatSuppressed;
+}
+
 @wrapMethod(DamageSystem)
 private func ProcessLocalizedDamage(hitEvent: ref<gameHitEvent>) -> Void {
 
@@ -40,6 +55,11 @@ private func ProcessLocalizedDamage(hitEvent: ref<gameHitEvent>) -> Void {
 
     // Only hits produced by the local player.
     if !hitEvent.attackData.GetInstigator().IsPlayer() {
+        return;
+    };
+
+    let coopPlayer = hitEvent.attackData.GetInstigator() as PlayerPuppet;
+    if IsDefined(coopPlayer) && coopPlayer.CP2077Coop_IsLegacyCombatSuppressed() {
         return;
     };
 

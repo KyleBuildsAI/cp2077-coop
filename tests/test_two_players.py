@@ -49,11 +49,12 @@ JITTER_MS = 15.0
 
 IMGUI_MOCK = r"""
 drawCalls = 0
-ImGuiCond = { FirstUseEver = 4 }
+ImGuiCond = { FirstUseEver = 4, Once = 2 }
 ImGuiWindowFlags = { AlwaysAutoResize = 64 }
 clickButton = nil
 ImGui = {
     SetNextWindowPos = function() end,
+    SetNextWindowSize = function() end,
     Begin = function() return true end,
     End = function() end,
     Text = function(s) assert(type(s) == "string", "Text needs string") end,
@@ -195,8 +196,8 @@ def test_role_conflict_detected():
 
 
 def test_join_gives_up():
-    # 4 s settle, then 3 attempts of 2.5 s with 2 s and 4 s pauses: done by ~17.5 s
-    host, joiner = run_session(22.0, joiner_teleport_works=False)
+    # 4 s settle, then 3 attempts of 5 s with 2 s and 4 s pauses: done by ~25 s
+    host, joiner = run_session(30.0, joiner_teleport_works=False)
     failed = [l for l in logs(joiner) if "WORLD SYNC FAILED" in l]
     gave_up = [l for l in logs(joiner) if "GAVE UP" in l]
     print(f"failed attempts logged: {len(failed)}, gave up: {bool(gave_up)}")
