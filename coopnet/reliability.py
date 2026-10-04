@@ -13,6 +13,12 @@ Delivery model (per hop, the relay re-sequences for every receiver):
   RTO with exponential backoff, and are delivered exactly once, in order.
   Every retransmission goes out in a new packet with a new sequence, so each
   ack yields an unambiguous RTT sample (no Karn problem).
+* RTT samples are only taken from acks carried by a packet that directly
+  follows the previous packet received from the other side. After a gap
+  (a lost or reordered packet), the first ack that gets through can cover
+  packets whose earlier acks were lost, and their apparent RTT includes the
+  time the gap stayed open. The CPN2 prototype learned this the hard way: an
+  ack arriving after a repaired gap made a 200 ms link read 9.2 s.
 * A DATA packet holds at most MAX_MESSAGES_PER_PACKET messages, the limit
   decode_messages enforces on the receiving side.
 """
@@ -81,6 +87,8 @@ class LinkStats:
         self.reliable_duplicates = 0
         self.reliable_out_of_window = 0
         self.recv_span = 0
+        self.rtt_samples = 0
+        self.rtt_skipped = 0
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -200,12 +208,14 @@ class Connection:
         if seq == 0:
             raise proto.ProtocolError("packet sequence 0 is reserved")
         self.ack_pending = True
+        previous = self.remote_seq
         if not self._record_received(seq):
             return []
         self.stats.packets_received += 1
         self.stats.bytes_received += size or (len(body) + proto.PACKET_HEADER.size)
         self.last_recv = now
-        self._process_acks(now, ack, ack_bits)
+        in_order = previous != 0 and seq == next_packet_seq(previous)
+        self._process_acks(now, ack, ack_bits, in_order)
         delivered = []
         for mtype, peer, rel_seq, payload in messages:
             if rel_seq is None:
@@ -243,24 +253,29 @@ class Connection:
         self.recv_bits |= 1 << bit
         return True
 
-    def _process_acks(self, now: float, ack: int, ack_bits: int) -> None:
+    def _process_acks(self, now: float, ack: int, ack_bits: int, sample_rtt: bool) -> None:
+        """``sample_rtt`` is False when the carrying packet followed a gap (see the module notes)."""
         if ack == 0:
             return
         if ack in self.sent:
-            self._on_acked(now, ack)
+            self._on_acked(now, ack, sample_rtt)
         for bit in range(ACK_BITS):
             if ack_bits & (1 << bit):
                 seq = (ack - 1 - bit) % SEQ_SPACE
                 if seq in self.sent:
-                    self._on_acked(now, seq)
+                    self._on_acked(now, seq, sample_rtt)
         for seq in [s for s in self.sent if seq_diff(ack, s) > ACK_BITS]:
             del self.sent[seq]
             self.stats.packets_lost += 1
 
-    def _on_acked(self, now: float, seq: int) -> None:
+    def _on_acked(self, now: float, seq: int, sample_rtt: bool) -> None:
         info = self.sent.pop(seq)
         self.stats.packets_acked += 1
-        self._update_rtt(now - info.time)
+        if sample_rtt:
+            self.stats.rtt_samples += 1
+            self._update_rtt(now - info.time)
+        else:
+            self.stats.rtt_skipped += 1
         for rel_seq in info.rel_seqs:
             self.rel_pending.pop(rel_seq, None)
 

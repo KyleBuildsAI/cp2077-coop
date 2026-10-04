@@ -42,9 +42,19 @@ def deliver(conn, now, packet, sink):
         sink.append((mtype, reliable, payload))
 
 
-def simulate(loss, dup, seconds=30.0, messages=600, seed=1, start_seq=1, start_rel=0, burst_every=0):
+DRAIN_LIMIT_S = 30.0
+
+
+def simulate(loss, dup, seconds=30.0, messages=600, seed=1, start_seq=1, start_rel=0, burst_every=0,
+             factory=Connection):
+    """Two connections over lossy pipes. New reliable messages stop 8 s before ``seconds``.
+
+    The run continues past ``seconds`` (at most DRAIN_LIMIT_S) while either side still has
+    unacknowledged reliable messages: at 45 % loss each way a message queued just before the
+    cutoff can need more than 8 s, because the resend interval backs off to 8 x RTO.
+    """
     rng = random.Random(seed)
-    a, b = Connection(token=1), Connection(token=1)
+    a, b = factory(token=1), factory(token=1)
     for conn in (a, b):
         conn.next_seq = start_seq
         conn.rel_next = start_rel
@@ -57,7 +67,7 @@ def simulate(loss, dup, seconds=30.0, messages=600, seed=1, start_seq=1, start_r
     step = 1.0 / 120.0
     counter = 0
     tick = 0
-    while now < seconds:
+    while now < seconds or ((a.rel_pending or b.rel_pending) and now < seconds + DRAIN_LIMIT_S):
         tick += 1
         for name, conn, pipe in (("a", a, ab), ("b", b, ba)):
             unreliable = []
@@ -139,6 +149,59 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(sum(counts), 250)
         self.assertLessEqual(max(counts), proto.MAX_MESSAGES_PER_PACKET)
         self.assertEqual(len(packets), 3)
+
+    def test_rtt_ignores_acks_after_a_gap(self):
+        a, b = Connection(1), Connection(1)
+
+        def a_to_b(now):
+            for packet in a.build_packets(now, [(0x10, 0, b"x")]):
+                _, _, seq, ack, bits, body = proto.decode_packet(packet)
+                b.on_packet(now + 0.05, seq, ack, bits, body)
+
+        def b_packets(now):
+            return [proto.decode_packet(packet) for packet in b.build_packets(now, [(0x10, 0, b"y")])]
+
+        now = 0.0
+        for _ in range(10):  # clean exchanges at 100 ms RTT
+            a_to_b(now)
+            for _, _, seq, ack, bits, body in b_packets(now + 0.05):
+                a.on_packet(now + 0.1, seq, ack, bits, body)
+            now += 0.1
+        self.assertAlmostEqual(a.srtt, 0.1, delta=0.001)
+        samples, skipped = a.stats.rtt_samples, a.stats.rtt_skipped
+        self.assertEqual(skipped, 1)  # the very first packet from b: nothing to compare it with
+        a_to_b(now)
+        lost = b_packets(now + 0.05)  # the packet acking a's newest one is lost
+        self.assertEqual(len(lost), 1)
+        late = b_packets(now + 1.0)   # the next one acks it again, 1 s later
+        for _, _, seq, ack, bits, body in late:
+            a.on_packet(now + 1.05, seq, ack, bits, body)
+        self.assertEqual(a.stats.rtt_samples, samples)
+        self.assertEqual(a.stats.rtt_skipped, skipped + 1)
+        self.assertAlmostEqual(a.srtt, 0.1, delta=0.001)  # a 1.05 s sample would have pulled it to 0.22 s
+        self.assertFalse(a.sent)
+
+    def test_no_inflated_rtt_samples_under_loss(self):
+        # In simulate() a packet takes at most 70 ms each way plus one 8.3 ms tick to be popped,
+        # and the peer answers within 4 ticks, so no true round trip exceeds about 190 ms. Before
+        # the rule, acks that got through after a gap produced samples up to 333 ms at 45 % loss.
+        class Recording(Connection):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.rtt_log = []
+
+            def _update_rtt(self, sample):
+                self.rtt_log.append(sample)
+                super()._update_rtt(sample)
+
+        for seed, loss, dup in ((1, 0.0, 0.0), (2, 0.1, 0.05), (3, 0.3, 0.1), (4, 0.45, 0.2)):
+            a, b, *_ = simulate(loss, dup, seed=seed, factory=Recording)
+            for conn in (a, b):
+                self.assertGreater(len(conn.rtt_log), 100, f"loss={loss}")
+                self.assertLessEqual(max(conn.rtt_log), 0.19, f"loss={loss}")
+                self.assertEqual(len(conn.rtt_log), conn.stats.rtt_samples)
+                if loss:
+                    self.assertGreater(conn.stats.rtt_skipped, len(conn.rtt_log) // 10)
 
     def test_ack_bits(self):
         conn = Connection()
