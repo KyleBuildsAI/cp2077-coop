@@ -1421,19 +1421,29 @@ function Sync.readLocalFlags(player, isHost)
 end
 
 
--- Godzina i pogoda hosta: co WORLD_INTERVAL i od razu po zmianie
--- (nil = nic do wysłania).
-function Sync.nextWorldPayload(player)
+-- Godzina, pogoda i model pojazdu: wartość do wysłania teraz albo nil.
+-- changedOnly = tylko zmieniona (idzie przed pingiem), inaczej też ta,
+-- której termin minął (co WORLD_INTERVAL). value nil = brak wartości.
+function Sync.dueValue(value, sent, dueAt, changedOnly)
 
-    local timeValue =
-        math.floor(
-            player:CP2077Coop_GetTimeOfDayMinutes() /
-            Sync.TIME_STEP_MINUTES
-        )
+    if value == nil then
+        return false
+    end
 
-    if timeValue ~= Sync.sentTime
-        or Sync.clock >= Sync.nextTimeAt
-    then
+    if value ~= sent then
+        return true
+    end
+
+    return
+        not changedOnly
+        and Sync.clock >= dueAt
+end
+
+
+-- Godzina i pogoda hosta (timeValue, weatherValue: odczyt z tego slotu).
+function Sync.nextWorldPayload(timeValue, weatherValue, changedOnly)
+
+    if Sync.dueValue(timeValue, Sync.sentTime, Sync.nextTimeAt, changedOnly) then
 
         Sync.sentTime = timeValue
         Sync.nextTimeAt = Sync.nextSendAt(Sync.nextTimeAt, Sync.WORLD_INTERVAL)
@@ -1443,12 +1453,7 @@ function Sync.nextWorldPayload(player)
             timeValue
     end
 
-    local weatherValue =
-        player:CP2077Coop_GetWeatherIndex() + 1
-
-    if weatherValue ~= Sync.sentWeather
-        or Sync.clock >= Sync.nextWeatherAt
-    then
+    if Sync.dueValue(weatherValue, Sync.sentWeather, Sync.nextWeatherAt, changedOnly) then
 
         Sync.sentWeather = weatherValue
         Sync.nextWeatherAt = Sync.nextSendAt(Sync.nextWeatherAt, Sync.WORLD_INTERVAL)
@@ -1462,10 +1467,10 @@ function Sync.nextWorldPayload(player)
 end
 
 
--- Model pojazdu: co WORLD_INTERVAL i od razu po zmianie, ale dopiero
--- po pakiecie flag z "w pojeździe" - odbiorca bez tej flagi wyrzuca
--- model (Sync.updateRemoteVehicle) i czekałby na następny.
-function Sync.nextVehiclePayload(player)
+-- Model auta, którym jedziemy (nil = nie jedziemy albo jeszcze nie
+-- wysłaliśmy flagi "w pojeździe" - odbiorca bez niej wyrzuca model
+-- w Sync.updateRemoteVehicle i czekałby na następny).
+function Sync.mountedVehicleIndex(player)
 
     if not Sync.hasFlag(Sync.localFlags, Sync.FLAG_IN_VEHICLE) then
 
@@ -1491,24 +1496,66 @@ function Sync.nextVehiclePayload(player)
         return nil
     end
 
-    if index ~= Sync.sentVehicle
-        or Sync.clock >= Sync.nextVehicleAt
-    then
+    return index
+end
 
-        Sync.sentVehicle = index
-        Sync.nextVehicleAt = Sync.nextSendAt(Sync.nextVehicleAt, Sync.WORLD_INTERVAL)
 
-        return
-            Sync.TYPE_VEHICLE * Sync.TYPE_STRIDE +
-            index
+function Sync.nextVehiclePayload(index, changedOnly)
+
+    if not Sync.dueValue(index, Sync.sentVehicle, Sync.nextVehicleAt, changedOnly) then
+        return nil
     end
 
-    return nil
+    Sync.sentVehicle = index
+    Sync.nextVehicleAt = Sync.nextSendAt(Sync.nextVehicleAt, Sync.WORLD_INTERVAL)
+
+    return
+        Sync.TYPE_VEHICLE * Sync.TYPE_STRIDE +
+        index
 end
 
 
 -- Payload inny niż flagi, jeśli coś jest do wysłania (nil = flagi).
+-- Kolejność: zmieniona godzina / pogoda / auto, ping, ich termin co
+-- WORLD_INTERVAL, mody.
 function Sync.nextExtraPayload(player, isHost)
+
+    -- druga strona jeszcze nie pokazała, że dekoduje payload (patrz
+    -- peerDecodesPayload), albo brak redscriptu: tylko ping i flagi
+    local ready =
+        Sync.peerDecodesPayload
+        and Sync.hasScripts(player)
+
+    local timeValue = nil
+    local weatherValue = nil
+    local vehicleIndex = nil
+
+    if ready then
+
+        if isHost then
+
+            timeValue =
+                math.floor(
+                    player:CP2077Coop_GetTimeOfDayMinutes() /
+                    Sync.TIME_STEP_MINUTES
+                )
+
+            weatherValue =
+                player:CP2077Coop_GetWeatherIndex() + 1
+        end
+
+        vehicleIndex =
+            Sync.mountedVehicleIndex(player)
+
+        -- zmiana: od razu, przed pingiem
+        local changed =
+            Sync.nextWorldPayload(timeValue, weatherValue, true)
+            or Sync.nextVehiclePayload(vehicleIndex, true)
+
+        if changed ~= nil then
+            return changed
+        end
+    end
 
     -- stara wersja nie odpowiada na ping, a każdy ping to dwie zmiany
     -- długości wektora (obrót avatara u niej): rzadko, tylko żeby
@@ -1537,29 +1584,16 @@ function Sync.nextExtraPayload(player, isHost)
             Sync.pingToken
     end
 
-    -- druga strona jeszcze nie pokazała, że dekoduje payload (patrz
-    -- peerDecodesPayload), albo brak redscriptu: same flagi
-    if not Sync.peerDecodesPayload
-        or not Sync.hasScripts(player)
-    then
+    if not ready then
         return nil
     end
 
-    if isHost then
+    local periodic =
+        Sync.nextWorldPayload(timeValue, weatherValue, false)
+        or Sync.nextVehiclePayload(vehicleIndex, false)
 
-        local world =
-            Sync.nextWorldPayload(player)
-
-        if world ~= nil then
-            return world
-        end
-    end
-
-    local vehicle =
-        Sync.nextVehiclePayload(player)
-
-    if vehicle ~= nil then
-        return vehicle
+    if periodic ~= nil then
+        return periodic
     end
 
     if Mods.due(Sync.clock) then
@@ -1574,9 +1608,10 @@ end
 -- 30 Hz). Flagi gracza mają dojść w >= 85% pakietów u OBU ról (Total
 -- Sync Plan, faza 0; wcześniej host 23%, joiner 70%: mody 25% na
 -- zawsze, godzina i pogoda 50% pakietów hosta). Teraz:
---   pong od razu (dokładny RTT), ping co PING_INTERVAL,
---   godzina i pogoda (host), model pojazdu: co WORLD_INTERVAL i od
---     razu po zmianie,
+--   pong od razu (dokładny RTT),
+--   godzina i pogoda (host), model pojazdu: od razu po zmianie
+--     (przed pingiem) i co WORLD_INTERVAL,
+--   ping co PING_INTERVAL,
 --   mody: seria do porównania + 2 cykle, potem para co 10 s (Mods.due),
 --   reszta: flagi.
 -- Po pakiecie bez flag (poza pongiem) następny niesie flagi, więc
