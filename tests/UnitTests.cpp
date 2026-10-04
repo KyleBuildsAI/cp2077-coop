@@ -895,6 +895,73 @@ bool WaitForEvent(Transport& aTransport, const std::string& aPrefix, std::vector
     return false;
 }
 
+// Disconnect, a reconnect through Connect, and the destructor (the Main(Unload) path) must each
+// return long before a lookup that is still in progress would finish.
+void CheckStopsDuringSlowLookup(std::mt19937& aRandom, double aStopLimitMs)
+{
+    {
+        Transport transport;
+        CHECK(transport.Connect(UnresolvableSingleLabelName(aRandom), 11779, "dns"));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const bool resolving = transport.State() == ConnectionState::Resolving;
+        const auto start = std::chrono::steady_clock::now();
+        transport.Disconnect();
+        const double stopMs = MillisSince(start);
+        std::printf("    Disconnect() while %s: %.1f ms\n", resolving ? "resolving" : ToString(transport.State()),
+                    stopMs);
+        CHECK(resolving);
+        CHECK(stopMs < aStopLimitMs);
+        CHECK(transport.State() == ConnectionState::Idle);
+        const std::vector<std::string> events = DrainEvents(transport);
+        CHECK(events == std::vector<std::string>{"0|0|disconnected"});
+    }
+    {
+        Transport transport;
+        CHECK(transport.Connect(UnresolvableSingleLabelName(aRandom), 11779, "dns"));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const auto start = std::chrono::steady_clock::now();
+        CHECK(transport.Connect(UnresolvableSingleLabelName(aRandom), 11779, "dns"));
+        const double reconnectMs = MillisSince(start);
+        const auto stopStart = std::chrono::steady_clock::now();
+        transport.Disconnect();
+        const double stopMs = MillisSince(stopStart);
+        std::printf("    second Connect() while resolving: %.1f ms, then Disconnect(): %.1f ms\n", reconnectMs,
+                    stopMs);
+        CHECK(reconnectMs < aStopLimitMs);
+        CHECK(stopMs < aStopLimitMs);
+    }
+    {
+        // the path Main(Unload) takes: g_transport.reset()
+        auto transport = std::make_unique<Transport>();
+        CHECK(transport->Connect(UnresolvableSingleLabelName(aRandom), 11779, "dns"));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const auto start = std::chrono::steady_clock::now();
+        transport.reset();
+        const double destroyMs = MillisSince(start);
+        std::printf("    destroying the Transport while resolving: %.1f ms\n", destroyMs);
+        CHECK(destroyMs < aStopLimitMs);
+    }
+}
+
+// The overlapped lookup still resolves real names and reports failures.
+void CheckLookupOutcomes()
+{
+    Transport transport;
+    std::vector<std::string> seen;
+    CHECK(transport.Connect("localhost", 9, "dns")); // discard port: no bench relay there
+    const bool connecting = WaitForEvent(transport, "0|0|connecting 127.0.0.1:9", seen);
+    std::printf("    localhost -> %s\n", connecting ? "0|0|connecting 127.0.0.1:9" : "no connecting event");
+    CHECK(connecting);
+    transport.Disconnect();
+
+    seen.clear();
+    CHECK(transport.Connect("relay.coopnet-test.invalid", 11779, "dns"));
+    const bool failed = WaitForEvent(transport, "0|0|error cannot resolve 'relay.coopnet-test.invalid'", seen);
+    std::printf("    relay.coopnet-test.invalid -> %s\n", failed ? seen.back().c_str() : "no error event");
+    CHECK(failed);
+    CHECK(transport.State() == ConnectionState::Error);
+}
+
 void TestStopWhileResolving()
 {
     std::puts("Disconnect, reconnect and destroy while the relay host name resolves");
@@ -918,70 +985,19 @@ void TestStopWhileResolving()
     }
     WSACleanup();
     std::printf("    blocking getaddrinfo('%s') took %.1f ms (status %d)\n", reference.c_str(), blockingMs, status);
-    if (blockingMs < 2.0 * kStopLimitMs)
-    {
-        std::puts("    note: lookups fail fast on this machine, so the timings below cannot tell the old code apart");
-    }
 
+    // A stop can only be caught mid-lookup where such a lookup blocks for a while (LLMNR/NetBIOS).
+    // Where it fails at once, the session has already ended in an error before the stop, so the
+    // timing checks are skipped rather than reported as failures.
+    if (blockingMs >= 2.0 * kStopLimitMs)
     {
-        Transport transport;
-        CHECK(transport.Connect(UnresolvableSingleLabelName(random), 11779, "dns"));
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        const bool resolving = transport.State() == ConnectionState::Resolving;
-        const auto start = std::chrono::steady_clock::now();
-        transport.Disconnect();
-        const double stopMs = MillisSince(start);
-        std::printf("    Disconnect() while %s: %.1f ms\n", resolving ? "resolving" : ToString(transport.State()),
-                    stopMs);
-        CHECK(resolving);
-        CHECK(stopMs < kStopLimitMs);
-        CHECK(transport.State() == ConnectionState::Idle);
-        const std::vector<std::string> events = DrainEvents(transport);
-        CHECK(events == std::vector<std::string>{"0|0|disconnected"});
+        CheckStopsDuringSlowLookup(random, kStopLimitMs);
     }
+    else
     {
-        Transport transport;
-        CHECK(transport.Connect(UnresolvableSingleLabelName(random), 11779, "dns"));
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        const auto start = std::chrono::steady_clock::now();
-        CHECK(transport.Connect(UnresolvableSingleLabelName(random), 11779, "dns"));
-        const double reconnectMs = MillisSince(start);
-        const auto stopStart = std::chrono::steady_clock::now();
-        transport.Disconnect();
-        const double stopMs = MillisSince(stopStart);
-        std::printf("    second Connect() while resolving: %.1f ms, then Disconnect(): %.1f ms\n", reconnectMs,
-                    stopMs);
-        CHECK(reconnectMs < kStopLimitMs);
-        CHECK(stopMs < kStopLimitMs);
+        std::puts("    skipped the stop timings: lookups fail fast on this machine, nothing to interrupt");
     }
-    {
-        // the path Main(Unload) takes: g_transport.reset()
-        auto transport = std::make_unique<Transport>();
-        CHECK(transport->Connect(UnresolvableSingleLabelName(random), 11779, "dns"));
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        const auto start = std::chrono::steady_clock::now();
-        transport.reset();
-        const double destroyMs = MillisSince(start);
-        std::printf("    destroying the Transport while resolving: %.1f ms\n", destroyMs);
-        CHECK(destroyMs < kStopLimitMs);
-    }
-    {
-        // the overlapped lookup still resolves real names and reports failures
-        Transport transport;
-        std::vector<std::string> seen;
-        CHECK(transport.Connect("localhost", 9, "dns")); // discard port: no bench relay there
-        const bool connecting = WaitForEvent(transport, "0|0|connecting 127.0.0.1:9", seen);
-        std::printf("    localhost -> %s\n", connecting ? "0|0|connecting 127.0.0.1:9" : "no connecting event");
-        CHECK(connecting);
-        transport.Disconnect();
-
-        seen.clear();
-        CHECK(transport.Connect("relay.coopnet-test.invalid", 11779, "dns"));
-        const bool failed = WaitForEvent(transport, "0|0|error cannot resolve 'relay.coopnet-test.invalid'", seen);
-        std::printf("    relay.coopnet-test.invalid -> %s\n", failed ? seen.back().c_str() : "no error event");
-        CHECK(failed);
-        CHECK(transport.State() == ConnectionState::Error);
-    }
+    CheckLookupOutcomes();
 }
 } // namespace
 
