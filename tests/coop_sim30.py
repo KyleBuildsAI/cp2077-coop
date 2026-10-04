@@ -2,10 +2,18 @@
 
 Mocks the CET/game API, drives a scripted remote-player path over a lossy,
 jittery network, models the remote NPC as a lagging AI follower, and reports
-how closely the NPC tracks the real remote player.
+how closely the NPC tracks the real remote player. It exercises the movement
+path only: the mock has no state-sync natives, so the mod logs "redscript not
+compiled" once and runs with state sync off.
+
+Run as a script, it checks every seed against BOUNDS and fails on any logged
+error, so the runner's movement sim group can fail.
+
+Usage: python coop_sim30.py LABEL path/to/init.lua [LABEL path ...]
 """
 import math
 import random
+import re
 import sys
 
 from lupa.luajit21 import LuaRuntime
@@ -155,6 +163,10 @@ def build_truth():
     return samples
 
 
+# what counts as a logged error (not the "error=0.42" measurement fields)
+LOG_ERROR = re.compile(r"ERROR|FAILED|NOT RESPONDING|\berror:|\bfailed\b")
+
+
 def run(script_path, seed=7):
     rng = random.Random(seed)
     lua = LuaRuntime(unpack_returned_tuples=True)
@@ -220,17 +232,56 @@ def run(script_path, seed=7):
         "backwards": backwards,
         "teleports": stats.teleports,
         "moveCommands": stats.moveCommands,
-        "log_errors": [line for line in g.logs.values() if "ERROR" in line or "FAILED" in line],
+        "log_errors": [line for line in g.logs.values() if LOG_ERROR.search(line)],
     }
 
 
-if __name__ == "__main__":
-    for label, path in zip(sys.argv[1::2], sys.argv[2::2]):
-        results = [run(path, seed) for seed in (1, 2, 3)]
+SEEDS = (1, 2, 3)
+# loose limits around today's numbers (seeds 1-3 in the comments); every seed is checked
+BOUNDS = {
+    "idle_err": ("max", 0.6),     # 0.24-0.29 m
+    "move_err": ("max", 2.0),     # 1.13-1.17 m
+    "vehicle_err": ("max", 3.5),  # 1.89-1.90 m
+    "backwards": ("max", 5),      # 0
+    "teleports": ("max", 400),    # 282-283, almost all in the 15 m/s fast-follow phase
+    "moveCommands": ("min", 10),  # 28-31: the AI move path is still in use
+}
+
+
+def bound_failures(seed, result):
+    """Why one seed's run is out of bounds (empty when it is fine)."""
+    failures = [f"seed {seed} log: {line}" for line in result["log_errors"]]
+    for key, (kind, limit) in BOUNDS.items():
+        value = result[key]
+        if isinstance(value, float) and math.isnan(value):
+            failures.append(f"seed {seed} {key} has no samples (the avatar never spawned?)")
+        elif (value > limit) if kind == "max" else (value < limit):
+            failures.append(f"seed {seed} {key} {value:.2f} {'>' if kind == 'max' else '<'} {limit}")
+    return failures
+
+
+def main(arguments):
+    pairs = list(zip(arguments[0::2], arguments[1::2]))
+    if not pairs:
+        print(__doc__)
+        return 2
+    failures = []
+    for label, path in pairs:
+        results = [run(path, seed) for seed in SEEDS]
         print(f"== {label}")
         for key in ("idle_err", "move_err", "vehicle_err"):
-            print(f"  {key:12} {sum(r[key] for r in results) / 3:6.2f} m (avg, 3 seeds)")
+            print(f"  {key:12} {sum(r[key] for r in results) / len(SEEDS):6.2f} m (avg, {len(SEEDS)} seeds)")
         for key in ("backwards", "teleports", "moveCommands"):
-            print(f"  {key:12} {sum(r[key] for r in results) // 3:6d} (avg/run)")
-        print(f"  log errors   {results[0]['log_errors'][:3]}")
+            print(f"  {key:12} {sum(r[key] for r in results) // len(SEEDS):6d} (avg/run)")
+        print(f"  log errors   {sum(len(r['log_errors']) for r in results)} over {len(SEEDS)} seeds")
+        label_failures = [f"{label} {failure}" for seed, r in zip(SEEDS, results) for failure in bound_failures(seed, r)]
+        for failure in label_failures:
+            print(f"FAIL  movement sim {failure}")
+        if not label_failures:
+            print(f"PASS  movement sim {label}: {len(SEEDS)} seeds within bounds, no logged errors")
+        failures += label_failures
+    return 1 if failures else 0
 
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -208,7 +208,7 @@ function Test-PythonScript {
 function Test-MovementSim {
     Write-Output "== movement sim"
     $result = Invoke-InWorkFolder "coop_sim30" @((Join-Path $TestsDir "coop_sim30.py"), "current", $LuaScript)
-    Show-Lines $result "err|teleports|moveCommands|log errors"
+    Show-Lines $result "PASS|FAIL|err|teleports|moveCommands|log errors"
     Complete-Group ($result.Code -eq 0)
 }
 
