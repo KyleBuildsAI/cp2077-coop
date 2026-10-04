@@ -2,16 +2,19 @@
 # checks and stages an install folder under dist\ (never touches a game directory).
 #
 #   powershell -ExecutionPolicy Bypass -File tools\build.ps1                  # build + unit tests + export checks
-#   powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Loopback        # also the relay integration test
+#   powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Loopback        # also the relay_v2.py loopbacks
 #   powershell -ExecutionPolicy Bypass -File tools\build.ps1 -Clean -All      # fresh build dir, every offline test
 #
 # Every run also checks protocol v2: coopnet_v2_tests, the 20,000-input fuzzer (plain and, when
 # the MSVC AddressSanitizer runtime is installed, under /fsanitize=address), the golden vectors
 # against the relay's proto.py in both directions (tools\v2_golden.py), the Connection tests and the
-# replay of reliability.py traces (tools\v2_link_trace.py), and the ClockSync tests. The relay
+# replay of reliability.py traces (tools\v2_link_trace.py), the ClockSync tests, and the
+# SnapshotBuffer tests with the replay of interp.py traces (tools\v2_interp_trace.py). The relay
 # checkout is ..\relay or $env:COOPNET_RELAY_DIR.
-# -Loopback adds the CPN2 relay loopback and two C++ v2 clients through relay_v2.py over UDP
-# (tools\run_v2_loopback.py: reliable order, clock error under 5 ms, both instances agree).
+# -Loopback adds two plugin Transports through relay_v2.py (tools\run_loopback.py: handshake and
+# rejections, script messages, player snapshots rendered through SampleRemote, a relay restart) and
+# two C++ v2 test clients through relay_v2.py (tools\run_v2_loopback.py: reliable order, clock
+# error under 5 ms, both instances agree).
 # -All implies -Loopback and also runs tests\test_lua_helper.py, the relay's unit tests and its
 # tools\check_c_header.py.
 # The Lua test needs the lupa package: pip install lupa, or set PYTHONPATH to a folder that has it.
@@ -67,8 +70,14 @@ Invoke-Step 'v2 Connection against reliability.py traces' {
     python (Join-Path $PSScriptRoot 'v2_link_trace.py') --relay $relay run --exe (Join-Path $release 'coopnet_v2_reliability_tests.exe')
 }
 Invoke-Step 'v2 ClockSync tests' { & (Join-Path $release 'coopnet_v2_clock_tests.exe') }
+Invoke-Step 'v2 SnapshotBuffer tests (ported interp.py tests)' { & (Join-Path $release 'coopnet_v2_interp_tests.exe') }
+Invoke-Step 'v2 SnapshotBuffer against interp.py traces' {
+    python (Join-Path $PSScriptRoot 'v2_interp_trace.py') --relay $relay run --exe (Join-Path $release 'coopnet_v2_interp_tests.exe')
+}
 if ($Loopback -or $All) {
-    Invoke-Step 'relay loopback' { python (Join-Path $PSScriptRoot 'run_loopback.py') }
+    Invoke-Step 'plugin transport loopback through relay_v2.py' {
+        python (Join-Path $PSScriptRoot 'run_loopback.py') --relay $relay --exe (Join-Path $release 'coopnet_loopback.exe')
+    }
     Invoke-Step 'v2 loopback: two C++ clients through relay_v2.py' {
         python (Join-Path $PSScriptRoot 'run_v2_loopback.py') --relay $relay --exe (Join-Path $release 'coopnet_v2_loopback_client.exe')
     }
