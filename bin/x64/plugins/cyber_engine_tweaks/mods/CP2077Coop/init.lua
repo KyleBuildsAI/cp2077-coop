@@ -240,6 +240,17 @@ local Diag = {
     STATS_INTERVAL = 5.0,
     MONITOR_READ_INTERVAL = 2.0,
 
+    -- progi ocen w panelu: { ostrzeżenie od, źle od }. Te same liczby co
+    -- EXPECT w coop-tools/coop_monitor.py - zmieniać razem. RTT gracz ->
+    -- serwer -> gracz na trasie LA - Warszawa - Rosja to normalnie
+    -- ~250-400 ms (sieć + czekanie na klatkę i slot wysyłki).
+    LIMITS = {
+        rtt_ms = { 450, 700 },
+        server_ping_ms = { 250, 400 },
+        missed_pct = { 10, 25 },
+        age_ms = { 300, 1500 }
+    },
+
     -- progi stanu połączenia (sekundy bez nowego pakietu)
     STALE_AFTER = 1.5,
     LOST_AFTER = 5.0,
@@ -3539,17 +3550,18 @@ function Diag.row(label, value, level)
 end
 
 
-function Diag.levelForRtt(rtt)
+-- Ocena wartości wg progów z Diag.LIMITS (nil = brak danych).
+function Diag.levelFor(value, limits)
 
-    if rtt == nil then
+    if value == nil then
         return "neutral"
     end
 
-    if rtt < 350 then
+    if value < limits[1] then
         return "good"
     end
 
-    if rtt < 600 then
+    if value < limits[2] then
         return "warn"
     end
 
@@ -3672,7 +3684,7 @@ function Diag.draw()
     ImGui.Separator()
 
     -- OPÓŹNIENIE
-    Diag.row("Player RTT", Diag.formatMs(Sync.rttMs) .. " ms", Diag.levelForRtt(Sync.rttMs))
+    Diag.row("Player RTT", Diag.formatMs(Sync.rttMs) .. " ms", Diag.levelFor(Sync.rttMs, Diag.LIMITS.rtt_ms))
     Diag.row(
         "RTT min/max",
         Diag.formatMs(Sync.rttMinMs) .. " / " .. Diag.formatMs(Sync.rttMaxMs) .. " ms",
@@ -3682,12 +3694,10 @@ function Diag.draw()
     local age =
         Diag.lastAge
 
-    local ageLevel = "good"
+    local ageLevel = "bad"
 
-    if age == nil or age >= Diag.STALE_AFTER then
-        ageLevel = "bad"
-    elseif age >= 0.25 then
-        ageLevel = "warn"
+    if age ~= nil then
+        ageLevel = Diag.levelFor(age * 1000.0, Diag.LIMITS.age_ms)
     end
 
     Diag.row(
@@ -3736,8 +3746,7 @@ function Diag.draw()
             Diag.missedPercent(),
             Diag.ignored
         ),
-        missed == nil and "neutral"
-            or (missed < 10 and "good" or (missed < 25 and "warn" or "bad"))
+        Diag.levelFor(missed, Diag.LIMITS.missed_pct)
     )
 
     Diag.row(
@@ -3766,7 +3775,7 @@ function Diag.draw()
         Diag.row(
             "Your ping to relay",
             Diag.monitor.server_ping_ms .. " ms",
-            Diag.levelForRtt(serverPing and serverPing * 1.5 or nil)
+            Diag.levelFor(serverPing, Diag.LIMITS.server_ping_ms)
         )
     end
 
