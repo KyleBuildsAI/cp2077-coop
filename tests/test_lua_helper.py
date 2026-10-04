@@ -21,7 +21,12 @@ MODULE = os.path.join(ROOT, "lua", "coopnet.lua")
 
 def expected_version():
     with open(os.path.join(ROOT, "CMakeLists.txt"), encoding="utf-8") as handle:
-        semver = re.search(r"project\(CP2077CoopNet\s+VERSION\s+(\d+\.\d+\.\d+)", handle.read()).group(1)
+        cmake = handle.read()
+    semver = re.search(r"project\(CP2077CoopNet\s+VERSION\s+(\d+\.\d+\.\d+)", cmake).group(1)
+    kind = re.search(r'set\(COOPNET_PRERELEASE_TYPE\s+"([a-z]*)"\)', cmake).group(1)
+    number = re.search(r"set\(COOPNET_PRERELEASE_NUMBER\s+(\d+)\)", cmake).group(1)
+    if kind:
+        semver += f"-{kind}.{number}"
     with open(os.path.join(ROOT, "src", "core", "Protocol.hpp"), encoding="utf-8") as handle:
         proto = re.search(r"#define COOPNET_PROTOCOL_VERSION (\d+)", handle.read()).group(1)
     return semver, int(proto)
@@ -96,7 +101,15 @@ local info = CoopNet.parseVersion(version)
 check("parseVersion fields", info ~= nil and info.name == "CP2077CoopNet" and info.semver == EXPECTED_SEMVER
     and info.proto == EXPECTED_PROTO and type(info.major) == "number")
 check("parseVersion rejects junk", CoopNet.parseVersion("CP2077CoopNet 0.1 proto 1") == nil
-    and CoopNet.parseVersion(nil) == nil and CoopNet.parseVersion("") == nil)
+    and CoopNet.parseVersion(nil) == nil and CoopNet.parseVersion("") == nil
+    and CoopNet.parseVersion("CP2077CoopNet 0.2.0- proto 1") == nil
+    and CoopNet.parseVersion("CP2077CoopNet 0.2.0x proto 1") == nil)
+local release = CoopNet.parseVersion("CP2077CoopNet 0.1.2 proto 1")
+check("parseVersion of a release (0.1.x strings still parse)", release ~= nil and release.semver == "0.1.2"
+    and release.prerelease == nil and release.patch == 2 and release.proto == 1)
+local alpha = CoopNet.parseVersion("CP2077CoopNet 0.2.0-alpha.1 proto 1")
+check("parseVersion of a pre-release", alpha ~= nil and alpha.semver == "0.2.0-alpha.1"
+    and alpha.prerelease == "alpha.1" and alpha.major == 0 and alpha.minor == 2 and alpha.patch == 0)
 
 queue[#queue + 1] = "1|1|late"
 local handled, elapsed = CoopNet.pollTimed(function() end)

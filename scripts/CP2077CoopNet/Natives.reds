@@ -20,5 +20,5 @@ public static native func Net_LocalId() -> Int32
 // Two game instances on one PC share this clock, so their log stamps can be compared directly.
 public static native func Net_NowMs() -> Double
 
-// "CP2077CoopNet <major.minor.patch> proto <wire protocol version>", e.g. "CP2077CoopNet 0.1.1 proto 1".
+// "CP2077CoopNet <semver> proto <wire protocol version>", e.g. "CP2077CoopNet 0.2.0-alpha.1 proto 1".
 public static native func Net_Version() -> String

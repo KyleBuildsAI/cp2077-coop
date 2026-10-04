@@ -39,10 +39,14 @@ def native_names():
 
 
 def cmake_version():
-    match = re.search(r"project\(CP2077CoopNet\s+VERSION\s+(\d+\.\d+\.\d+)", read_text("CMakeLists.txt"))
-    if match is None:
-        raise SystemExit("project(CP2077CoopNet VERSION x.y.z) not found in CMakeLists.txt")
-    return match.group(1)
+    """The semver CMakeLists.txt builds: project VERSION plus the COOPNET_PRERELEASE_* label."""
+    text = read_text("CMakeLists.txt")
+    match = re.search(r"project\(CP2077CoopNet\s+VERSION\s+(\d+\.\d+\.\d+)", text)
+    kind = re.search(r'set\(COOPNET_PRERELEASE_TYPE\s+"([a-z]*)"\)', text)
+    number = re.search(r"set\(COOPNET_PRERELEASE_NUMBER\s+(\d+)\)", text)
+    if match is None or kind is None or number is None:
+        raise SystemExit("project(CP2077CoopNet VERSION x.y.z) or COOPNET_PRERELEASE_* not found in CMakeLists.txt")
+    return match.group(1) + (f"-{kind.group(1)}.{number.group(1)}" if kind.group(1) else "")
 
 
 def source_consistency(names):
@@ -114,7 +118,7 @@ def main(path):
     print(f"native names present ({len(names)}): {all((n.encode() + b'\x00') in image for n in names)}")
 
     expected_version = cmake_version()
-    found = re.findall(rb"CP2077CoopNet (\d+\.\d+\.\d+) proto (\d+)\x00", image)
+    found = re.findall(rb"CP2077CoopNet (\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?) proto (\d+)\x00", image)
     shown = [f"CP2077CoopNet {semver.decode()} proto {proto.decode()}" for semver, proto in found]
     print(f"Net_Version strings in image: {shown}"
           f" (CMakeLists.txt VERSION {expected_version})")

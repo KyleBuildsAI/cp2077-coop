@@ -537,20 +537,29 @@ void TestVersionString()
     std::puts("Net_Version format");
     const std::string version(kVersionString);
     std::printf("    Net_Version() = \"%s\"\n", version.c_str());
-    const std::regex format(R"(^CP2077CoopNet (\d+)\.(\d+)\.(\d+) proto (\d+)$)");
+    const std::regex format(R"(^CP2077CoopNet (\d+)\.(\d+)\.(\d+)(-(alpha|beta|rc)\.(\d+))? proto (\d+)$)");
     std::smatch parts;
     CHECK(std::regex_match(version, parts, format));
-    if (parts.size() == 5)
+    if (parts.size() == 8)
     {
         CHECK(std::stoul(parts[1].str()) == kVersionMajor);
         CHECK(std::stoul(parts[2].str()) == kVersionMinor);
         CHECK(std::stoul(parts[3].str()) == kVersionPatch);
-        CHECK(std::stoul(parts[4].str()) == kProtocolVersion);
+        CHECK(std::stoul(parts[7].str()) == kProtocolVersion);
+        const char* const types[] = {"", "alpha", "beta", "rc"};
+        CHECK(kPrereleaseType <= 3 && parts[5].str() == types[kPrereleaseType]);
+        CHECK(kPrereleaseType == 0 ? !parts[4].matched : std::stoul(parts[6].str()) == kPrereleaseNumber);
     }
     CHECK(version == std::string(kPluginName) + " " + std::string(kSemVer) + " proto " +
                          std::to_string(kProtocolVersion));
-    CHECK(kSemVer == std::to_string(kVersionMajor) + "." + std::to_string(kVersionMinor) + "." +
-                         std::to_string(kVersionPatch));
+    std::string numbers = std::to_string(kVersionMajor) + "." + std::to_string(kVersionMinor) + "." +
+                          std::to_string(kVersionPatch);
+    if constexpr (kPrereleaseType != 0)
+    {
+        const char* const types[] = {"", "alpha", "beta", "rc"};
+        numbers += std::string("-") + types[kPrereleaseType] + "." + std::to_string(kPrereleaseNumber);
+    }
+    CHECK(kSemVer == numbers);
 }
 
 // ---- startup summary line ----------------------------------------------------------------------

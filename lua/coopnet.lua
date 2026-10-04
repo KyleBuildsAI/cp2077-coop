@@ -7,7 +7,7 @@
 --   Game.Net_Poll() -> "" or "<sender>|<channel>|<payload>"   (FIFO, one message per call)
 --   Game.Net_Stats() -> JSON string, Game.Net_LocalId() -> int, Game.Net_Disconnect()
 --   Game.Net_NowMs() -> number: ms since the Unix epoch (UTC) with a sub-ms fraction
---   Game.Net_Version() -> "CP2077CoopNet <major.minor.patch> proto <n>"
+--   Game.Net_Version() -> "CP2077CoopNet <major.minor.patch>[-<prerelease>] proto <n>"
 --
 -- All module state lives in the CoopNet table (LuaJIT allows at most 60 upvalues per function).
 
@@ -59,26 +59,33 @@ function CoopNet.nowMs()
     return Game.Net_NowMs()
 end
 
--- "CP2077CoopNet 0.1.1 proto 1"
+-- "CP2077CoopNet 0.2.0-alpha.1 proto 1"
 function CoopNet.version()
     return Game.Net_Version()
 end
 
--- Parses a Net_Version() string into { name, semver, major, minor, patch, proto }, or nil.
+-- Parses a Net_Version() string into { name, semver, major, minor, patch, prerelease, proto }, or
+-- nil. prerelease is e.g. "alpha.1", or nil for a release; semver includes it ("0.2.0-alpha.1").
 function CoopNet.parseVersion(text)
     if type(text) ~= "string" then
         return nil
     end
-    local name, major, minor, patch, proto = text:match("^(%S+) (%d+)%.(%d+)%.(%d+) proto (%d+)$")
+    local name, major, minor, patch, prerelease, proto =
+        text:match("^(%S+) (%d+)%.(%d+)%.(%d+)%-([%w%.]+) proto (%d+)$")
+    if name == nil then
+        name, major, minor, patch, proto = text:match("^(%S+) (%d+)%.(%d+)%.(%d+) proto (%d+)$")
+    end
     if name == nil then
         return nil
     end
+    local semver = major .. "." .. minor .. "." .. patch
     return {
         name = name,
-        semver = major .. "." .. minor .. "." .. patch,
+        semver = prerelease and (semver .. "-" .. prerelease) or semver,
         major = tonumber(major),
         minor = tonumber(minor),
         patch = tonumber(patch),
+        prerelease = prerelease,
         proto = tonumber(proto),
     }
 end

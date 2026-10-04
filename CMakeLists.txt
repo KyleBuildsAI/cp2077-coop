@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(CP2077CoopNet VERSION 0.1.2 LANGUAGES CXX)
+project(CP2077CoopNet VERSION 0.2.0 LANGUAGES CXX)
+
+# Pre-release label, bumped per Phase 2 milestone (0.2.0-alpha.N). An empty type means a release.
+set(COOPNET_PRERELEASE_TYPE "alpha") # alpha | beta | rc | ""
+set(COOPNET_PRERELEASE_NUMBER 1)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,15 +30,31 @@ add_subdirectory("${RED4EXT_SDK_DIR}" RED4ext.SDK EXCLUDE_FROM_ALL)
 set(COOPNET_WARNINGS /W4 /permissive- /utf-8 /Zc:__cplusplus)
 
 # -----------------------------------------------------------------------------
-# Version: project(VERSION) above is the single source of truth. Query() reports it to RED4ext
-# and Net_Version() returns "CP2077CoopNet <major.minor.patch> proto <protocol>".
+# Version: project(VERSION) plus the pre-release label above are the single source of truth.
+# Query() reports them to RED4ext (RED4EXT_V1_SEMVER_EX) and Net_Version() returns
+# "CP2077CoopNet <major.minor.patch>[-<type>.<n>] proto <protocol>".
 # -----------------------------------------------------------------------------
+set(COOPNET_PRERELEASE_TYPES "" alpha beta rc) # index = RED4EXT_V1_SEMVER_PRERELEASE_TYPE_*
+list(FIND COOPNET_PRERELEASE_TYPES "${COOPNET_PRERELEASE_TYPE}" COOPNET_PRERELEASE_CODE)
+if(COOPNET_PRERELEASE_CODE LESS 0)
+  message(FATAL_ERROR "COOPNET_PRERELEASE_TYPE must be alpha, beta, rc or empty")
+endif()
+if(COOPNET_PRERELEASE_CODE EQUAL 0)
+  set(COOPNET_PRERELEASE_NUMBER 0)
+  set(COOPNET_SEMVER "${PROJECT_VERSION}")
+else()
+  set(COOPNET_SEMVER "${PROJECT_VERSION}-${COOPNET_PRERELEASE_TYPE}.${COOPNET_PRERELEASE_NUMBER}")
+endif()
+message(STATUS "CP2077CoopNet version ${COOPNET_SEMVER}")
 add_library(coopnet_version INTERFACE)
 target_include_directories(coopnet_version INTERFACE "${PROJECT_SOURCE_DIR}/src")
 target_compile_definitions(coopnet_version INTERFACE
   COOPNET_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
   COOPNET_VERSION_MINOR=${PROJECT_VERSION_MINOR}
   COOPNET_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+  COOPNET_VERSION_PRERELEASE_TYPE=${COOPNET_PRERELEASE_CODE}
+  COOPNET_VERSION_PRERELEASE_NUMBER=${COOPNET_PRERELEASE_NUMBER}
+  "COOPNET_SEMVER_TEXT=\"${COOPNET_SEMVER}\""
 )
 
 # -----------------------------------------------------------------------------
@@ -84,3 +104,4 @@ add_executable(coopnet_plugin_probe tests/PluginProbe.cpp)
 target_link_libraries(coopnet_plugin_probe PRIVATE RED4ext::SDK coopnet_version)
 target_compile_options(coopnet_plugin_probe PRIVATE ${COOPNET_WARNINGS})
 add_dependencies(coopnet_plugin_probe CP2077CoopNet)
+

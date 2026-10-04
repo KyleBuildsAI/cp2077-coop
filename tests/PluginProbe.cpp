@@ -49,8 +49,9 @@ int wmain(int argc, wchar_t** argv)
 
     std::printf("Supports() = %u (RED4EXT_API_VERSION_1 = %u)\n", apiVersion, RED4EXT_API_VERSION_1);
     std::wprintf(L"Query(): name=%ls author=%ls\n", info.name, info.author);
-    std::printf("  version=%u.%u.%u sdk=%u.%u.%u runtime=%u.%u.%u.%u\n", info.version.major, info.version.minor,
-                info.version.patch, info.sdk.major, info.sdk.minor, info.sdk.patch, info.runtime.major,
+    std::printf("  version=%u.%u.%u prerelease type=%u number=%u sdk=%u.%u.%u runtime=%u.%u.%u.%u\n",
+                info.version.major, info.version.minor, info.version.patch, info.version.prerelease.type,
+                info.version.prerelease.number, info.sdk.major, info.sdk.minor, info.sdk.patch, info.runtime.major,
                 info.runtime.minor, info.runtime.build, info.runtime.revision);
 
     const bool runtimeOk = info.runtime.major == expectedRuntime.major && info.runtime.minor == expectedRuntime.minor &&
@@ -59,9 +60,11 @@ int wmain(int argc, wchar_t** argv)
     // The version RED4ext logs ("CP2077CoopNet (version: x.y.z, ...) has been loaded") must be the CMake one.
     const bool versionOk = info.version.major == coopnet::kVersionMajor &&
                            info.version.minor == coopnet::kVersionMinor &&
-                           info.version.patch == coopnet::kVersionPatch;
-    std::printf("  expected version=%u.%u.%u -> %s\n", coopnet::kVersionMajor, coopnet::kVersionMinor,
-                coopnet::kVersionPatch, versionOk ? "match" : "MISMATCH");
+                           info.version.patch == coopnet::kVersionPatch &&
+                           info.version.prerelease.type == coopnet::kPrereleaseType &&
+                           info.version.prerelease.number == coopnet::kPrereleaseNumber;
+    std::printf("  expected version=%s (prerelease type=%u number=%u) -> %s\n", COOPNET_SEMVER_STRING,
+                coopnet::kPrereleaseType, coopnet::kPrereleaseNumber, versionOk ? "match" : "MISMATCH");
     const bool ok = apiVersion == RED4EXT_API_VERSION_1 && runtimeOk && versionOk && info.sdk.major == 1;
     FreeLibrary(module);
     std::puts(ok ? "PROBE PASS" : "PROBE FAIL");

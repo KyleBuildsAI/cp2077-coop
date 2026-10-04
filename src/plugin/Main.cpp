@@ -10,7 +10,7 @@
 //   Net_Stats() -> String         (JSON)
 //   Net_LocalId() -> Int32
 //   Net_NowMs() -> Double         (ms since the Unix epoch, UTC, sub-ms fraction; see core/Clock.hpp)
-//   Net_Version() -> String       ("CP2077CoopNet <semver> proto <n>")
+//   Net_Version() -> String       ("CP2077CoopNet <semver> proto <n>", semver may carry -alpha.N)
 //
 // From CET: Game.Net_Connect("127.0.0.1", 11779), Game.Net_Poll(), Game.Net_NowMs(), ...
 
@@ -529,7 +529,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo)
 {
     aInfo->name = L"CP2077CoopNet";
     aInfo->author = L"CP2077 Coop";
-    aInfo->version = RED4EXT_V1_SEMVER(COOPNET_VERSION_MAJOR, COOPNET_VERSION_MINOR, COOPNET_VERSION_PATCH);
+    aInfo->version = RED4EXT_V1_SEMVER_EX(COOPNET_VERSION_MAJOR, COOPNET_VERSION_MINOR, COOPNET_VERSION_PATCH,
+                                          COOPNET_VERSION_PRERELEASE_TYPE, COOPNET_VERSION_PRERELEASE_NUMBER);
     aInfo->runtime = RED4EXT_V1_RUNTIME_VERSION_2_31;
     aInfo->sdk = RED4EXT_V1_SDK_VERSION_CURRENT;
 }
