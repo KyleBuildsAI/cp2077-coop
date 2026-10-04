@@ -6,6 +6,10 @@ folders, starts the bench relay on port 11779, and lists the log lines and CET c
 prove it works. Nothing here replaces or changes v1: Jakub's DLL, its natives and the v1 relay on
 port 11778 keep working as before.
 
+0.1.0 already passed the CET part of this check on 2026-10-04. This guide repeats it for 0.1.2, which
+adds `Net_NowMs`, `Net_Version`, the startup summary line, the redscript self test and the review
+fixes listed in README.md.
+
 Bench folders used below (change them if yours differ):
 
 ```
@@ -317,13 +321,14 @@ step 2 again. Once both folders are gone, Jakub's plugin and v1 are as they were
 ## Build provenance
 
 The current `dist\` was built on 2026-10-04 with `tools\build.ps1 -Clean -All` (fresh `build\` dir),
-from branch `feat/phase1-natives` at commit `fe05738`. The commits after it change only documentation.
+from commit `ce3572c` (branch `wip/phase1-repair-2026-10-04`, merged into `feat/phase1-natives`).
+The commits after it, up to tag `v0.1.2`, change only documentation.
 Toolchain: VS 2022 Community, MSVC 19.40.33811 (toolset 14.40.33807), CMake 4.1.0,
 RED4ext.SDK 1.0.0 (`a4a7810`). The build produced 0 compiler or MSBuild warnings.
 
 | file | bytes | SHA256 |
 |---|---|---|
-| `CP2077CoopNet.dll` | 403456 | `06A895004349FA43049DDAC8983758B0A701EB96725B039DE7E8FB2A2253FC1D` |
+| `CP2077CoopNet.dll` | 414208 | `1D664225A548F8C823BA1A0899BD02F60DA1ED11E743E3D5CC9246DEC70697A8` |
 | `Scripts\Helpers.reds` | 2510 | `706B92EF51C7EE9A3E376E85390D7B347FC13D8C33D61FC863488B8B716B4DC0` |
 | `Scripts\Natives.reds` | 1530 | `AB2BF145D5A080FF99E262DABBA6DC022C2756F9F0CF1EC9619D5CFEBE7D9331` |
 
@@ -331,10 +336,12 @@ MSVC stamps each build, so a rebuild gives a different DLL hash. `build.ps1` pri
 when it stages `dist\`.
 
 Offline checks in that run, all passing:
-- `coopnet_tests.exe`: 105 checks, 0 failures. They include Net_NowMs against known FILETIME dates,
-  agreement with `system_clock`, no backward step over 200,000 calls (36.5 ns per call), and 60 ms
-  of sleep measured as 60.458 ms against `steady_clock` 60.457 ms. They also check the
-  Net_Version format and both forms of the startup summary line.
+- `coopnet_tests.exe`: 148 checks, 0 failures. Besides the codec, reliability and clock checks, they
+  cover the Net_Version format, both forms of the startup summary line, the native registration
+  checks against a fake RTTI (unknown parameter type, unknown return type, lookup finds nothing),
+  string results into a live slot (0 buffers leaked in 100 polls; the old move assignment leaks 99),
+  and stops while a host name resolves: `Disconnect` 0.5 ms, a second `Connect` 0.6 ms, destroying
+  the Transport 0.7 ms, against 1245 ms for a blocking lookup of the same kind of name.
 - `verify_exports.py`: Main, Query and Supports exported, and `Supports()` returns 1. Imports are
   kernel32, user32, version and ws2_32 only. All 10 native names are in the image and agree with
   `LoadReport.hpp`, `Main.cpp` and `Natives.reds`. The image holds `CP2077CoopNet 0.1.2 proto 1`,
@@ -342,10 +349,15 @@ Offline checks in that run, all passing:
 - `coopnet_plugin_probe.exe` (LoadLibrary + Query): `version=0.1.2 sdk=1.0.0 runtime=3.0.80.51928`, PROBE PASS.
 - `run_loopback.py`: the clean, transatlantic and hostile profiles all pass.
 - `test_relay_protocol.py`: 10/10. `test_lua_helper.py`: 22/22 under LuaJIT 2.1.
-- Redscript: the shipped `Natives.reds` and `Helpers.reds` compile with `scc_check.py` next to
-  Jakub's CP2077Coop scripts and Codeware.
+- Redscript: the shipped `Natives.reds` and `Helpers.reds` compile with `scc_check.py` in a
+  sandbox (`engine\tools`, `final.redscripts` and Codeware's `Scripts` copied from Test B), both
+  alone and next to Jakub's CP2077Coop scripts.
 - The relay command from step 3 was rehearsed offline on port 11779 with
   `coopnet_loopback.exe 127.0.0.1 11779 400 90`: LOOPBACK PASS.
 
-Not verified yet, and the reason for this guide: loading inside the game, RTTI registration, CET and
-redscript lookup of the natives, and `sdk->scripts->Add` accepting the folder.
+Already verified in the game with 0.1.0 (2026-10-04 bench run): the plugin loads under the 2.31 gate
+next to Jakub's DLL, `Game.Net_*` resolves from CET, and nothing crashed on load, save load or quit.
+Not verified in the game yet, and the reason for this guide: the 0.1.1 natives `Net_NowMs` and
+`Net_Version`, the startup summary line, the 0.1.2 fixes, and the redscript side in the game:
+`sdk->scripts->Add` accepting the folder and a runtime call into the natives from redscript
+(`CoopNet_SelfTest`).
