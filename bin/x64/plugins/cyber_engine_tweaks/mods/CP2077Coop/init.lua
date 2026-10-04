@@ -1,9 +1,10 @@
 ------------------------------------------------------------
 -- CP2077 COOP
 --
--- v0.0.27 WORLD + STATE SYNC
+-- v0.0.28 WORLD + STATE SYNC + DIAGNOSTICS
 --
--- MANUAL ROLE FOR CURRENT TEST BUILD
+-- ROLE: przycisk w panelu 'CP2077 Coop' (zapis do role.txt),
+-- albo domyślnie poniżej. role.txt ma pierwszeństwo.
 -- HOST:   local IS_HOST = true
 -- JOINER: local IS_HOST = false
 --
@@ -93,6 +94,7 @@ S.spawnSnapElapsed = 0.0
 S.spawnSnapAccumulator = 0.0
 
 S.joinSyncPending = false
+S.joinAttempts = 0
 S.joinSyncElapsed = 0.0
 S.joinSyncAccumulator = 0.0
 
@@ -491,6 +493,9 @@ local Sync = {
     TYPE_FLAGS = 0,
     TYPE_TIME = 1,
     TYPE_WEATHER = 2,
+    -- ping/pong: prawdziwe opóźnienie gracz -> serwer -> gracz
+    TYPE_PING = 3,
+    TYPE_PONG = 4,
     TYPE_STRIDE = 512,
 
     FLAG_CROUCH = 1,
@@ -499,6 +504,28 @@ local Sync = {
     FLAG_FIRING = 8,
     FLAG_IN_VEHICLE = 16,
     WEAPON_CLASS_MULTIPLIER = 32,
+    -- bit roli (dodawany w Lua): wykrywa dwóch hostów / dwóch joinerów
+    FLAG_HOST = 256,
+
+    PING_INTERVAL = 1.0,
+    -- wygładzanie RTT (0..1, większe = szybsza reakcja)
+    RTT_SMOOTHING = 0.25,
+
+    MAX_JOIN_ATTEMPTS = 3,
+
+    clock = 0.0,
+
+    localFlags = 0,
+
+    pingToken = 0,
+    pingSentAt = nil,
+    lastPingClock = -100.0,
+    pendingPong = nil,
+    rttMs = nil,
+    rttLastMs = nil,
+    rttMinMs = nil,
+    rttMaxMs = nil,
+    rttSamples = 0,
 
     TIME_STEP_MINUTES = 3,
     -- joiner poprawia czas, gdy różnica przekracza tyle minut
@@ -544,11 +571,54 @@ end
 -- wysyła stan świata, flagi gracza lecą zawsze co drugi.
 function Sync.buildPayload(player, isHost)
 
+    -- odpowiedź na ping drugiego gracza ma pierwszeństwo
+    if Sync.pendingPong ~= nil then
+
+        local token = Sync.pendingPong
+        Sync.pendingPong = nil
+
+        return
+            Sync.TYPE_PONG * Sync.TYPE_STRIDE +
+            token
+    end
+
+    if Sync.clock - Sync.lastPingClock >=
+        Sync.PING_INTERVAL
+    then
+
+        Sync.pingToken =
+            (Sync.pingToken + 1) %
+            Sync.TYPE_STRIDE
+
+        Sync.pingSentAt = Sync.clock
+        Sync.lastPingClock = Sync.clock
+
+        return
+            Sync.TYPE_PING * Sync.TYPE_STRIDE +
+            Sync.pingToken
+    end
+
+    local roleFlag = 0
+
+    if isHost then
+        roleFlag = Sync.FLAG_HOST
+    end
+
     if not Sync.hasScripts(player) then
 
         Sync.reportMissingScripts()
-        return 0
+
+        Sync.localFlags = roleFlag
+
+        return
+            Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
+            roleFlag
     end
+
+    -- flagi czytamy przy każdym pakiecie (panel + blokada teleportu w aucie)
+    Sync.localFlags =
+        player:CP2077Coop_GetStateFlags() +
+        roleFlag
 
     Sync.sendSlot = Sync.sendSlot + 1
 
@@ -576,7 +646,7 @@ function Sync.buildPayload(player, isHost)
 
     return
         Sync.TYPE_FLAGS * Sync.TYPE_STRIDE +
-        player:CP2077Coop_GetStateFlags()
+        Sync.localFlags
 end
 
 
@@ -634,6 +704,7 @@ function Sync.receivePayload(payload)
     if packetType == Sync.TYPE_FLAGS then
 
         Sync.remoteFlags = value
+        Sync.remoteFlagsSeen = true
 
     elseif packetType == Sync.TYPE_TIME then
 
@@ -645,7 +716,66 @@ function Sync.receivePayload(payload)
 
         Sync.remoteWeather =
             value - 1
+
+    elseif packetType == Sync.TYPE_PING then
+
+        Sync.pendingPong = value
+
+    elseif packetType == Sync.TYPE_PONG then
+
+        Sync.onPong(value)
     end
+end
+
+
+function Sync.onPong(token)
+
+    if Sync.pingSentAt == nil
+        or token ~= Sync.pingToken
+    then
+        return
+    end
+
+    local sampleMs =
+        (Sync.clock - Sync.pingSentAt) *
+        1000.0
+
+    Sync.pingSentAt = nil
+    Sync.rttLastMs = sampleMs
+    Sync.rttSamples = Sync.rttSamples + 1
+
+    if Sync.rttMs == nil then
+
+        Sync.rttMs = sampleMs
+        Sync.rttMinMs = sampleMs
+        Sync.rttMaxMs = sampleMs
+        return
+    end
+
+    Sync.rttMs =
+        Sync.rttMs +
+        (sampleMs - Sync.rttMs) *
+        Sync.RTT_SMOOTHING
+
+    Sync.rttMinMs =
+        math.min(
+            Sync.rttMinMs,
+            sampleMs
+        )
+
+    Sync.rttMaxMs =
+        math.max(
+            Sync.rttMaxMs,
+            sampleMs
+        )
+end
+
+
+function Sync.tick(delta)
+
+    Sync.clock =
+        Sync.clock +
+        delta
 end
 
 
@@ -658,11 +788,12 @@ end
 
 function Sync.weaponClass(flags)
 
+    -- 3 bity klasy broni; bit roli (256) leży wyżej
     return
         math.floor(
             flags /
             Sync.WEAPON_CLASS_MULTIPLIER
-        )
+        ) % 8
 end
 
 
@@ -809,6 +940,14 @@ end
 
 function Sync.reset()
 
+    Sync.pendingPong = nil
+    Sync.pingSentAt = nil
+    Sync.rttMs = nil
+    Sync.rttLastMs = nil
+    Sync.rttMinMs = nil
+    Sync.rttMaxMs = nil
+    Sync.rttSamples = 0
+
     Sync.sendSlot = 0
     Sync.remoteFlags = 0
     Sync.appliedFlags = -1
@@ -816,6 +955,622 @@ function Sync.reset()
     Sync.remoteWeather = nil
     Sync.timeCooldown = 0.0
     Sync.appliedWeather = -1
+    Sync.remoteFlagsSeen = false
+end
+
+
+------------------------------------------------------------
+-- DIAGNOSTICS: statystyki, logi, panel w grze
+--
+-- Panel: okno "CP2077 Coop" (widoczne zawsze, klikalne przy
+-- otwartym overlayu CET). Skrót: Bindings -> "Toggle coop panel".
+-- Log: linia [STATS] co STATS_INTERVAL s w CP2077Coop.log,
+-- czytana przez tools/coop_monitor.py.
+------------------------------------------------------------
+
+local Diag = {
+    VERSION = "0.0.28",
+
+    STATS_INTERVAL = 5.0,
+    MONITOR_READ_INTERVAL = 2.0,
+
+    -- progi stanu połączenia (sekundy bez nowego pakietu)
+    STALE_AFTER = 1.5,
+    LOST_AFTER = 5.0,
+
+    ROLE_FILE = "role.txt",
+    MONITOR_FILE = "monitor_status.txt",
+
+    visible = true,
+
+    packetsReceived = 0,
+    packetsSent = 0,
+    missed = 0,
+    ignored = 0,
+
+    windowReceived = 0,
+    windowSent = 0,
+    windowTimer = 0.0,
+    ppsIn = 0.0,
+    ppsOut = 0.0,
+
+    lastPacketClock = nil,
+    lastState = "WAITING",
+
+    statsTimer = 0.0,
+    monitorTimer = 0.0,
+    monitor = {},
+
+    avatarError = nil,
+
+    teleportRequested = false,
+    roleChanged = false
+}
+
+
+function Diag.loadRole()
+
+    local file =
+        io.open(Diag.ROLE_FILE, "r")
+
+    if file == nil then
+        return
+    end
+
+    local role =
+        file:read("*l")
+
+    file:close()
+
+    if role == "host" then
+        IS_HOST = true
+    elseif role == "joiner" then
+        IS_HOST = false
+    end
+end
+
+
+function Diag.saveRole(isHost)
+
+    local file =
+        io.open(Diag.ROLE_FILE, "w")
+
+    if file == nil then
+
+        print("[CP2077Coop] could not save role.txt")
+        return
+    end
+
+    if isHost then
+        file:write("host\n")
+    else
+        file:write("joiner\n")
+    end
+
+    file:close()
+end
+
+
+function Diag.setRole(isHost)
+
+    if IS_HOST == isHost then
+        return
+    end
+
+    IS_HOST = isHost
+    Diag.saveRole(isHost)
+    Diag.roleChanged = true
+
+    print(
+        "[CP2077Coop] EVENT role changed to "
+        .. (isHost and "HOST" or "JOINER")
+    )
+end
+
+
+-- Wywoływane dla każdego nowszego pakietu.
+function Diag.onPacket(sequence, previousSequence)
+
+    Diag.packetsReceived =
+        Diag.packetsReceived + 1
+
+    Diag.windowReceived =
+        Diag.windowReceived + 1
+
+    -- luka w sekwencji = zgubione w sieci LUB nadpisane w DLL
+    -- (DLL trzyma tylko ostatni pakiet, a Lua czyta raz na klatkę)
+    if previousSequence >= 0
+        and sequence > previousSequence + 1
+    then
+
+        Diag.missed =
+            Diag.missed +
+            (sequence - previousSequence - 1)
+    end
+
+    Diag.lastPacketClock = Sync.clock
+end
+
+
+function Diag.onIgnored()
+
+    Diag.ignored =
+        Diag.ignored + 1
+end
+
+
+function Diag.onSent()
+
+    Diag.packetsSent =
+        Diag.packetsSent + 1
+
+    Diag.windowSent =
+        Diag.windowSent + 1
+end
+
+
+function Diag.packetAge()
+
+    if Diag.lastPacketClock == nil then
+        return nil
+    end
+
+    return
+        Sync.clock -
+        Diag.lastPacketClock
+end
+
+
+function Diag.connectionState()
+
+    local age =
+        Diag.packetAge()
+
+    if age == nil then
+        return "WAITING"
+    end
+
+    if age >= Diag.LOST_AFTER then
+        return "LOST"
+    end
+
+    if age >= Diag.STALE_AFTER then
+        return "STALE"
+    end
+
+    return "OK"
+end
+
+
+function Diag.missedPercent()
+
+    local expected =
+        Diag.packetsReceived +
+        Diag.missed
+
+    if expected == 0 then
+        return 0.0
+    end
+
+    return
+        100.0 *
+        Diag.missed /
+        expected
+end
+
+
+function Diag.roleConflict()
+
+    if not Sync.remoteFlagsSeen then
+        return false
+    end
+
+    local remoteIsHost =
+        Sync.hasFlag(
+            Sync.remoteFlags,
+            Sync.FLAG_HOST
+        )
+
+    return remoteIsHost == IS_HOST
+end
+
+
+-- Druga strona bez ping/pong = starsza wersja moda.
+function Diag.peerLooksOutdated()
+
+    return
+        Diag.packetsReceived > 150
+        and Sync.rttMs == nil
+end
+
+
+function Diag.formatMs(value)
+
+    if value == nil then
+        return "-"
+    end
+
+    return
+        string.format(
+            "%.0f",
+            value
+        )
+end
+
+
+function Diag.statsLine()
+
+    local age =
+        Diag.packetAge()
+
+    return
+        string.format(
+            "[CP2077Coop] [STATS] state=%s role=%s rtt_ms=%s rtt_min=%s rtt_max=%s rtt_n=%d pps_in=%.1f pps_out=%.1f missed_pct=%.1f ignored=%d age_ms=%s avatar_err_m=%s conflict=%s peer_old=%s",
+            Diag.connectionState(),
+            IS_HOST and "host" or "joiner",
+            Diag.formatMs(Sync.rttMs),
+            Diag.formatMs(Sync.rttMinMs),
+            Diag.formatMs(Sync.rttMaxMs),
+            Sync.rttSamples,
+            Diag.ppsIn,
+            Diag.ppsOut,
+            Diag.missedPercent(),
+            Diag.ignored,
+            age and string.format("%.0f", age * 1000.0) or "-",
+            Diag.avatarError and string.format("%.2f", Diag.avatarError) or "-",
+            tostring(Diag.roleConflict()),
+            tostring(Diag.peerLooksOutdated())
+        )
+end
+
+
+-- Monitor (tools/coop_monitor.py) zapisuje tu IP serwera i ping.
+function Diag.readMonitorStatus()
+
+    local file =
+        io.open(Diag.MONITOR_FILE, "r")
+
+    if file == nil then
+
+        Diag.monitor = {}
+        return
+    end
+
+    local values = {}
+
+    for line in file:lines() do
+
+        local key, value =
+            string.match(
+                line,
+                "^([%w_]+)=(.*)$"
+            )
+
+        if key ~= nil then
+            values[key] = value
+        end
+    end
+
+    file:close()
+
+    Diag.monitor = values
+end
+
+
+function Diag.tick(delta)
+
+    Diag.windowTimer =
+        Diag.windowTimer + delta
+
+    if Diag.windowTimer >= 1.0 then
+
+        Diag.ppsIn =
+            Diag.windowReceived /
+            Diag.windowTimer
+
+        Diag.ppsOut =
+            Diag.windowSent /
+            Diag.windowTimer
+
+        Diag.windowReceived = 0
+        Diag.windowSent = 0
+        Diag.windowTimer = 0.0
+    end
+
+
+    local state =
+        Diag.connectionState()
+
+    if state ~= Diag.lastState then
+
+        print(
+            "[CP2077Coop] EVENT connection "
+            .. Diag.lastState
+            .. " -> "
+            .. state
+        )
+
+        Diag.lastState = state
+    end
+
+
+    Diag.statsTimer =
+        Diag.statsTimer + delta
+
+    if Diag.statsTimer >= Diag.STATS_INTERVAL then
+
+        Diag.statsTimer = 0.0
+        print(Diag.statsLine())
+    end
+
+
+    Diag.monitorTimer =
+        Diag.monitorTimer + delta
+
+    if Diag.monitorTimer >= Diag.MONITOR_READ_INTERVAL then
+
+        Diag.monitorTimer = 0.0
+        Diag.readMonitorStatus()
+    end
+end
+
+
+------------------------------------------------------------
+-- PANEL (ImGui)
+------------------------------------------------------------
+
+function Diag.colorFor(level)
+
+    if level == "good" then
+        return 0.40, 0.90, 0.45, 1.0
+    end
+
+    if level == "warn" then
+        return 1.00, 0.80, 0.25, 1.0
+    end
+
+    if level == "bad" then
+        return 1.00, 0.35, 0.35, 1.0
+    end
+
+    return 0.80, 0.80, 0.80, 1.0
+end
+
+
+function Diag.row(label, value, level)
+
+    ImGui.Text(label)
+    ImGui.SameLine(150)
+
+    local r, g, b, a =
+        Diag.colorFor(level)
+
+    ImGui.TextColored(r, g, b, a, value)
+end
+
+
+function Diag.levelForRtt(rtt)
+
+    if rtt == nil then
+        return "neutral"
+    end
+
+    if rtt < 350 then
+        return "good"
+    end
+
+    if rtt < 600 then
+        return "warn"
+    end
+
+    return "bad"
+end
+
+
+function Diag.describeFlags(flags)
+
+    local parts = {}
+
+    if Sync.hasFlag(flags, Sync.FLAG_CROUCH) then
+        parts[#parts + 1] = "crouch"
+    end
+
+    if Sync.hasFlag(flags, Sync.FLAG_WEAPON_DRAWN) then
+        parts[#parts + 1] =
+            "weapon#" .. tostring(Sync.weaponClass(flags))
+    end
+
+    if Sync.hasFlag(flags, Sync.FLAG_AIMING) then
+        parts[#parts + 1] = "aim"
+    end
+
+    if Sync.hasFlag(flags, Sync.FLAG_FIRING) then
+        parts[#parts + 1] = "fire"
+    end
+
+    if Sync.hasFlag(flags, Sync.FLAG_IN_VEHICLE) then
+        parts[#parts + 1] = "vehicle"
+    end
+
+    if #parts == 0 then
+        return "idle"
+    end
+
+    return table.concat(parts, ", ")
+end
+
+
+function Diag.draw()
+
+    if not Diag.visible then
+        return
+    end
+
+    ImGui.SetNextWindowPos(20, 300, ImGuiCond.FirstUseEver)
+
+    if not ImGui.Begin("CP2077 Coop", ImGuiWindowFlags.AlwaysAutoResize) then
+
+        ImGui.End()
+        return
+    end
+
+
+    -- POŁĄCZENIE
+    local state =
+        Diag.connectionState()
+
+    local stateLevel = "bad"
+
+    if state == "OK" then
+        stateLevel = "good"
+    elseif state == "STALE" or state == "WAITING" then
+        stateLevel = "warn"
+    end
+
+    local hasRemote =
+        Game.CP2077Coop_HasRemotePlayer ~= nil
+        and Game.CP2077Coop_HasRemotePlayer()
+
+    Diag.row("Version", Diag.VERSION, "neutral")
+    Diag.row("Role", IS_HOST and "HOST" or "JOINER", "neutral")
+    Diag.row("Connection", state, stateLevel)
+    Diag.row("Players", hasRemote and "2 / 2" or "1 / 2", hasRemote and "good" or "warn")
+
+    if Diag.roleConflict() then
+
+        Diag.row(
+            "Role check",
+            IS_HOST and "BOTH HOST - one must be joiner"
+                or "BOTH JOINER - one must be host",
+            "bad"
+        )
+    end
+
+    if Diag.peerLooksOutdated() then
+        Diag.row("Peer", "no ping reply - other player on old version?", "warn")
+    end
+
+
+    ImGui.Separator()
+
+    -- OPÓŹNIENIE
+    Diag.row("Player RTT", Diag.formatMs(Sync.rttMs) .. " ms", Diag.levelForRtt(Sync.rttMs))
+    Diag.row(
+        "RTT min/max",
+        Diag.formatMs(Sync.rttMinMs) .. " / " .. Diag.formatMs(Sync.rttMaxMs) .. " ms",
+        "neutral"
+    )
+
+    local age =
+        Diag.packetAge()
+
+    local ageLevel = "good"
+
+    if age == nil or age >= Diag.STALE_AFTER then
+        ageLevel = "bad"
+    elseif age >= 0.25 then
+        ageLevel = "warn"
+    end
+
+    Diag.row(
+        "Last packet",
+        age and string.format("%.0f ms ago", age * 1000.0) or "never",
+        ageLevel
+    )
+
+    Diag.row(
+        "Packets in/out",
+        string.format("%.1f / %.1f per s", Diag.ppsIn, Diag.ppsOut),
+        Diag.ppsIn >= 20 and "good" or "warn"
+    )
+
+    local missed =
+        Diag.missedPercent()
+
+    Diag.row(
+        "Missed",
+        string.format("%.1f %%  (late/dup %d)", missed, Diag.ignored),
+        missed < 10 and "good" or (missed < 25 and "warn" or "bad")
+    )
+
+
+    ImGui.Separator()
+
+    -- SERWER (z coop_monitor.py)
+    local server =
+        Diag.monitor.server or "start tools/coop_monitor.py"
+
+    Diag.row("Relay server", server, Diag.monitor.server and "neutral" or "warn")
+
+    if Diag.monitor.server_ping_ms ~= nil then
+
+        local serverPing =
+            tonumber(Diag.monitor.server_ping_ms)
+
+        Diag.row(
+            "Your ping to relay",
+            Diag.monitor.server_ping_ms .. " ms",
+            Diag.levelForRtt(serverPing and serverPing * 1.5 or nil)
+        )
+    end
+
+    if Diag.monitor.server_location ~= nil then
+        Diag.row("Relay location", Diag.monitor.server_location, "neutral")
+    end
+
+
+    ImGui.Separator()
+
+    -- AVATAR / STAN
+    Diag.row(
+        "Avatar",
+        S.remoteHandle ~= nil and "spawned" or (S.remoteInitialized and "spawning" or "none"),
+        S.remoteHandle ~= nil and "good" or "warn"
+    )
+
+    if Diag.avatarError ~= nil then
+
+        Diag.row(
+            "Avatar drift",
+            string.format("%.2f m", Diag.avatarError),
+            Diag.avatarError < 1.5 and "good" or (Diag.avatarError < 4 and "warn" or "bad")
+        )
+    end
+
+    Diag.row("Remote speed", string.format("%.1f m/s (%s)", S.remoteSpeed or 0, S.movementType or "-"), "neutral")
+    Diag.row("Remote state", Diag.describeFlags(Sync.remoteFlags), "neutral")
+    Diag.row("Your state", Diag.describeFlags(Sync.localFlags), "neutral")
+
+    Diag.row(
+        "Scripts",
+        Sync.scriptsReported and "state.reds NOT compiled" or "ok",
+        Sync.scriptsReported and "bad" or "good"
+    )
+
+
+    ImGui.Separator()
+
+    -- AKCJE (klikalne przy otwartym overlayu CET)
+    if ImGui.Button(IS_HOST and "Switch to JOINER" or "Switch to HOST") then
+        Diag.setRole(not IS_HOST)
+    end
+
+    if not IS_HOST then
+
+        ImGui.SameLine()
+
+        if ImGui.Button("Teleport to host") then
+            Diag.teleportRequested = true
+        end
+    end
+
+    ImGui.SameLine()
+
+    if ImGui.Button("Log stats now") then
+        print(Diag.statsLine())
+    end
+
+    ImGui.End()
 end
 
 
@@ -1027,6 +1782,7 @@ local function resetRemote()
     S.spawnSnapAccumulator = 0.0
 
     S.joinSyncPending = false
+    S.joinAttempts = 0
     S.joinSyncElapsed = 0.0
     S.joinSyncAccumulator = 0.0
 
@@ -1054,9 +1810,38 @@ registerForEvent(
     "onInit",
     function()
 
+        Diag.loadRole()
+
         print(
-            "[CP2077Coop] bridge v0.0.27 WORLD + STATE SYNC loaded"
+            "[CP2077Coop] bridge v" .. Diag.VERSION .. " loaded, role="
+            .. (IS_HOST and "host" or "joiner")
         )
+
+    end
+)
+
+
+------------------------------------------------------------
+-- PANEL
+------------------------------------------------------------
+
+registerForEvent(
+    "onDraw",
+    function()
+
+        Diag.draw()
+
+    end
+)
+
+
+registerHotkey(
+    "cp2077coop_toggle_panel",
+    "Toggle coop panel",
+    function()
+
+        Diag.visible =
+            not Diag.visible
 
     end
 )
@@ -1069,6 +1854,37 @@ registerForEvent(
 registerForEvent(
     "onUpdate",
     function(delta)
+
+
+        ----------------------------------------------------
+        -- CLOCK / DIAGNOSTICS
+        ----------------------------------------------------
+
+        Sync.tick(delta)
+        Diag.tick(delta)
+
+
+        -- zmiana roli z panelu: start sesji od nowa
+        if Diag.roleChanged then
+
+            Diag.roleChanged = false
+            resetRemote()
+        end
+
+
+        -- przycisk "Teleport to host" w panelu
+        if Diag.teleportRequested then
+
+            Diag.teleportRequested = false
+
+            if not IS_HOST then
+
+                S.worldJoinComplete = false
+                S.joinAttempts = 0
+
+                print("[CP2077Coop] EVENT manual teleport to host requested")
+            end
+        end
 
 
         ----------------------------------------------------
@@ -1219,6 +2035,8 @@ registerForEvent(
                 sendX,
                 sendY
             )
+
+            Diag.onSent()
         end
 
 
@@ -1253,12 +2071,30 @@ registerForEvent(
             S.lastRemoteSequence -
             SEQUENCE_RESET_GAP
 
+        -- spóźniony pakiet: liczymy raz (DLL trzyma go aż do następnego)
+        if not isNewer
+            and not isRestart
+            and sequence < S.lastRemoteSequence
+            and sequence ~= S.lastIgnoredSequence
+        then
+
+            S.lastIgnoredSequence = sequence
+            Diag.onIgnored()
+        end
+
+
         if isNewer
             or isRestart
         then
 
             local previousSequence =
                 S.lastRemoteSequence
+
+            if isRestart then
+                Diag.onPacket(sequence, -1)
+            else
+                Diag.onPacket(sequence, previousSequence)
+            end
 
             S.lastRemoteSequence =
                 sequence
@@ -1291,9 +2127,17 @@ registerForEvent(
             -- P2 JOINS P1 WORLD
             ------------------------------------------------
 
+            -- nie teleportujemy gracza siedzącego w pojeździe
+            local localInVehicle =
+                Sync.hasFlag(
+                    Sync.localFlags,
+                    Sync.FLAG_IN_VEHICLE
+                )
+
             if not IS_HOST
                 and not S.worldJoinComplete
                 and not S.joinSyncPending
+                and not localInVehicle
             then
 
                 beginJoinWorldSync(
@@ -1594,12 +2438,31 @@ registerForEvent(
 
                 S.joinSyncPending = false
 
+                S.joinAttempts =
+                    S.joinAttempts + 1
+
                 print(
                     string.format(
-                        "[CP2077Coop] WORLD SYNC FAILED error=%.2f",
-                        joinError
+                        "[CP2077Coop] WORLD SYNC FAILED error=%.2f attempt=%d/%d",
+                        joinError,
+                        S.joinAttempts,
+                        Sync.MAX_JOIN_ATTEMPTS
                     )
                 )
+
+                -- Wcześniej: ponawianie w nieskończoność, co 2 s
+                -- szarpało gracza i zamrażało avatar. Teraz limit;
+                -- ręcznie: przycisk "Teleport to host" w panelu.
+                if S.joinAttempts >=
+                    Sync.MAX_JOIN_ATTEMPTS
+                then
+
+                    S.worldJoinComplete = true
+
+                    print(
+                        "[CP2077Coop] WORLD SYNC GAVE UP - use 'Teleport to host' in the coop panel"
+                    )
+                end
             end
 
             -- W tym ticku nie ruszamy jeszcze remote AI.
@@ -1789,6 +2652,8 @@ registerForEvent(
                 S.targetY,
                 S.targetZ
             )
+
+        Diag.avatarError = errorDistance
 
 
         ----------------------------------------------------
