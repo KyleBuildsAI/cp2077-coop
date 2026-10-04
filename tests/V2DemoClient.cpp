@@ -7,6 +7,7 @@
 //       --join-flags 1 --player-path course --seed 11 --up-latency-ms 47.5 --up-jitter-ms 20
 //       --up-loss-pct 0.5 --down-latency-ms 47.5 ... --report host.json
 //   coopnet_v2_demo_client --dump-world world.json     (testworld cross-check, no network)
+//   coopnet_v2_demo_client --self-test                 (the client's own helpers, no network)
 //
 // It takes client_v2.py's arguments, follows the same schedule and writes the same JSON report:
 // cookie handshake, relay clock (the C++ ClockSync: interval intersection, 10 Hz until warm then
@@ -235,6 +236,7 @@ struct Options
     std::optional<std::string> report;
     std::string playerPath = "demo";
     std::optional<std::string> dumpWorld;
+    bool selfTest = false;
 
     [[nodiscard]] PlayerPath Path() const
     {
@@ -311,6 +313,8 @@ bool ParseOptions(int argc, char** argv, Options& aOut, std::string& aError)
                 aOut.playerPath = next();
             else if (key == "--dump-world")
                 aOut.dumpWorld = next();
+            else if (key == "--self-test")
+                aOut.selfTest = true;
             else
                 throw std::invalid_argument("unknown argument " + key);
         }
@@ -325,7 +329,7 @@ bool ParseOptions(int argc, char** argv, Options& aOut, std::string& aError)
         aError = "--player-path must be demo or course";
         return false;
     }
-    if (!aOut.dumpWorld && aOut.role != "host" && aOut.role != "joiner")
+    if (!aOut.dumpWorld && !aOut.selfTest && aOut.role != "host" && aOut.role != "joiner")
     {
         aError = "--role host|joiner is required";
         return false;
@@ -751,6 +755,100 @@ private:
     std::optional<demo::Vec3> m_pos;
 };
 
+// ---- received sequence span (client_v2.py SeqSpan) -------------------------------------------------
+
+// Oldest and newest 16-bit sequence received, on an unwrapped timeline: each sequence is placed
+// relative to the newest one seen, so the span stays right past 32,768 snapshots and across the
+// 16-bit wrap. span - received = snapshots lost between the first and the last one received.
+class SeqSpan
+{
+public:
+    void Add(uint16_t aSeq)
+    {
+        if (!m_newestSeq)
+        {
+            m_newestSeq = aSeq;
+            return;
+        }
+        const int64_t position = m_newest + SeqDiff(aSeq, *m_newestSeq);
+        if (position > m_newest)
+        {
+            m_newest = position;
+            m_newestSeq = aSeq;
+        }
+        m_oldest = std::min(m_oldest, position);
+    }
+
+    [[nodiscard]] uint64_t Span() const
+    {
+        return m_newestSeq ? static_cast<uint64_t>(m_newest - m_oldest + 1) : 0;
+    }
+
+private:
+    std::optional<uint16_t> m_newestSeq;
+    int64_t m_newest = 0;
+    int64_t m_oldest = 0;
+};
+
+// The SeqSpan cases of the relay's tests/test_client_v2.py. Returns the number of failures.
+int SelfTest()
+{
+    int failures = 0;
+    const auto expect = [&](const char* aName, uint64_t aGot, uint64_t aWanted) {
+        const bool ok = aGot == aWanted;
+        failures += ok ? 0 : 1;
+        std::printf("  %-4s %-48s %llu (expected %llu)\n", ok ? "ok" : "FAIL", aName,
+                    static_cast<unsigned long long>(aGot), static_cast<unsigned long long>(aWanted));
+    };
+    {
+        SeqSpan span;
+        expect("empty span", span.Span(), 0);
+        span.Add(7);
+        expect("one sequence", span.Span(), 1);
+    }
+    {
+        SeqSpan span;
+        uint64_t received = 0;
+        for (uint16_t seq = 1; seq <= 1000; ++seq)
+        {
+            if (seq % 10 != 0)
+            {
+                span.Add(seq);
+                ++received;
+            }
+        }
+        expect("losses inside the span: span", span.Span(), 999);
+        expect("losses inside the span: lost", span.Span() - received, 99);
+    }
+    {
+        SeqSpan span;
+        for (const int seq : {5, 6, 8, 4, 7})
+        {
+            span.Add(static_cast<uint16_t>(seq));
+        }
+        expect("a reordered older sequence extends the start", span.Span(), 5);
+    }
+    {
+        SeqSpan span;
+        for (uint32_t seq = 1; seq <= 54000; ++seq)
+        {
+            span.Add(static_cast<uint16_t>(seq));
+        }
+        expect("54,000 snapshots (a 30-minute run)", span.Span(), 54000);
+    }
+    {
+        SeqSpan span;
+        uint16_t seq = 65000;
+        for (uint32_t index = 0; index < 140000; ++index)
+        {
+            span.Add(seq++);
+        }
+        expect("140,000 snapshots across the 16-bit wrap", span.Span(), 140000);
+    }
+    std::puts(failures == 0 ? "SELF TEST PASS" : "SELF TEST FAIL");
+    return failures;
+}
+
 // ---- the client ----------------------------------------------------------------------------------
 
 struct RemotePlayer
@@ -765,7 +863,7 @@ struct RemotePlayer
     SnapshotBuffer buffer;
     LatestSlotFollower follower;
     std::optional<uint16_t> latestSeq;
-    std::optional<uint16_t> firstSeq;
+    SeqSpan seqSpan;
     uint64_t received = 0;
     uint64_t duplicates = 0;
     uint64_t reordered = 0;
@@ -1278,10 +1376,7 @@ private:
             remote.latestSeq = seq;
             remote.last = aSnapshot;
         }
-        if (!remote.firstSeq || static_cast<uint16_t>(*remote.firstSeq - seq) < 32768)
-        {
-            remote.firstSeq = seq;
-        }
+        remote.seqSpan.Add(seq);
         ++remote.received;
         remote.flagsSeen |= base.flags;
         if (aSnapshot.vehicle)
@@ -2002,10 +2097,8 @@ private:
             entry.Set("received", remote.received);
             entry.Set("duplicates", remote.duplicates);
             entry.Set("reordered", remote.reordered);
-            entry.Set("first_seq", remote.firstSeq);
             entry.Set("latest_seq", remote.latestSeq);
-            entry.Set("seq_span", remote.firstSeq ? static_cast<uint32_t>(static_cast<uint16_t>(*remote.latestSeq - *remote.firstSeq)) + 1u
-                                                  : 0u);
+            entry.Set("seq_span", remote.seqSpan.Span());
             entry.Set("flags_seen", remote.flagsSeen);
             entry.Set("driving_seen", remote.drivingSeen);
             const InterpCounts& counts = remote.buffer.Counts();
@@ -2276,9 +2369,13 @@ int main(int argc, char** argv)
     if (!ParseOptions(argc, argv, options, error))
     {
         std::fprintf(stderr, "%s\nusage: coopnet_v2_demo_client --role host|joiner [client_v2.py arguments] | "
-                             "--dump-world PATH [--world-seed N]\n",
+                             "--dump-world PATH [--world-seed N] | --self-test\n",
                      error.c_str());
         return EXIT_FAILURE;
+    }
+    if (options.selfTest)
+    {
+        return SelfTest() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     if (options.dumpWorld)
     {

@@ -7,10 +7,11 @@ coopnet_v2_demo_client (tests/V2DemoClient.cpp) is a C++ drop-in for the relay's
 built on the plugin's protocol v2 modules (codec, delta snapshots, Connection, ClockSync,
 SnapshotBuffer). This runner:
 
-1. world check: the client's port of coopnet/testworld.py (tests/V2DemoWorld.cpp) dumps its
-   entity table, entity truth and player truth (demo and course paths); the table must equal
-   testworld.py exactly and the truth within 1e-9, or the two clients would measure each other
-   against different ground truth.
+1. self test and world check: the client checks its own helpers (--self-test: the received
+   sequence span past 32,768 snapshots and across the 16-bit wrap), then its port of
+   coopnet/testworld.py (tests/V2DemoWorld.cpp) dumps its entity table, entity truth and player
+   truth (demo and course paths); the table must equal testworld.py exactly and the truth within
+   1e-9, or the two clients would measure each other against different ground truth.
 2. runs the relay's run_demo.py scenarios (relay_v2.py over real UDP on 127.0.0.1, every leg
    impaired in the clients) for each pairing:
      cpp-host    C++ host, Python joiner
@@ -338,6 +339,9 @@ def main(argv=None) -> int:
     os.makedirs(args.out, exist_ok=True)
     world_problems = []
     if not args.skip_world_check:
+        if subprocess.run([args.exe, "--self-test"]).returncode != 0:
+            print("self test of the demo client FAILED")
+            return 1
         world_problems = check_world(args.exe, args.out, proto, testworld)
         print("world check (V2DemoWorld vs testworld.py): " + ("OK, entity table, entity truth and player truth "
               "agree" if not world_problems else "FAILED"))
