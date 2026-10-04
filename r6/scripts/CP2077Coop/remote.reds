@@ -38,11 +38,15 @@ public func CP2077Coop_SpawnRemoteTest() -> Void {
 }
 
 
+// forwardX/forwardY: kierunek drugiego gracza (avatar patrzy tak
+// samo po teleporcie); wektor zerowy = obecny obrót avatara
 @addMethod(PlayerPuppet)
 public func CP2077Coop_MoveRemoteTest(
     x: Float,
     y: Float,
-    z: Float
+    z: Float,
+    forwardX: Float,
+    forwardY: Float
 ) -> Void {
     let system = GameInstance.GetDynamicEntitySystem();
 
@@ -78,7 +82,17 @@ public func CP2077Coop_MoveRemoteTest(
     let command = new AITeleportCommand();
 
     command.position = position;
-    command.rotation = 0.0;
+
+    // rotation to bezwzględny yaw świata w stopniach: 0.0 obracało
+    // avatar na +Y (północ) przy każdej korekcie, dashu i skoku
+    let facing = new Vector4(forwardX, forwardY, 0.0, 0.0);
+
+    if Vector4.Length2D(facing) > 0.01 {
+        command.rotation = Vector4.Heading(facing);
+    } else {
+        command.rotation = remote.GetWorldYaw();
+    }
+
     command.doNavTest = false;
 
     controller.SendCommand(command);

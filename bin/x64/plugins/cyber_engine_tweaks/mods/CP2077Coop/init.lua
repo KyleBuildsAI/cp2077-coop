@@ -3518,11 +3518,15 @@ local function hardCorrectRemote(
     -- po teleporcie stary cel ruchu jest nieaktualny
     Steer.reset()
 
+    -- avatar po teleporcie patrzy jak gracz (wcześniej zawsze na
+    -- północ: dash / skok / korekta obracały go do yaw 0)
     player:
         CP2077Coop_MoveRemoteTest(
             x,
             y,
-            z
+            z,
+            S.remoteForwardX,
+            S.remoteForwardY
         )
 end
 
