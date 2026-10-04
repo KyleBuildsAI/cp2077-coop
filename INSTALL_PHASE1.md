@@ -321,14 +321,14 @@ step 2 again. Once both folders are gone, Jakub's plugin and v1 are as they were
 ## Build provenance
 
 The current `dist\` was built on 2026-10-04 with `tools\build.ps1 -Clean -All` (fresh `build\` dir),
-from commit `ce3572c` (branch `wip/phase1-repair-2026-10-04`, merged into `feat/phase1-natives`).
-The commits after it, up to tag `v0.1.2`, change only documentation.
+from branch `feat/phase1-natives` at commit `6ea0753`. The commits after it, up to tag `v0.1.2`,
+change only documentation.
 Toolchain: VS 2022 Community, MSVC 19.40.33811 (toolset 14.40.33807), CMake 4.1.0,
 RED4ext.SDK 1.0.0 (`a4a7810`). The build produced 0 compiler or MSBuild warnings.
 
 | file | bytes | SHA256 |
 |---|---|---|
-| `CP2077CoopNet.dll` | 414208 | `1D664225A548F8C823BA1A0899BD02F60DA1ED11E743E3D5CC9246DEC70697A8` |
+| `CP2077CoopNet.dll` | 414208 | `C57F59DFD848A4C6BE8EDEB6E79AE09E845C981A5F0B2258F19B2805D6FB96ED` |
 | `Scripts\Helpers.reds` | 2510 | `706B92EF51C7EE9A3E376E85390D7B347FC13D8C33D61FC863488B8B716B4DC0` |
 | `Scripts\Natives.reds` | 1530 | `AB2BF145D5A080FF99E262DABBA6DC022C2756F9F0CF1EC9619D5CFEBE7D9331` |
 
@@ -340,8 +340,8 @@ Offline checks in that run, all passing:
   cover the Net_Version format, both forms of the startup summary line, the native registration
   checks against a fake RTTI (unknown parameter type, unknown return type, lookup finds nothing),
   string results into a live slot (0 buffers leaked in 100 polls; the old move assignment leaks 99),
-  and stops while a host name resolves: `Disconnect` 0.5 ms, a second `Connect` 0.6 ms, destroying
-  the Transport 0.7 ms, against 1245 ms for a blocking lookup of the same kind of name.
+  and stops while a host name resolves: `Disconnect` 0.7 ms, a second `Connect` 0.8 ms, destroying
+  the Transport 0.6 ms, against 1245 ms for a blocking lookup of the same kind of name.
 - `verify_exports.py`: Main, Query and Supports exported, and `Supports()` returns 1. Imports are
   kernel32, user32, version and ws2_32 only. All 10 native names are in the image and agree with
   `LoadReport.hpp`, `Main.cpp` and `Natives.reds`. The image holds `CP2077CoopNet 0.1.2 proto 1`,
