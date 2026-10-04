@@ -171,10 +171,9 @@ void ReliableEndpoint::OnAck(uint16_t aAck, uint32_t aAckBits, uint64_t aNowMicr
             ++it;
             continue;
         }
-        if (it->sendCount == 1)
-        {
-            m_rtt.AddSample(aNowMicros - it->firstSentMicros);
-        }
+        // No RTT sample here: a cumulative ack that jumps after a hole is repaired acknowledges
+        // messages sent long ago and would inflate the estimate. The transport feeds the
+        // estimator from PING/PONG round trips instead.
         newlyAcked.push_back({it->sequence, it->firstSentMicros});
         ++m_stats.acked;
         it = m_inFlight.erase(it);
@@ -216,8 +215,16 @@ void ReliableEndpoint::OnAck(uint16_t aAck, uint32_t aAckBits, uint64_t aNowMicr
         }
         if (entry.overtaken >= kFastRetransmitThreshold && !entry.fastRetransmit)
         {
+            // RACK-style reordering window: a message overtaken by a quarter RTT's worth of
+            // reordering is not lost yet. Resend once it has been outstanding for SRTT * 1.25.
+            uint64_t deadline = aNowMicros;
+            if (m_rtt.HasSample())
+            {
+                const auto smoothed = static_cast<uint64_t>(m_rtt.SmoothedMs() * 1000.0);
+                deadline = std::max(aNowMicros, entry.lastSentMicros + smoothed + smoothed / 4);
+            }
             entry.fastRetransmit = true;
-            entry.nextResendMicros = aNowMicros;
+            entry.nextResendMicros = std::min(entry.nextResendMicros, deadline);
         }
     }
 }

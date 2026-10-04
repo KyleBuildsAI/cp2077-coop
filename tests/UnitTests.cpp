@@ -325,6 +325,11 @@ TransferResult RunLossyTransfer(const LinkScenario& aScenario)
             }
             enqueuedAt.push_back(now);
         }
+        if (now % 500'000 == 0)
+        {
+            // The transport measures RTT with PING/PONG every 500 ms; emulate those samples.
+            sender.Rtt().AddSample(2 * aScenario.delayMicros + jitter(random) + jitter(random));
+        }
         sender.CollectDue(now,
                           [&](uint16_t aSequence, uint8_t aChannel, std::string_view aPayload, bool)
                           { transmit({0, 0, true, aSequence, aChannel, std::string(aPayload), 0, 0}, now); });
