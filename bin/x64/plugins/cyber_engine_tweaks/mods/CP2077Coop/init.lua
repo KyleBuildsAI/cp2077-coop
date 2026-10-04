@@ -1032,6 +1032,10 @@ local Sync = {
 
     remoteFlags = 0,
     appliedFlags = -1,
+    -- druga strona wysłała ping/pong = wersja z bitem roli (FLAG_HOST
+    -- przyszedł razem z ping/pong); starsza wersja wysyła flagi bez
+    -- tego bitu, więc wyglądałaby na joinera
+    peerHasRoleBit = false,
 
     remoteTimeMinutes = -1,
     -- Sync.clock przy ostatnim pakiecie z godziną hosta
@@ -1308,10 +1312,12 @@ function Sync.receivePayload(payload)
 
     elseif packetType == Sync.TYPE_PING then
 
+        Sync.peerHasRoleBit = true
         Sync.pendingPong = value
 
     elseif packetType == Sync.TYPE_PONG then
 
+        Sync.peerHasRoleBit = true
         Sync.onPong(value)
 
     elseif packetType == Sync.TYPE_VEHICLE then
@@ -2059,6 +2065,7 @@ function Sync.reset()
     Sync.weatherRetry = 0.0
     Sync.weatherRefusedIndex = nil
     Sync.remoteFlagsSeen = false
+    Sync.peerHasRoleBit = false
     Sync.remoteVehicleIndex = nil
     Sync.vehicleShown = false
     Sync.vehicleIndexOverride = nil
@@ -3088,9 +3095,14 @@ function Diag.missedPercent()
 end
 
 
+-- Rola drugiej strony liczy się dopiero, gdy wiadomo, że wysyła bit
+-- roli: starsza wersja moda (bez ping/pong) wyglądałaby na joinera
+-- i panel kazałby zmienić rolę zamiast zaktualizować moda.
 function Diag.roleConflict()
 
-    if not Sync.remoteFlagsSeen then
+    if not Sync.remoteFlagsSeen
+        or not Sync.peerHasRoleBit
+    then
         return false
     end
 
@@ -3437,7 +3449,12 @@ function Diag.draw()
     end
 
     if Diag.peerLooksOutdated() then
+
         Diag.row("Peer", "no ping reply - other player on old version?", "warn")
+
+        if Sync.remoteFlagsSeen and not Sync.peerHasRoleBit then
+            Diag.row("Role check", "unknown - partner's mod too old to report its role", "warn")
+        end
     end
 
 
