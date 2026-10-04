@@ -3,7 +3,8 @@
 Uses the redscript compiler library (engine/tools/scc_lib.dll) directly with its
 error popup disabled, compiles r6/scripts plus RED4ext plugin Scripts folders
 (e.g. Codeware) against the vanilla r6/cache/final.redscripts, and writes the
-result to a temporary file so the game's own cache is never touched.
+result into a fresh temporary folder (deleted afterwards) so the game's own cache
+is never touched and concurrent checks never share an output file.
 
 Usage:
     python coop-tools/scc_check.py "G:/SteamLibrary/steamapps/common/Cyberpunk 2077 - Baseline"
@@ -14,6 +15,7 @@ Exit code 0 = compiled, 1 = compile errors, 2 = setup problem.
 import argparse
 import ctypes
 import os
+import shutil
 import sys
 import tempfile
 
@@ -63,8 +65,19 @@ def compile_check(game_dir, extra_dirs):
         return 2
 
     script_dirs = [os.path.join(r6_dir, "scripts")] + plugin_script_dirs(game_dir) + list(extra_dirs)
-    output = os.path.join(tempfile.gettempdir(), "cp2077coop_scc_check.redscripts")
+    # a folder per call: two checks at once must not share (or delete) each other's output
+    out_dir = tempfile.mkdtemp(prefix="cp2077coop_scc_")
+    try:
+        output = os.path.join(out_dir, "check.redscripts")
+        return compile_into(library, game_dir, r6_dir, vanilla_cache, script_dirs, output)
+    finally:
+        try:
+            shutil.rmtree(out_dir)
+        except OSError as error:  # a leftover temp folder must not turn a good compile into a failure
+            print(f"WARN: could not remove {out_dir}: {error}")
 
+
+def compile_into(library, game_dir, r6_dir, vanilla_cache, script_dirs, output):
     settings = library.scc_settings_new(r6_dir.encode("utf-8"))
     library.scc_settings_disable_error_popup(settings)
     library.scc_settings_set_custom_cache_file(settings, vanilla_cache.encode("utf-8"))
@@ -85,8 +98,6 @@ def compile_check(game_dir, extra_dirs):
         return 1
     finally:
         library.scc_free_result(result)
-        if os.path.exists(output):
-            os.remove(output)
 
 
 def main():
