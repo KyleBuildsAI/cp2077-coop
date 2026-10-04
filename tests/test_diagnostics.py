@@ -13,12 +13,15 @@ D5  missed% is split: packets overwritten in the DLL by a low local frame
     side; missed_pct is the last 5 s window, not a lifetime average
 D6  the panel and the monitor grade with the same limits (RTT ~330 ms is
     normal on the LA - Warsaw - Russia route)
+D7  avatar drift is measured from where the partner really is
+D8  without the monitor, the panel names the real path coop-tools/coop_monitor.py
 
 Usage: python test_diagnostics.py path/to/init.lua
 """
 import math
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -392,6 +395,19 @@ def test_drift_against_real_position():
     return ok and "avg" in graded.get("avatar drift", "")
 
 
+# ------------------------------------------------------------------ D8
+
+def test_panel_names_monitor_path():
+    lua = timing.make_peer("joiner", (0.0, 0.0))
+    texts = panel_texts(lua)
+    relay_rows = [text for text in texts if "coop_monitor" in text]
+    source = open(SCRIPT, encoding="utf-8").read()
+    wrong = [line.strip() for line in source.splitlines() if re.search(r"(?<!coop-)tools/coop_monitor", line)]
+    print(f"  panel without a monitor: {relay_rows}; wrong paths left in init.lua: {wrong}")
+    script_exists = os.path.isfile(os.path.join(TOOLS, "coop_monitor.py"))
+    return relay_rows == ["run: python coop-tools/coop_monitor.py"] and not wrong and script_exists
+
+
 if __name__ == "__main__":
     tests = {
         "D1 stats/events go to their own flushed files; the monitor reads them": test_stats_and_events_files,
@@ -401,6 +417,7 @@ if __name__ == "__main__":
         "D5 missed split from local overwrites and sender merges, windowed": test_missed_split,
         "D6 panel and monitor grade RTT, ping, missed, age, drift alike": test_panel_and_monitor_grade_alike,
         "D7 avatar drift is measured from where the partner really is": test_drift_against_real_position,
+        "D8 panel names the real monitor path (coop-tools/)": test_panel_names_monitor_path,
     }
     results = {}
     for name, test in tests.items():

@@ -3430,7 +3430,7 @@ function Diag.writeStats(line)
 end
 
 
--- Monitor (tools/coop_monitor.py) zapisuje tu IP serwera i ping.
+-- Monitor (coop-tools/coop_monitor.py) zapisuje tu IP serwera i ping.
 function Diag.readMonitorStatus()
 
     local file =
@@ -3794,7 +3794,7 @@ function Diag.draw()
 
     -- SERWER (z coop_monitor.py)
     local server =
-        Diag.monitor.server or "start tools/coop_monitor.py"
+        Diag.monitor.server or "run: python coop-tools/coop_monitor.py"
 
     Diag.row("Relay server", server, Diag.monitor.server and "neutral" or "warn")
 
