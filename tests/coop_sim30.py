@@ -142,20 +142,39 @@ PHASES = [
 START_X, START_Y = 40.0, 25.0  # remote starts far from local player
 
 
-def speed_at(t):
-    for start, end, speed in PHASES:
+# the 7 m/s segment of PHASES and the second after the stop, reported on their own:
+# the whole-run move error hid a sprint lag of ~3 m (6c7437d)
+SPRINT_WINDOW = (13.5, 15.0)
+AFTER_SPRINT_WINDOW = (15.0, 16.0)
+
+# what the run reads from the mod each frame (hard corrections, measured avatar error)
+FIND_DIAG = r"""
+function simDiag(onUpdate)
+    local index = 1
+    while true do
+        local name, value = debug.getupvalue(onUpdate, index)
+        if name == nil then return nil end
+        if name == "Diag" then return value end
+        index = index + 1
+    end
+end
+"""
+
+
+def speed_at(t, phases=None):
+    for start, end, speed in phases or PHASES:
         if start <= t < end:
             return speed
     return 0.0
 
 
-def build_truth():
+def build_truth(phases=None, seconds=SIM_SECONDS):
     """Precompute the remote player's true path at frame resolution."""
     samples = []
     x, y, heading = START_X, START_Y, 0.0
     t = 0.0
-    while t <= SIM_SECONDS + 1.0:
-        speed = speed_at(t)
+    while t <= seconds + 1.0:
+        speed = speed_at(t, phases)
         heading += 0.15 * FRAME_DT
         fx, fy = -math.sin(heading), math.cos(heading)
         samples.append((t, x, y, 0.0, fx, fy, speed))
@@ -169,7 +188,7 @@ def build_truth():
 LOG_ERROR = re.compile(r"ERROR|FAILED|NOT RESPONDING|\berror:|\bfailed\b")
 
 
-def run(script_path, seed=7):
+def run(script_path, seed=7, phases=None, seconds=SIM_SECONDS):
     rng = random.Random(seed)
     lua = LuaRuntime(unpack_returned_tuples=True)
     g = lua.globals()
@@ -177,8 +196,12 @@ def run(script_path, seed=7):
     lua.execute(MOCK)
     with open(script_path, encoding="utf-8") as handle:
         lua.execute(handle.read())
+    lua.execute(FIND_DIAG)
+    diag = lua.eval("simDiag")(g.events["onUpdate"])
 
-    truth = build_truth()
+    truth = build_truth(phases, seconds)
+    # per frame after spawn: (t, error, teleports, AIMoveTo, hard corrections, Diag.avatarError)
+    frames = []
     in_flight = []  # (arrive_time, seq, x, y, z, fx, fy)
     seq = 0
     next_send = 0.0
@@ -188,7 +211,7 @@ def run(script_path, seed=7):
 
     on_update = g.events["onUpdate"]
     for frame, (t, x, y, z, fx, fy, speed) in enumerate(truth):
-        if t > SIM_SECONDS:
+        if t > seconds:
             break
         g.simTime = t
 
@@ -217,6 +240,9 @@ def run(script_path, seed=7):
         err = math.hypot(npc.x - x, npc.y - y)
         bucket = "idle" if speed == 0 else ("vehicle" if speed > 9 else "run/walk")
         errors[bucket].append(err)
+        avatar_error = diag.avatarError if diag is not None else None
+        frames.append((t, err, g.stats.teleports, g.stats.moveCommands,
+                       int(diag.hardTotal or 0) if diag is not None else 0, avatar_error))  # builds before 4d6a0f7: none
 
         if prev_npc and speed > 0:
             mx, my = npc.x - prev_npc[0], npc.y - prev_npc[1]
@@ -235,6 +261,26 @@ def run(script_path, seed=7):
         "teleports": stats.teleports,
         "moveCommands": stats.moveCommands,
         "log_errors": [line for line in g.logs.values() if LOG_ERROR.search(line)],
+        "frames": frames,
+    }
+
+
+def segment(result, start, end):
+    """Error mean / max and the teleports, AIMoveTo and hard corrections sent in [start, end)."""
+    inside = [f for f in result["frames"] if start <= f[0] < end]
+    if not inside:
+        return None
+    before = [f for f in result["frames"] if f[0] < start]
+    base = before[-1] if before else inside[0]
+    errors = [f[1] for f in inside]
+    lags = [f[5] for f in inside if f[5] is not None]
+    return {
+        "mean": sum(errors) / len(errors),
+        "max": max(errors),
+        "teleports": inside[-1][2] - base[2],
+        "moveCommands": inside[-1][3] - base[3],
+        "hard": inside[-1][4] - base[4],
+        "lag_max": max(lags) if lags else float("nan"),
     }
 
 
@@ -276,6 +322,13 @@ def main(arguments):
         for key in ("backwards", "teleports", "moveCommands"):
             print(f"  {key:12} {sum(r[key] for r in results) // len(SEEDS):6d} (avg/run)")
         print(f"  log errors   {sum(len(r['log_errors']) for r in results)} over {len(SEEDS)} seeds")
+        for name, window in (("sprint", SPRINT_WINDOW), ("after stop", AFTER_SPRINT_WINDOW)):
+            parts = [segment(r, *window) for r in results]
+            parts = [p for p in parts if p is not None]
+            if parts:
+                print(f"  {name:10} {window[0]:.1f}-{window[1]:.1f} s: err mean {sum(p['mean'] for p in parts) / len(parts):.2f} m "
+                      f"max {max(p['max'] for p in parts):.2f} m, teleports {sum(p['teleports'] for p in parts) / len(parts):.1f}, "
+                      f"AIMoveTo {sum(p['moveCommands'] for p in parts) / len(parts):.1f} (avg/run)")
         label_failures = [f"{label} {failure}" for seed, r in zip(SEEDS, results) for failure in bound_failures(seed, r)]
         for failure in label_failures:
             print(f"FAIL  movement sim {failure}")

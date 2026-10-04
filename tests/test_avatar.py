@@ -12,6 +12,11 @@ A7  settle: spot far out of reach -> exactly one teleport, no retry loop
 A8  settle: reachable spot -> walks all the way (the idle rotate waits for
     it) without teleport, then faces the remote
 A9  remote.reds: teleport rotation comes from the forward vector
+A10 long sprint (12 s at 7 m/s on the movement sim's slow 0.15 rad/s curve): at
+    most 2 hard corrections and 20 AIMoveTo (the snap-and-resend storm that a
+    forward re-steer brings back: 5 and 48 at 4a51c9d). The measured avatar lag
+    staying under 4 m is tracked as KNOWN until the bench gives the NPC's real
+    Sprint speed (with the mock's 7 m/s NPC the lag ratchets to ~4.6 m)
 
 The mock AI keeps a yaw: AIMoveTo turns the NPC along its path, AIRotateTo
 turns it to the target point, a teleport sets its rotation argument.
@@ -23,6 +28,7 @@ import os
 import re
 import sys
 
+import coop_sim30 as sim
 import test_live_bugs as live
 
 YAW_MOCK = r"""
@@ -303,6 +309,38 @@ def test_reds_teleport_rotation():
     return params == ["x", "y", "z", "forwardX", "forwardY"] and bool(uses_forward) and not hard_zero
 
 
+# ------------------------------------------------------------------ A10
+
+LONG_SPRINT = [(0.0, 3.0, 0.0), (3.0, 15.0, 7.0), (15.0, 17.0, 0.0)]
+
+
+def long_sprint():
+    result = sim.run(live.harness.SCRIPT, seed=1, phases=LONG_SPRINT, seconds=17.0)
+    part = sim.segment(result, 3.0, 15.0)
+    print(f"  12 s sprint at 7 m/s: hard corrections {part['hard']}, AIMoveTo {part['moveCommands']}, teleports "
+          f"{part['teleports']}, error mean {part['mean']:.2f} m max {part['max']:.2f} m, measured lag max "
+          f"{part['lag_max']:.2f} m")
+    return part
+
+
+SPRINT_RESULT = {}
+
+
+def sprint_part():
+    if "part" not in SPRINT_RESULT:
+        SPRINT_RESULT["part"] = long_sprint()
+    return SPRINT_RESULT["part"]
+
+
+def test_long_sprint_no_storm():
+    part = sprint_part()
+    return part["hard"] <= 2 and part["moveCommands"] <= 20
+
+
+def test_long_sprint_lag():
+    return sprint_part()["lag_max"] < 4.0
+
+
 if __name__ == "__main__":
     tests = {
         "A1 straight run/sprint: no AIMoveTo resend storm": test_straight_line_no_resend_storm,
@@ -314,6 +352,8 @@ if __name__ == "__main__":
         "A7 settle: spot far out of reach -> exactly one teleport": test_settle_unreachable_far,
         "A8 settle: reachable spot reached exactly, no teleport, then faces the remote": test_settle_reachable,
         "A9 remote.reds teleport rotation from the forward vector": test_reds_teleport_rotation,
+        "A10 12 s sprint: at most 2 hard corrections and 20 AIMoveTo": test_long_sprint_no_storm,
+        "A10 12 s sprint: measured avatar lag under 4 m [KNOWN: sprint catch-up, needs bench NPC speed]": test_long_sprint_lag,
     }
     results = {}
     for name, test in tests.items():
