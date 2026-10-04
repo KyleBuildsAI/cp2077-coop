@@ -8,6 +8,7 @@ which the host announces with a WORLD_FACT (fact_hash = EPOCH_FACT).
 """
 from __future__ import annotations
 
+import bisect
 import math
 import random
 from dataclasses import dataclass
@@ -115,8 +116,16 @@ def entity_truth(spec: EntitySpec, t: float) -> dict:
             "health": 0 if dead else 255}
 
 
-def player_truth(role: int, t: float) -> dict:
-    """t = relay time in seconds. Host runs a 10 m circle, the joiner drives an ellipse."""
+def player_truth(role: int, t: float, path: str = "demo") -> dict:
+    """t = relay time in seconds.
+
+    path "demo": the host runs a 10 m circle, the joiner drives an ellipse.
+    path "course": both run the scripted on-foot course (see course_truth).
+    """
+    if path == "course":
+        return course_truth(role, t)
+    if path != "demo":
+        raise ValueError(f"unknown player path {path!r}")
     if role == proto.Role.HOST:
         omega = HOST_SPEED_MPS / HOST_RADIUS_M
         angle = omega * t
@@ -132,4 +141,134 @@ def player_truth(role: int, t: float) -> dict:
         vel = (-a * omega * math.sin(angle), b * omega * math.cos(angle), 4.0 * omega * math.cos(2 * angle))
         driving = True
     yaw = yaw_from_forward(vel[0], vel[1])
-    return {"pos": pos, "vel": vel, "yaw": yaw, "quat": _yaw_quat(yaw), "driving": driving}
+    return {"pos": pos, "vel": vel, "yaw": yaw, "quat": _yaw_quat(yaw), "driving": driving,
+            "motion": "drive" if driving else "run"}
+
+
+# --------------------------------------------------------------------------- scripted course
+#
+# An on-foot course for measuring interpolation per kind of movement. Speeds approximate the
+# game's walk, run and sprint. Each entry of COURSE_HALF is (motion, kind, *params):
+#   "line": length_m, v0_mps, v1_mps   straight, constant acceleration from v0 to v1
+#   "arc":  turn_deg (+ = left), radius_m, speed_mps   constant-speed turn
+#   "wait": seconds                    standing still
+# The half turns by +180 degrees in total, so running it twice brings the player back to the
+# start with the start heading: a closed loop that repeats. Velocity is continuous everywhere
+# (only the acceleration jumps), as for a game character with quick but finite acceleration.
+
+WALK_MPS = 1.6
+RUN_MPS = 4.5
+SPRINT_MPS = 7.5
+COURSE_HALF = (
+    ("walk", "line", 6.0, WALK_MPS, WALK_MPS),
+    ("turn", "arc", 90.0, 1.5, WALK_MPS),
+    ("run", "line", 2.0, WALK_MPS, RUN_MPS),
+    ("run", "line", 14.0, RUN_MPS, RUN_MPS),
+    ("turn", "arc", -60.0, 1.5, RUN_MPS),
+    ("turn", "line", 3.0, RUN_MPS, RUN_MPS),
+    ("turn", "arc", 120.0, 1.5, RUN_MPS),
+    ("turn", "line", 3.0, RUN_MPS, RUN_MPS),
+    ("turn", "arc", -60.0, 1.5, RUN_MPS),
+    ("sprint", "line", 3.0, RUN_MPS, SPRINT_MPS),
+    ("sprint", "line", 24.0, SPRINT_MPS, SPRINT_MPS),
+    ("turn", "arc", 90.0, 5.0, SPRINT_MPS),
+    ("stop", "line", 4.0, SPRINT_MPS, 0.0),
+    ("stop", "wait", 1.0),
+    ("walk", "line", 1.0, 0.0, WALK_MPS),
+)
+COURSE_MOTIONS = ("walk", "run", "sprint", "turn", "stop")
+# Start point (x, y), start heading (degrees, 0 = +X, counter-clockwise) and time shift per role,
+# so the two players are in different parts of the course at any moment.
+COURSE_START = {int(proto.Role.HOST): ((ORIGIN[0] - 10.0, ORIGIN[1] - 10.0), 0.0, 0.0),
+                int(proto.Role.JOINER): ((ORIGIN[0] + 25.0, ORIGIN[1] - 5.0), 90.0, 9.0)}
+
+
+@dataclass(frozen=True)
+class CourseSegment:
+    motion: str
+    kind: str
+    t0: float
+    duration: float
+    start: tuple      # (x, y)
+    heading: float    # radians, 0 = +X, counter-clockwise
+    params: tuple
+
+
+def build_course(start, heading_deg: float):
+    """Both halves of the loop as segments with absolute start times. Returns (segments, period_s)."""
+    segments = []
+    t = 0.0
+    x, y = start
+    heading = math.radians(heading_deg)
+    for _ in range(2):
+        for motion, kind, *params in COURSE_HALF:
+            if kind == "line":
+                length, v0, v1 = params
+                duration = 2.0 * length / (v0 + v1)
+                segments.append(CourseSegment(motion, kind, t, duration, (x, y), heading, tuple(params)))
+                x, y = x + length * math.cos(heading), y + length * math.sin(heading)
+            elif kind == "arc":
+                turn_deg, radius, speed = params
+                sign = 1.0 if turn_deg > 0 else -1.0
+                turn = math.radians(abs(turn_deg))
+                duration = turn * radius / speed
+                segments.append(CourseSegment(motion, kind, t, duration, (x, y), heading, tuple(params)))
+                cx, cy = x - sign * radius * math.sin(heading), y + sign * radius * math.cos(heading)
+                heading += sign * turn
+                x, y = cx + sign * radius * math.sin(heading), cy - sign * radius * math.cos(heading)
+            elif kind == "wait":
+                duration = params[0]
+                segments.append(CourseSegment(motion, kind, t, duration, (x, y), heading, tuple(params)))
+            else:
+                raise ValueError(f"unknown course segment kind {kind!r}")
+            t += duration
+    return segments, t
+
+
+_COURSES = {role: build_course(start, heading) for role, (start, heading, _) in COURSE_START.items()}
+
+
+def course_state(segment: CourseSegment, tau: float):
+    """(x, y, vx, vy, heading) at tau seconds into the segment."""
+    x, y = segment.start
+    heading = segment.heading
+    if segment.kind == "line":
+        _, v0, v1 = segment.params
+        span = segment.duration
+        travelled = v0 * tau + (v1 - v0) * tau * tau / (2.0 * span)
+        speed = v0 + (v1 - v0) * tau / span
+        cos_h, sin_h = math.cos(heading), math.sin(heading)
+        return x + travelled * cos_h, y + travelled * sin_h, speed * cos_h, speed * sin_h, heading
+    if segment.kind == "arc":
+        turn_deg, radius, speed = segment.params
+        sign = 1.0 if turn_deg > 0 else -1.0
+        cx, cy = x - sign * radius * math.sin(heading), y + sign * radius * math.cos(heading)
+        now_heading = heading + sign * speed * tau / radius
+        return (cx + sign * radius * math.sin(now_heading), cy - sign * radius * math.cos(now_heading),
+                speed * math.cos(now_heading), speed * math.sin(now_heading), now_heading)
+    return x, y, 0.0, 0.0, heading
+
+
+def course_move_state(speed: float) -> int:
+    if speed < 0.05:
+        return int(proto.MoveState.IDLE)
+    if speed < 2.5:
+        return int(proto.MoveState.WALK)
+    if speed < 6.0:
+        return int(proto.MoveState.RUN)
+    return int(proto.MoveState.SPRINT)
+
+
+def course_truth(role: int, t: float) -> dict:
+    """The scripted course at relay time t (seconds), for the host or the joiner (others: joiner)."""
+    key = int(proto.Role.HOST) if role == proto.Role.HOST else int(proto.Role.JOINER)
+    segments, period = _COURSES[key]
+    local = (t + COURSE_START[key][2]) % period
+    index = bisect.bisect_right([segment.t0 for segment in segments], local) - 1
+    segment = segments[max(0, index)]
+    tau = min(max(local - segment.t0, 0.0), segment.duration)
+    x, y, vx, vy, heading = course_state(segment, tau)
+    yaw = yaw_from_forward(math.cos(heading), math.sin(heading))
+    speed = math.hypot(vx, vy)
+    return {"pos": (x, y, ORIGIN[2]), "vel": (vx, vy, 0.0), "yaw": yaw, "quat": _yaw_quat(yaw), "driving": False,
+            "motion": segment.motion, "move": course_move_state(speed)}
