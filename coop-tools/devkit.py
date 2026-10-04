@@ -13,10 +13,13 @@ Examples:
     python coop-tools/devkit.py server "G:/.../Cyberpunk 2077 - Baseline" local
 """
 import argparse
+import filecmp
+import glob
 import os
 import re
 import shutil
 import sys
+import time
 
 PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MOD_DIR = os.path.join("bin", "x64", "plugins", "cyber_engine_tweaks", "mods", "CP2077Coop")
@@ -32,16 +35,14 @@ HARDLINK_EXTENSIONS = {".cache"}  # engine/shader caches
 SKIP_NAMES = {"role.txt", "monitor_status.txt", "coop_monitor_history.csv", "coop_relay.log"}
 SKIP_DIRS = {os.path.join("r6", "logs"), os.path.join("red4ext", "logs")}
 
-# Files deployed from this package into a game folder.
+SCRIPTS_DIR = os.path.join("r6", "scripts", "CP2077Coop")
+
+# Files deployed from this package into a game folder (plus every *.reds in SCRIPTS_DIR).
 DEPLOY_FILES = [
     os.path.join(MOD_DIR, "init.lua"),
-    os.path.join("r6", "scripts", "CP2077Coop", "natives.reds"),
-    os.path.join("r6", "scripts", "CP2077Coop", "remote.reds"),
-    os.path.join("r6", "scripts", "CP2077Coop", "state.reds"),
     os.path.join("red4ext", "plugins", "CP2077Coop", "CP2077Coop.dll"),
 ]
 DEPLOY_DIRS = ["coop-tools", os.path.join("red4ext", "plugins", "Codeware")]
-OPTIONAL_DEPLOY_FILES = [os.path.join("r6", "scripts", "CP2077Coop", "autoload.reds")]
 
 
 def require_game(path):
@@ -83,17 +84,38 @@ def make_instance(source, dest):
     print(f"created {dest}: {linked} files hardlinked, {copied} copied ({copied_bytes / 1e9:.2f} GB)")
 
 
+def package_scripts():
+    return sorted(os.path.join(SCRIPTS_DIR, os.path.basename(p)) for p in glob.glob(os.path.join(PACKAGE_ROOT, SCRIPTS_DIR, "*.reds")))
+
+
+def backup_if_changed(game, relative, stamp):
+    """Keep a copy of any file we are about to overwrite with different content."""
+    target = os.path.join(game, relative)
+    source = os.path.join(PACKAGE_ROOT, relative)
+    if os.path.exists(target) and not filecmp.cmp(source, target, shallow=False):
+        backup = os.path.join(game, "coop-backup", stamp, relative)
+        os.makedirs(os.path.dirname(backup), exist_ok=True)
+        shutil.copy2(target, backup)
+        return True
+    return False
+
+
 def deploy(games):
+    stamp = time.strftime("%Y%m%d-%H%M%S")
     for game in games:
         require_game(game)
-        for relative in DEPLOY_FILES + [f for f in OPTIONAL_DEPLOY_FILES if os.path.exists(os.path.join(PACKAGE_ROOT, f))]:
+        backed_up = 0
+        for relative in DEPLOY_FILES + package_scripts():
             target = os.path.join(game, relative)
             os.makedirs(os.path.dirname(target), exist_ok=True)
+            backed_up += backup_if_changed(game, relative, stamp)
             shutil.copy2(os.path.join(PACKAGE_ROOT, relative), target)
-        for relative in OPTIONAL_DEPLOY_FILES:
-            target = os.path.join(game, relative)
-            if not os.path.exists(os.path.join(PACKAGE_ROOT, relative)) and os.path.exists(target):
-                os.replace(target, target + ".disabled")
+        shipped = {os.path.basename(p) for p in package_scripts()}
+        for extra in sorted(glob.glob(os.path.join(game, SCRIPTS_DIR, "*.reds"))):
+            if os.path.basename(extra) not in shipped:
+                print(f"  WARNING: {os.path.relpath(extra, game)} is not part of this package (left in place)")
+        if backed_up:
+            print(f"  backed up {backed_up} overwritten file(s) to {os.path.join(game, 'coop-backup', stamp)}")
         for relative in DEPLOY_DIRS:
             shutil.copytree(os.path.join(PACKAGE_ROOT, relative), os.path.join(game, relative), dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns(*SKIP_NAMES, "__pycache__", "*.log"))
