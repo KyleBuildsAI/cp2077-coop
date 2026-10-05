@@ -1,5 +1,7 @@
 # Primary-source research and next engine experiments
 
+Research expansion: [symptom-indexed atlas](research/README.md) supplies reported fixes, inspected diffs, unresolved issues and proposed tests for vehicles, ADS/markers, sessions, world/combat and delivery. These are research leads; existing milestone gates and documentation-only scope remain unchanged.
+
 Checked 2026-10-04. This note supports [MULTIPLAYER_PLAN.md](MULTIPLAYER_PLAN.md). No third-party implementation code was copied, no dependencies upgraded, and no live game experiment was run for this research. Source declarations and another project's code are evidence of possible mechanisms, not proof of this mod's runtime behavior.
 
 ## Reproducible source checkpoints

@@ -1,5 +1,7 @@
 # Multiplayer implementation and acceptance plan
 
+Research expansion: [symptom-indexed atlas](research/README.md) supplies reported fixes, inspected diffs, unresolved issues and proposed tests for vehicles, ADS/markers, sessions, world/combat and delivery. These are research leads; existing milestone gates and documentation-only scope remain unchanged.
+
 Updated 2026-10-04. This is the canonical shared roadmap for Kyle, Jakub, Claude Code and Codex. The Obsidian vault links here; it is not a second implementation plan. This document describes intended work, dependencies and observable gates, without delivery estimates. A stage is complete only when its stated evidence exists.
 
 ## Starting point and scope

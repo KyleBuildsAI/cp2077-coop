@@ -1,5 +1,7 @@
 # Cyberpunk multiplayer landscape and development shortcuts
 
+Expanded follow-up: [Multiplayer research atlas](research/README.md) organizes reported fixes, unresolved issues and proposed experiments by symptom. Six chapters and a source ledger add deeper bug evidence, NightCityMP, REPLAY/BlackICE and Archipelago.
+
 Research date: **2026-10-04 (PDT)**. Scope: research, documentation and plans only, before Claude Code takes over. No games/launcher executed, dependencies installed or competitor implementation imported. Our pre-review source checkpoint is `d22a9ee`; gameplay remains **v0.0.37 / CP2077CoopNet 0.2.0-alpha.5**.
 
 ## Conclusions

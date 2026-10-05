@@ -1,5 +1,9 @@
 # Claude Code handoff — 2026-10-04
 
+## Expanded research handoff
+
+Kyle requested a deeper documentation pass after b6516cc. Start with the [research atlas](research/README.md), its six subject chapters and [source ledger](research/SOURCES.md). It adds concrete CyberMP RPC diffs, dated OPEN//77 bug reports/contracts, open Cyberverse/CyberMP issues and three additional project categories. Follow symptom -> evidence -> unknowns -> proposed test. A vendor report or closed issue is not our verified fix. GitHub evidence: `D:\Downloads\syncfix\bench-artifacts\20261004-research-atlas`. No code, game test, installation or package change occurred. Runtime remains v0.0.37 / alpha.5; current scope remains research/documentation only.
+
 ## Current instruction
 
 Kyle requested **research, documentation and future plans only** while conserving remaining Codex usage. Claude Code is expected to take over next. Do not interpret earlier game-launch permission or this plan as a request to implement/test now. Preserve the documentation-only scope until Kyle requests development again. No new agent/chat, external message or MCP install was initiated.

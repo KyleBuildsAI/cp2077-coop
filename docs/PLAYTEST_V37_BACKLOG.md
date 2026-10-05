@@ -1,5 +1,7 @@
 # v0.0.37 user video: fix and research backlog
 
+Research cross-reference: [atlas symptom table](research/README.md) maps every V37-01 through V37-08 ticket to external evidence and a proposed test. For V37-01, distinguish health on restream, competing physics, stale handover and seat/camera cleanup. None is yet our confirmed cause; no ticket is closed by this research.
+
 Recorded test supplied by Kyle; reviewed 2026-10-04. **All items below are OPEN. This update changes documentation only.** It does not implement fixes, create a new build, or establish full multiplayer readiness. Dependencies and overall release gates remain in [MULTIPLAYER_PLAN.md](MULTIPLAYER_PLAN.md).
 
 ## Evidence and limits
