@@ -1,0 +1,21 @@
+# Local Python dependencies installed by run_tests.ps1 (lupa)
+.pydeps/
+__pycache__/
+*.pyc
+
+# Build output (native test shim)
+build/
+*.dll
+*.exe
+*.lib
+*.pdb
+*.obj
+*.exp
+*.ilk
+
+# Test output and probe logs
+out/
+*.log
+
+# Local config
+.env
