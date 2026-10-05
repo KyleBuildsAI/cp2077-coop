@@ -315,7 +315,12 @@ void TestCost()
         static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count()) /
         kCalls;
     std::printf("    %.0f ns per frame and remote player (checksum %.1f)\n", ns, sink);
+#if defined(COOP_INSTRUMENTED_TESTS)
+    std::puts("    SKIP 20 us timing budget: sanitizer instrumentation changes execution cost; "
+              "the benchmark ran and uninstrumented Release checks retain the budget.");
+#else
     CHECK(ns < 20'000.0);
+#endif
 }
 
 // ---- trace replay ----------------------------------------------------------------------------------
