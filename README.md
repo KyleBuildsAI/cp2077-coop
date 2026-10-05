@@ -4,6 +4,8 @@ Experimental two-player co-op for Cyberpunk 2077. Current tested build: **v0.0.3
 
 ![CP2077 Coop v0.0.37 gameplay shown in two game windows](docs/images/cp2077-coop_v0.0.37.png)
 
+This is an image screenshot taken from a specific version: **v0.0.37**.
+
 ## Download v0.0.37 / alpha.5
 
 ### [Download the complete mod ZIP (39 MB)](https://github.com/KyleBuildsAI/cp2077-coop/releases/download/v0.0.37-game-bundle.1/CP2077Coop-v0.0.37-alpha5-game-files.zip)
@@ -78,4 +80,4 @@ Start the relay, then launch both games and choose HOST on one and JOINER on the
 
 ## Contributors
 
-Kyle and Jakub, with AI-assisted development, testing and documentation from **Claude Code** and **ChatGPT**.
+[KyleBuildsAI](https://github.com/KyleBuildsAI) and [Bukczyk](https://github.com/Bukczyk), with AI-assisted development, testing and documentation from **Claude Code**, **ChatGPT**, and **local AI models**.
