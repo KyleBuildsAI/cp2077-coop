@@ -151,6 +151,10 @@ The existing 115 ms +/-20 ms / 1% and 160 ms +/-30 ms / 2% test profiles are con
 
 **Release gate:** every advertised domain passes its own matrix, two-PC qualification is recorded, mismatched builds fail visibly, logs and hashes identify the exact package, installation/rollback works, and remaining restrictions are user-visible. Passing transport, CI or a single NPC path does not satisfy this release gate.
 
+## User-video follow-up — v0.0.37 (2026-10-04)
+
+The [timestamped fix and research backlog](PLAYTEST_V37_BACKLOG.md) records Kyle's 105.67-second recording and new requirements. All entries remain open: vehicle physics/camera disruption (V37-01), exact car model/appearance (02), confirmed shared driver/passenger seats (03), movement correction/visual-delay measurement (04), remote ADS animation and aim transitions (05), teammate icon with a facing arrow instead of a waypoint (06), pause/focus reconciliation (07), and scoped ambient-world consistency (08). ADS and directional-marker details extend M2; car instability/identity/seats extend M3/M4 and M6; interruption recovery applies throughout M7. Prioritize reproducing the final vehicle instability before claiming a shared ride. Video samples are qualitative evidence, not latency measurements or proof of common engine identities. No implementation or new runtime release accompanies this update.
+
 ## Immediate work queue
 
 1. Continue from verified source 856721b and its consolidated build/runtime/authority tests. Prepare the isolated game-side authority dispatcher and seat observer; preserve v37 as the installed baseline until a separately verified deployment is made.
