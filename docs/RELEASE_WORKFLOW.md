@@ -41,6 +41,11 @@ the matching release assets are already authorized; no repeat approval is needed
    the **full commit SHA**, and upload the complete ZIP, ZIP checksum and manifest.
    Keep experimental builds marked as prereleases. Use release assets for binaries;
    GitHub source archives alone are not the complete installation package.
+   Update the README's prominent direct ZIP link, displayed gameplay/native versions,
+   and install steps. Verify the repository's default branch displays these current
+   instructions and the intended source checkpoint; publishing only a feature branch
+   leaves the GitHub front page stale. Use the normal reviewed merge or a safe
+   fast-forward, preserving concurrent work; never force-update the default branch.
 6. Confirm GitHub assets finished uploading and their SHA256 digests match the
    local files. Preserve older tags/releases/assets; use a new package revision
    for changed bytes rather than silently replacing an existing release.

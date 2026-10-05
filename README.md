@@ -1,9 +1,17 @@
 # CP2077 Coop
 
-Experimental two-player co-op for Cyberpunk 2077 (game version 2.31a).
+Experimental two-player co-op for Cyberpunk 2077. Current tested build: **v0.0.37 + CP2077CoopNet 0.2.0-alpha.5**, for Cyberpunk **2.31** (executable file version 3.0.80.51928).
 
-**Installing the mod?** Use [the complete game-files package](game-files/latest/README.md)
-for the latest tested batch, including required runtimes and both co-op DLLs.
+## Download v37 / alpha.5
+
+### [Download the complete mod ZIP (39 MB)](https://github.com/KyleBuildsAI/cp2077-coop/releases/download/v0.0.37-game-bundle.1/CP2077Coop-v0.0.37-alpha5-game-files.zip)
+
+Includes the co-op scripts, both co-op DLLs, required mod runtimes and matching relay.
+**Use the download above, not GitHub's green Code > Download ZIP or Source code archives:** those contain source, not the complete installation files.
+
+[Release details](https://github.com/KyleBuildsAI/cp2077-coop/releases/tag/v0.0.37-game-bundle.1) · [Full installation guide](game-files/latest/README.md) · [ZIP checksum](https://github.com/KyleBuildsAI/cp2077-coop/releases/download/v0.0.37-game-bundle.1/CP2077Coop-v0.0.37-alpha5-game-files.zip.sha256)
+
+This is an **experimental prerelease**. Player movement still needs smoothing; cars are cosmetic replicas, and shared driver/passenger seats are unfinished. See the [known issues and requested fixes](docs/PLAYTEST_V37_BACKLOG.md). Both players should download the same package.
 
 The source tree now includes the native plugin (`plugin/`), relay (`relay/`), NPC
 harness and measurement tools with their Git histories preserved. Start with
@@ -32,13 +40,11 @@ All of these ship inside the release zip:
 
 ## Install
 
-1. Extract the release zip into the game folder (the one containing `bin`, `r6`, `red4ext`).
-2. Edit `red4ext/plugins/CP2077Coop/server.ini` if the relay server address changed. Save it as
-   UTF-8 **without** BOM (Notepad: *UTF-8*, not *UTF-8 with BOM* or *Unicode*), or let the dev kit
-   write it: `python coop-tools/devkit.py server <game folder> IP:PORT`. The monitor warns about a
-   BOM and reports a UTF-16 file or a missing `server_ip` / `server_port`.
-3. Pick a role in the in-game **CP2077 Coop** panel (open the CET overlay, click *Switch to HOST/JOINER*).
-   The choice is saved to `role.txt` in the mod folder. One player must be host, the other joiner.
+1. **Download and extract** the complete mod ZIP linked above into a separate folder. Close the game and back up your saves and any mod files you will replace.
+2. **Copy the contents of `game-root`** (`bin`, `engine`, `r6`, `red4ext`) into your Cyberpunk game folder, merging with its existing folders. Do not copy the enclosing `game-root` folder itself.
+3. **Configure the connection.** For a fresh installation, copy the extracted `config-examples/transport.ini.example` to `bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/transport.ini` in the game folder. Set the relay address, port, shared room and your chosen room key. `127.0.0.1` works only when the relay runs on the same computer. Existing installations keep their own configuration; check it matches your intended relay.
+4. **Run the included relay** from the extracted package using Python 3.12 or newer: `python relay/relay_v2.py --host 0.0.0.0 --port 11778`. Both players must be able to reach that computer over UDP on port 11778.
+5. **Launch both games** and choose HOST on one and JOINER on the other in the CET **CP2077 Coop** panel. Keep NPC and retained-steering experiments off. Follow the [full installation guide](game-files/latest/README.md) for probe compatibility, configuration and rollback details.
 
 **Both players must run the same version**: the panel title (*CP2077 Coop v0.0.37*), the
 *Version* row at the top of the panel and `version=` at the start of every `[STATS]` line show it.
