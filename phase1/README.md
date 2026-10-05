@@ -12,7 +12,10 @@ Tools for Phase 1 of the total sync plan ("prove the new plugin works in the gam
 
 Python 3.11+ is required. The tests also need `lupa` (see `requirements.txt`; `run_tests.ps1`
 installs it into `.pydeps`). The native test needs VS 2022 (MSVC v143), CMake 3.21+, and the
-sibling `..\dllproto` repo.
+preserved protocol-1 plugin history. In the unified repository `run_tests.ps1`
+exports the pinned v0.1.2 commit `5826780c51317984c17a3d49c11a693e3d12f514`,
+retained by the `plugin/` subtree import. It does not compile the current v2
+transport with this legacy shim. Use root portable/native checks for current v2.
 
 ## NetProbe in the game
 
@@ -169,10 +172,14 @@ assert zero undelivered reliable messages; inspect the reported tail or drain it
 Exit code 0 means the report was printed. With `--strict`, a failed verdict exits 1. Unusable
 input exits 2.
 
-## Phase 1 bench procedure
+## Historical Phase 1 bench procedure
+
+This protocol-1 procedure is retained for interpreting old captures. Do not deploy
+it over the current v2 gameplay plugin or enable a second native polling owner.
+The consolidated test runner exports its pinned relay under `build/coresrc/`.
 
 1. With the games closed, install the plugin and NetProbe into Baseline and Test B.
-2. Run `python ..\dllproto\tools\coopnet_relay.py --port 11779 --latency-ms 115 --jitter-ms 20 --loss-pct 1`.
+2. Run `python build\coresrc\tools\coopnet_relay.py --port 11779 --latency-ms 115 --jitter-ms 20 --loss-pct 1` after exporting the pinned core with the test runner.
 3. Play or run the bot for 30 min while v1 sync keeps running.
 4. Shut the probes down cleanly and run `python tools\sync_audit.py <Baseline>\...\probe_audit_host.log <Test B>\...\probe_audit_joiner.log --sim-loss-pct 1 --min-duration-s 1800 --strict`.
 5. Archive both files before another bench. Review warnings, drawn sample coverage, duration
@@ -201,7 +208,8 @@ powershell -ExecutionPolicy Bypass -File run_tests.ps1 -SkipNative   # no compil
   - sync_audit scores the real audit files. That includes a "perfect avatar" oracle, which must
     score about 0 at its own render delay.
 - `tests\test_netprobe_relay.py` (14 tests) needs a native build:
-  - The script exports `src\core` from `..\dllproto` at a git ref (default `HEAD`) and builds
+  - The script exports `src\core` from the preserved original plugin commit
+    `5826780c51317984c17a3d49c11a693e3d12f514` in the parent repository and builds
     it into `build\shim\Release\coopnet_shim.dll`. The shim is test-only and is never shipped.
   - Two probes reach the real `coopnet::Transport` through LuaJIT FFI. They talk real UDP in
     real time through `coopnet_relay.py`. There are two 30 s profiles: 115 ms + 20 ms jitter with

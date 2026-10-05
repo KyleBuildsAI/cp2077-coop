@@ -2,14 +2,14 @@
 
     LuaJIT (lupa) netprobe.lua -> Game.Net_* via LuaJIT FFI -> coopnet_shim.dll
     (the dllproto coopnet::Transport the plugin's natives call) -> UDP ->
-    dllproto/tools/coopnet_relay.py with simulated latency, jitter and loss -> the other instance
+    the pinned protocol-1 coopnet_relay.py with simulated latency, jitter and loss -> the other instance
 
 Two probe instances (host + joiner) run at 60 fps on the wall clock. Their audit files land in
 out/relay/<profile>/ and are scored with tools/sync_audit.py.
 
 Environment:
     COOPNET_SHIM            path to coopnet_shim.dll (default build/shim/Release/coopnet_shim.dll)
-    COOPNET_RELAY           path to coopnet_relay.py (default ../dllproto/tools/coopnet_relay.py)
+    COOPNET_RELAY           path to coopnet_relay.py (default build/coresrc/tools/coopnet_relay.py)
     NETPROBE_RELAY_SECONDS  seconds per profile (default 30)
     NETPROBE_RELAY_PORT     first UDP port to use (default 11797; the bench relay keeps 11779)
 
@@ -28,7 +28,7 @@ import sync_audit
 
 SHIM = os.environ.get("COOPNET_SHIM", os.path.join(harness.ROOT, "build", "shim", "Release", "coopnet_shim.dll"))
 RELAY = os.environ.get("COOPNET_RELAY",
-                       os.path.join(os.path.dirname(harness.ROOT), "dllproto", "tools", "coopnet_relay.py"))
+                       os.path.join(harness.ROOT, "build", "coresrc", "tools", "coopnet_relay.py"))
 SECONDS = float(os.environ.get("NETPROBE_RELAY_SECONDS", "30"))
 FIRST_PORT = int(os.environ.get("NETPROBE_RELAY_PORT", "11797"))
 OUT = os.path.join(harness.ROOT, "out", "relay")

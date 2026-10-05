@@ -8,8 +8,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-set(COOPNET_CORE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../dllproto/src" CACHE PATH
-    "dllproto src directory (contains core/Transport.hpp)")
+set(COOPNET_CORE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../build/coresrc/src" CACHE PATH
+    "Pinned legacy core export (contains core/Transport.hpp)")
 if(NOT EXISTS "${COOPNET_CORE_SRC}/core/Transport.hpp")
   message(FATAL_ERROR "core/Transport.hpp not found under ${COOPNET_CORE_SRC}")
 endif()

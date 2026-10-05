@@ -7,7 +7,7 @@
     2. tests\test_sync_audit.py      sync_audit.py on synthetic logs with known error.
     3. tests\test_netprobe_sim.py    netprobe.lua under LuaJIT on an in-memory lossy link.
     4. Unless -SkipNative: exports src\core, tools\coopnet_relay.py and CMakeLists.txt (for the
-       version) from the dllproto repo at -CoreRef with git archive, so an in-progress working tree
+       version) from the preserved plugin history at -CoreRef with git archive, so an in-progress working tree
        is never compiled or touched. Builds tests\shim into build\shim, then runs
        tests\test_netprobe_relay.py: two probes over the real coopnet::Transport through
        coopnet_relay.py with simulated latency, jitter and loss.
@@ -21,8 +21,8 @@
 #>
 param(
     [switch]$SkipNative,
-    [string]$DllProto = (Join-Path (Split-Path $PSScriptRoot -Parent) "dllproto"),
-    [string]$CoreRef = "HEAD",
+    [string]$DllProto = (Split-Path $PSScriptRoot -Parent),
+    [string]$CoreRef = "5826780c51317984c17a3d49c11a693e3d12f514",
     [int]$RelaySeconds = 30,
     [string]$Python = "python",
     [string]$VsInstance = "C:/Program Files/Microsoft Visual Studio/2022/Community"
@@ -76,12 +76,20 @@ if (-not $SkipNative) {
     $coreDir = Join-Path $root "build\coresrc"
     $shimBuild = Join-Path $root "build\shim"
     $built = Invoke-Step "build transport shim ($CoreRef)" {
-        if (-not (Test-Path (Join-Path $DllProto ".git"))) {
-            Write-Host "dllproto repo not found at $DllProto"
+        git -C $DllProto rev-parse --git-dir | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "repository with the preserved plugin history not found at $DllProto"
             $global:LASTEXITCODE = 2
             return
         }
-        if (Test-Path $coreDir) { Remove-Item -Recurse -Force $coreDir }
+        # This historical protocol-1 harness must never export current v2 HEAD.
+        # Its pinned original commit remains reachable through the subtree import.
+        $expectedCoreDir = [IO.Path]::GetFullPath((Join-Path $root 'build\coresrc'))
+        if ([IO.Path]::GetFullPath($coreDir) -ne $expectedCoreDir) { throw 'Unexpected core export path.' }
+        if (Test-Path -LiteralPath $coreDir) {
+            if ((Resolve-Path -LiteralPath $coreDir).Path -ne $expectedCoreDir) { throw 'Core export path resolves outside the expected directory.' }
+            Remove-Item -LiteralPath $coreDir -Recurse -Force
+        }
         New-Item -ItemType Directory -Force $coreDir | Out-Null
         $archive = Join-Path $root "build\coresrc.tar"
         git -C $DllProto archive --format=tar --output $archive $CoreRef src/core tools/coopnet_relay.py CMakeLists.txt
