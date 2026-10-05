@@ -24,7 +24,7 @@ def digest(data: bytes) -> str:
 
 
 def build(bundle: Path, native: Path, output: Path) -> None:
-    manifest_data = (SPEC / "package-manifest.json").read_bytes()
+    manifest_data = (SPEC / "package-manifest.json").read_bytes().replace(b"\r\n", b"\n")
     manifest = json.loads(manifest_data)
     sources = {"repository": ROOT, "bundle": bundle.resolve(), "package": SPEC}
     payload = {}
