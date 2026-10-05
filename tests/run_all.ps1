@@ -28,13 +28,19 @@
 .PARAMETER KeepWorkDir
     Keep the per-run folder with every test's full log (always kept on failure).
 
+.PARAMETER SkipRedscript
+    Explicitly omit the game-asset-dependent compiler group on hosted CI runners.
+    All Lua loads, mock regressions, relay checks and tool syntax checks still run.
+    The default local run still requires redscript compilation.
+
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File tests\run_all.ps1
 #>
 [CmdletBinding()]
 param(
     [string[]]$Only = @(),
-    [switch]$KeepWorkDir
+    [switch]$KeepWorkDir,
+    [switch]$SkipRedscript
 )
 
 $ErrorActionPreference = "Continue"
@@ -278,7 +284,10 @@ try {
     }
     else {
         Test-LuaLoad
-        Test-RedscriptCompile
+        if ($SkipRedscript) {
+            Write-Output 'SKIP redscript compile: -SkipRedscript explicitly selected; game assets unavailable in hosted CI. Run the default local suite before deploying.'
+        }
+        else { Test-RedscriptCompile }
         foreach ($test in $PythonTests) { Test-PythonScript $test }
         Test-MovementSim
         Test-Relay

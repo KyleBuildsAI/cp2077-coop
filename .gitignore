@@ -42,3 +42,9 @@ __pycache__/
 
 # Offline test suite dependencies (installed by tests/run_all.ps1)
 tests/.deps/
+
+# Unified build and CI output (source components remain tracked)
+/build/
+/artifacts/
+/CMakeUserPresets.json
+.pytest_cache/
