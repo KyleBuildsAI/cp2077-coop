@@ -161,6 +161,10 @@ The [Bukczyk checkpoint comparison](BUKCZYK_CHECKPOINT_COMPARISON.md) records th
 
 Larger groups are a **future extension after two-player qualification**: audit single-peer gameplay state, then qualify a host plus two joiners headlessly and in three actual game clients, with independent avatars/markers, fairness and departure cleanup; four clients follow. Dynamic collections or a raised member limit alone do not establish support. His reported VPS and legacy combat tests require build/topology/log evidence before they count toward our real-link or authoritative-combat gates.
 
+## Public-platform research and documentation-only handoff
+
+[Landscape research (2026-10-04)](MULTIPLAYER_LANDSCAPE_2026-10-04.md) adds a proposed build-specific API knowledge pack, vehicle physics-owner/observer experiment, asynchronous seat transitions, ADS observation, native icon-adapter research and aggregate join readiness. Public contracts are distinguished from hidden implementations. These refine existing stages; nothing is newly implemented. Follow [Claude handoff](CLAUDE_HANDOFF.md): Kyle's latest scope is documentation/planning only until he requests implementation again. Retain two-player qualification and prioritize vehicle instability over a platform rewrite.
+
 ## Immediate work queue
 
 1. Continue from verified source 856721b and its consolidated build/runtime/authority tests. Prepare the isolated game-side authority dispatcher and seat observer; preserve v37 as the installed baseline until a separately verified deployment is made.

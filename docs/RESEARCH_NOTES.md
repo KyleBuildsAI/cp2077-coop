@@ -95,3 +95,7 @@ Commit **856721b** explicitly skips only the Release timing-budget assertion whe
 ## Contributor checkpoint narrative comparison
 
 See [Bukczyk checkpoint comparison](BUKCZYK_CHECKPOINT_COMPARISON.md) for the 2026-10-04 user-supplied update, current source/documentation mismatches and pending session, scaling, rate, bootstrap and cutover experiments. GitHub main remains the previously inspected 20eb125 checkpoint; older passing CI at 6d6ac003 is kept separate from its later networking work-in-progress. No new runtime validation or implementation adoption occurred.
+
+## Public multiplayer platform research
+
+The [2026-10-04 landscape review](MULTIPLAYER_LANDSCAPE_2026-10-04.md) records OPEN//77, CyberMP and other projects, pinned public sources, reuse boundaries and an independent research queue. Public APIs are not our engine APIs. No competitor implementation was integrated. [Claude handoff](CLAUDE_HANDOFF.md) records documentation-only scope and machine/package state.
