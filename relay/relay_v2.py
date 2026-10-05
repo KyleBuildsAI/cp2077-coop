@@ -27,10 +27,10 @@ import socket
 import sys
 import time
 
-from coopnet import legacy, proto
+from coopnet import authority, legacy, proto
 from coopnet.linksim import LinkSim
 from coopnet.ratelimit import Limits, TokenBucket
-from coopnet.reliability import SEQ_SPACE, Connection, seq_diff
+from coopnet.reliability import RELIABLE_WINDOW, SEQ_SPACE, Connection, seq_diff
 
 PEER_TIMEOUT_S = 10.0
 LEGACY_TIMEOUT_S = 10.0
@@ -164,6 +164,7 @@ class Room:
         self.time_weather = None
         self.session_config = None
         self.facts = {}
+        self.authority = None  # explicitly enabled, headless experiment; no default policy change
 
     @property
     def bridged(self) -> bool:
@@ -207,7 +208,7 @@ class Relay:
             "datagrams_in", "datagrams_out", "bytes_in", "bytes_out", "unknown_datagrams", "malformed_v2",
             "malformed_v1", "version_rejects", "hellos", "auths", "welcomes", "rejects", "unknown_token",
             "rebinds", "violations", "rate_dropped", "handshake_limited", "kicked", "slow_consumers",
-            "minor_filtered")}
+            "minor_filtered", "authority_accepted", "authority_rejected", "authority_overflow")}
         self.reject_reasons = {}
 
     # ------------------------------------------------------------------ time
@@ -373,6 +374,8 @@ class Relay:
                 self.reject(address, proto.RejectReason.SERVER_FULL, "too many rooms", now)
                 return
             room = Room(info["room"], key_hash, info, self.args.room_size, now)
+            if self.args.entity_authority_test:
+                room.authority = authority.Authority()
             self.rooms[room.name] = room
             self.log.line(f"EVENT room created {room.name!r} flags=0x{room.flags:02x}")
         elif not hmac.compare_digest(room.key_hash, key_hash):
@@ -556,6 +559,11 @@ class Relay:
         if not allowed:
             self.counters["rate_dropped"] += 1
             return
+        if mtype == proto.MsgType.SCRIPT_MSG and peer.room.authority is not None \
+                and values["channel"] in (authority.CONTROL, authority.POSE) \
+                and (values["text"] == authority.PREFIX or values["text"].startswith(authority.PREFIX + "|")):
+            self.authority_message(peer, dest, values, now)
+            return
         if mtype == proto.MsgType.TIME_REQ:
             reply = proto.TIME_RESP.encode({"t0": values["t0"], "t1": self.relay_ms(now),
                                             "t2": self.relay_ms(time.perf_counter())})
@@ -576,6 +584,65 @@ class Relay:
             peer.last_player = values
             if peer.room.bridged and peer.room.name == self.args.legacy_room:
                 self.bridge_to_legacy(peer, values, now)
+
+    @staticmethod
+    def authority_identity(peer: Peer) -> authority.Identity:
+        return authority.Identity(peer.peer_id, peer.token, peer.role == proto.Role.HOST)
+
+    def authority_message(self, peer: Peer, dest: int, values: dict, now: float) -> None:
+        if dest not in (proto.PEER_RELAY, proto.PEER_BROADCAST):
+            self.counters["authority_rejected"] += 1
+            return
+        policy = peer.room.authority
+        plan = policy.plan(self.authority_identity(peer), values["channel"], values["text"], now, self.relay_ms(now))
+        # Queue capacity is checked for the entire result before any acceptance or
+        # authoritative mutation. Slow consumers are disconnected, never told an
+        # uncommitted action succeeded. No game-thread acknowledgment is implied.
+        if not self.authority_effects(peer.room, plan.effects, now):
+            return
+        peer.room.authority = plan.state
+        key = "authority_rejected" if plan.verdict == "rejected" else "authority_accepted"
+        self.counters[key] += 1
+
+    def authority_effects(self, room: Room, effects: list[authority.Effect], now: float) -> bool:
+        prepared = []
+        needed = {}
+        for effect in effects:
+            target = room.peers.get(effect.target.peer)
+            if target is None or self.authority_identity(target) != effect.target:
+                return False
+            body = proto.SCRIPT_MSG.encode({"channel": effect.channel, "flags": 0, "text": effect.text})
+            prepared.append((target, effect.channel, body))
+            if effect.channel == authority.CONTROL:
+                needed[target] = needed.get(target, 0) + 1
+        overloaded = []
+        for target, count in needed.items():
+            conn = target.conn
+            used = seq_diff(conn.rel_next, next(iter(conn.rel_pending))) if conn.rel_pending else 0
+            if used + count > RELIABLE_WINDOW:
+                overloaded.append(target)
+        if overloaded:
+            self.counters["authority_overflow"] += 1
+            for target in overloaded:
+                if target.token in self.peers_by_token:
+                    self.remove_peer(target, proto.DisconnectReason.SLOW_CONSUMER, now)
+            return False
+        for target, channel, body in prepared:
+            if channel == authority.CONTROL:
+                # Single-threaded relay: preflight proves all these inserts fit.
+                queued = target.conn.queue_reliable(proto.MsgType.SCRIPT_MSG, proto.PEER_RELAY, body, now)
+                if not queued:
+                    raise RuntimeError("authority reliable queue changed after preflight")
+            else:
+                # Only the latest experimental pose needs delivery. It must not
+                # build an unbounded second snapshot queue during a delayed tick.
+                target.pending = [entry for entry in target.pending
+                                  if not (entry[0] == proto.MsgType.SCRIPT_MSG
+                                          and entry[1] == proto.PEER_RELAY
+                                          and entry[2].startswith(bytes((authority.POSE, 0))))]
+                target.pending.append((proto.MsgType.SCRIPT_MSG, proto.PEER_RELAY, body))
+            self.dirty.add(target)
+        return True
 
     def targets(self, peer: Peer, spec, dest: int, values: dict) -> list:
         room = peer.room
@@ -637,6 +704,9 @@ class Relay:
         self.dirty.discard(peer)
         if room.host_id == peer.peer_id:
             room.host_id = None
+        if room.authority is not None:
+            effects = room.authority.remove(self.authority_identity(peer))
+            self.authority_effects(room, effects, now)
         if send_disconnect and reason is not None:
             self.send(proto.encode_disconnect(peer.token, reason), peer.address, now)
         if notify:
@@ -651,6 +721,9 @@ class Relay:
     # ------------------------------------------------------------------ tick
 
     def tick(self, now: float) -> None:
+        for room in self.rooms.values():
+            if room.authority is not None:
+                room.authority.expire(now)
         for peer in list(self.peers_by_token.values()):
             if now - peer.last_seen > PEER_TIMEOUT_S:
                 self.remove_peer(peer, proto.DisconnectReason.TIMEOUT, now)
@@ -882,6 +955,8 @@ def parse_args(argv=None):
     parser.add_argument("--host", default="127.0.0.1", help="bind address; 0.0.0.0 or :: for a public relay")
     parser.add_argument("--port", type=int, default=11778)
     parser.add_argument("--room-size", type=int, default=2, choices=range(2, 9), metavar="2-8")
+    parser.add_argument("--entity-authority-test", action="store_true",
+                        help="opt-in headless C3A1 single-vehicle/seat metadata experiment; no game mounting")
     parser.add_argument("--legacy-room", default="legacy",
                         help="v2 room (created with LEGACY_BRIDGE) that v1 clients are bridged into")
     parser.add_argument("--latency-ms", type=float, default=0.0, help="simulated one-way delay on every send")
