@@ -48,3 +48,9 @@ tests/.deps/
 /artifacts/
 /CMakeUserPresets.json
 .pytest_cache/
+
+# Complete install payloads are generated and distributed as GitHub release assets.
+/game-files/latest/game-root/
+/game-files/latest/relay/
+/game-files/latest/SHA256SUMS.txt
+/game-files/latest/*.zip.sha256

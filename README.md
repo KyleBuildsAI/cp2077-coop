@@ -2,6 +2,9 @@
 
 Experimental two-player co-op for Cyberpunk 2077 (game version 2.31a).
 
+**Installing the mod?** Use [the complete game-files package](game-files/latest/README.md)
+for the latest tested batch, including required runtimes and both co-op DLLs.
+
 The source tree now includes the native plugin (`plugin/`), relay (`relay/`), NPC
 harness and measurement tools with their Git histories preserved. Start with
 [shared development](docs/DEVELOPMENT.md), [integration provenance](docs/INTEGRATION_PROVENANCE.md)

@@ -1,0 +1,545 @@
+{
+  "package": "CP2077Coop-v0.0.37-alpha5-game-files",
+  "release_tag": "v0.0.37-game-bundle.1",
+  "source_revision": "021b5eaa2e9a0cdfbbadf5ea7f0e7fc5379acbff",
+  "gameplay_revision": "af1f98fb7d2f659a3b405c15628856d26fc23558",
+  "native_revision": "1f270f1",
+  "game_executable_version": "3.0.80.51928",
+  "runtime_versions": {
+    "CET": "1.37.1",
+    "RED4ext": "1.30.0",
+    "Codeware": "1.18.0",
+    "CP2077Coop": "0.0.25 (legacy DLL)",
+    "CP2077CoopNet": "0.2.0-alpha.5",
+    "gameplay_scripts": "0.0.37",
+    "ASI_loader": "6.0.0",
+    "redscript": "exact compiler bytes pinned below; no inferred version"
+  },
+  "verification": "Runtime bytes match the October 4 v37 bench. Packaging hash/ZIP checks do not constitute a new live gameplay test.",
+  "extra_license_sources": [
+    {
+      "repository": "ThirteenAG/Ultimate-ASI-Loader",
+      "blob": "3f48ab3d3b25bd9023c54e7cda30242a3aa4f1ab"
+    },
+    {
+      "repository": "jac3km4/redscript",
+      "blob": "2e54d8b609218cf7fae75862b60acafa36a61075"
+    }
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "source": "package",
+      "source_path": "README.md",
+      "bytes": 4449,
+      "sha256": "ea837223759479a1ce021bda9572cf64bb19224ca08de0f9d0be4fc1fae584db",
+      "line_endings": "lf"
+    },
+    {
+      "path": "config-examples/server.ini.example",
+      "source": "package",
+      "source_path": "config-examples/server.ini.example",
+      "bytes": 38,
+      "sha256": "b2881e4fc124af182ca7fd9d0aa7db269f7b4a8eefde92280c88e6e58ae90540",
+      "line_endings": "lf"
+    },
+    {
+      "path": "config-examples/transport.ini.example",
+      "source": "package",
+      "source_path": "config-examples/transport.ini.example",
+      "bytes": 151,
+      "sha256": "6c3ca97f2fbecddeeedfe7791675af058044b31894df197f008690d707b9bc6b",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/bin/x64/ASI_LOADER_LICENSE.txt",
+      "source": "package",
+      "source_path": "licenses/Ultimate-ASI-Loader.LICENSE.txt",
+      "bytes": 1067,
+      "sha256": "ceca73c504e39084b0b80d2a437aea9988313d1915418d3c629c3e4a8313f5a1",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/bin/x64/LICENSE",
+      "source": "bundle",
+      "source_path": "bin/x64/LICENSE",
+      "bytes": 1085,
+      "sha256": "98c3b6d063066ad2dddc1a716d6ce5df8ed63497b0084b248d8d05516c57dbc7"
+    },
+    {
+      "path": "game-root/bin/x64/global.ini",
+      "source": "bundle",
+      "source_path": "bin/x64/global.ini",
+      "bytes": 167,
+      "sha256": "c02b09b2cf2cfab32527ee1a88ee311500c1c2f4c95d20fe0898c9e0407a4d86"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks.asi",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks.asi",
+      "bytes": 7391744,
+      "sha256": "43a7b94698979703f9dfa2b0950607c9a88f53b84bbf09a8e593c7e218d41059"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/ThirdParty_LICENSES",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/ThirdParty_LICENSES",
+      "bytes": 29643,
+      "sha256": "83b9af1ffcc13f5822ae9ba561969bffcb8967a05edff6f41bf497e6c232fff0"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSans-Regular.ttf",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSans-Regular.ttf",
+      "bytes": 556216,
+      "sha256": "4c8d67001d3c2977e5d6bf0a4f8add80cd564bd1df60b7569fd23751e7dda02a"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansJP-Regular.otf",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansJP-Regular.otf",
+      "bytes": 4548208,
+      "sha256": "34b41de3f65166440ea2ce40121eb1c9b9c2bb92d188bd32a8e6091cd92316db"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansKR-Regular.otf",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansKR-Regular.otf",
+      "bytes": 4744692,
+      "sha256": "29445948e432137e0de104dec389e956d72633aa0e4cb04ca572bb8e378e3d35"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansMono-Regular.ttf",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansMono-Regular.ttf",
+      "bytes": 383844,
+      "sha256": "97b31969bfe7ebf894c12afdf6a5dcb6e87e64114697782802fe933e693eacd8"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansSC-Regular.otf",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansSC-Regular.otf",
+      "bytes": 8482020,
+      "sha256": "a2b93e6c2db05d6bbbf6f27d413ec73269735b7b679019c8a5aa9670ff0ffbf2"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansTC-Regular.otf",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansTC-Regular.otf",
+      "bytes": 5766468,
+      "sha256": "8d9cd5f210c0204d2a1ddaeaf82db1071e242126f4e18b9c350d8b1680bae400"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansThai-Regular.ttf",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/fonts/NotoSansThai-Regular.ttf",
+      "bytes": 47404,
+      "sha256": "f73be376b0e1704da118312e202be49e8ac04a6b2e19b588cdfc2707c7f3e25d"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/fonts/materialdesignicons.ttf",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/fonts/materialdesignicons.ttf",
+      "bytes": 1243500,
+      "sha256": "bd725a7a38939e5b59904e1b7a7265919ecec256166ece69d515c21005165907"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/init.lua",
+      "source": "repository",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/init.lua",
+      "bytes": 233219,
+      "sha256": "ccbac629f8e39e658aec39474860f361203e15493e16c4ae6b9e242a9f8ae1a3",
+      "line_endings": "crlf"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/net_transport.lua",
+      "source": "repository",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/net_transport.lua",
+      "bytes": 21545,
+      "sha256": "b5c2e67402da9c68eee4f12f382dfda9bc2c049178c6d60619b7ab7ff8e311a3",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/npc_test.lua",
+      "source": "repository",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/npc_test.lua",
+      "bytes": 10053,
+      "sha256": "ca324451459c855ebd06d3f68d08aaecedd897f93357bd6ba6b2af0b55973df8",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/testnpc.lua",
+      "source": "repository",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/testnpc.lua",
+      "bytes": 14336,
+      "sha256": "7932f2b3ab9aff8a8d026b631241c40885da4b4f54e12bcbe0d3230cc88941f9",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/mods/CoopNetCheck/disabled.txt",
+      "source": "package",
+      "source_path": "templates/disabled.txt",
+      "bytes": 58,
+      "sha256": "e1c9cb3ce706fc138962191dd38dcae1c81957c5f8e0b33475524cdf70352c74",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/scripts/IconGlyphs/icons.lua",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/scripts/IconGlyphs/icons.lua",
+      "bytes": 682986,
+      "sha256": "f52aa193fe7fc562c82facb18261834bdb30e61cfca0feb2effba758f8a2cf80"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/scripts/json/LICENSE",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/scripts/json/LICENSE",
+      "bytes": 1068,
+      "sha256": "f2c7e5ea921f2d0514e229e88ac39e51b3db50698b270b3a9290b610b7015fdc"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/scripts/json/README.md",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/scripts/json/README.md",
+      "bytes": 1557,
+      "sha256": "e71e8c5fa757699655d0d48843ec98b8a777c78819c1eec623f61027ac4bc5d0"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/scripts/json/json.lua",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/scripts/json/json.lua",
+      "bytes": 10026,
+      "sha256": "23031288e528880354d3d4651a9dc299b4c85e28889d9f5ae1dcca76b3cdc8b1"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/tweakdb/tweakdbstr.kark",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/tweakdb/tweakdbstr.kark",
+      "bytes": 7161981,
+      "sha256": "1eff27bacbac8bb55a632c8e393bc046e2c991a6f987b9a78a8ed3fc41eb1db9"
+    },
+    {
+      "path": "game-root/bin/x64/plugins/cyber_engine_tweaks/tweakdb/usedhashes.kark",
+      "source": "bundle",
+      "source_path": "bin/x64/plugins/cyber_engine_tweaks/tweakdb/usedhashes.kark",
+      "bytes": 3405057,
+      "sha256": "5d27963ec0dbc606074586134c6ba44cadcf3754e95991240cb8e9e11268835f"
+    },
+    {
+      "path": "game-root/bin/x64/version.dll",
+      "source": "bundle",
+      "source_path": "bin/x64/version.dll",
+      "bytes": 905216,
+      "sha256": "67565dd7f899c0e4ee3903b1cc8078ff20ca80b8100497c6ac813392e431d443"
+    },
+    {
+      "path": "game-root/bin/x64/winmm.dll",
+      "source": "bundle",
+      "source_path": "bin/x64/winmm.dll",
+      "bytes": 214528,
+      "sha256": "22690f3ac5efbfa825b758028f114d0e7d83833160716f199c56056db01fc8be"
+    },
+    {
+      "path": "game-root/engine/config/base/scripts.ini",
+      "source": "bundle",
+      "source_path": "engine/config/base/scripts.ini",
+      "bytes": 39,
+      "sha256": "ea8281682d4130f872e1703b25aa989a823f136fa1d886077af24aedb08b0d4c"
+    },
+    {
+      "path": "game-root/engine/tools/REDSCRIPT_LICENSE.txt",
+      "source": "package",
+      "source_path": "licenses/redscript.LICENSE.txt",
+      "bytes": 1064,
+      "sha256": "97ff751dcd16a2ae8e3184910e4e4924b27ee8651b1564765a2cc1ccdbabebea",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/engine/tools/scc.exe",
+      "source": "bundle",
+      "source_path": "engine/tools/scc.exe",
+      "bytes": 449024,
+      "sha256": "da2c0de580173010c907a05fdd2f3cd2430d6e62bf748339d65060118ae32edd"
+    },
+    {
+      "path": "game-root/engine/tools/scc_lib.dll",
+      "source": "bundle",
+      "source_path": "engine/tools/scc_lib.dll",
+      "bytes": 1988608,
+      "sha256": "49eb60a3613c990cd13b6136e827a74f9f64ad68e2f911d8c93e4e3d3f53c100"
+    },
+    {
+      "path": "game-root/r6/config/cybercmd/scc.toml",
+      "source": "bundle",
+      "source_path": "r6/config/cybercmd/scc.toml",
+      "bytes": 228,
+      "sha256": "05802a334d72e87194d49765b7b852c2a983f8849851abcf3fd1366f64d4a934"
+    },
+    {
+      "path": "game-root/r6/scripts/CP2077Coop/autoload.reds",
+      "source": "repository",
+      "source_path": "r6/scripts/CP2077Coop/autoload.reds",
+      "bytes": 11313,
+      "sha256": "f979988afb82c1e554d6b60f2ae79b22d172d65b8fd7d58228c060dcb46ac82b",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/r6/scripts/CP2077Coop/combat.reds",
+      "source": "repository",
+      "source_path": "r6/scripts/CP2077Coop/combat.reds",
+      "bytes": 2864,
+      "sha256": "61bec8eb9ee352c42ecd6bdf5976737abafbb5214591f05f019637d39e092275",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/r6/scripts/CP2077Coop/marker.reds",
+      "source": "repository",
+      "source_path": "r6/scripts/CP2077Coop/marker.reds",
+      "bytes": 2170,
+      "sha256": "cfd73b9375d96a2081c323db5be5bf918890747a91438c32d2b0f97be2228d62",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/r6/scripts/CP2077Coop/natives.reds",
+      "source": "repository",
+      "source_path": "r6/scripts/CP2077Coop/natives.reds",
+      "bytes": 614,
+      "sha256": "7f0b45a2b27f6fc3fe30bdb3f2103ca501da1b0897297d4a4396bebde8e369e3",
+      "line_endings": "crlf"
+    },
+    {
+      "path": "game-root/r6/scripts/CP2077Coop/remote.reds",
+      "source": "repository",
+      "source_path": "r6/scripts/CP2077Coop/remote.reds",
+      "bytes": 4475,
+      "sha256": "5d3206f6d27ae5b8a392320cced98cdbfd5642c71ca382f395cd461ed59e24ce",
+      "line_endings": "crlf"
+    },
+    {
+      "path": "game-root/r6/scripts/CP2077Coop/state.reds",
+      "source": "repository",
+      "source_path": "r6/scripts/CP2077Coop/state.reds",
+      "bytes": 11727,
+      "sha256": "646034f691d1dd973faa4f77adbdec99aa8899db408be0596a31f446856b1fb7",
+      "line_endings": "crlf"
+    },
+    {
+      "path": "game-root/r6/scripts/CP2077Coop/testnpc.reds",
+      "source": "repository",
+      "source_path": "r6/scripts/CP2077Coop/testnpc.reds",
+      "bytes": 9335,
+      "sha256": "572bcdb3b4189d3e261799b1d5c1305cb2b1f000ad9a9bd77598432278d160d3",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/r6/scripts/CP2077Coop/vehicle.reds",
+      "source": "repository",
+      "source_path": "r6/scripts/CP2077Coop/vehicle.reds",
+      "bytes": 10869,
+      "sha256": "31bed98c6fa7ea340e298d3aea4f6ae363b8eae6ce56209e8ed2b2c02ab4b145",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/red4ext/LICENSE.txt",
+      "source": "bundle",
+      "source_path": "red4ext/LICENSE.txt",
+      "bytes": 1101,
+      "sha256": "a0b08b28ae3931a5a41a1788aac6c7a391513bfc3599272021ea5b2c1af2f6f6"
+    },
+    {
+      "path": "game-root/red4ext/RED4ext.dll",
+      "source": "bundle",
+      "source_path": "red4ext/RED4ext.dll",
+      "bytes": 1248256,
+      "sha256": "59309a78a9606481d13f87e8fbf9ea9c0b735115389ded0295537180c9e52511"
+    },
+    {
+      "path": "game-root/red4ext/THIRD_PARTY_LICENSES.txt",
+      "source": "bundle",
+      "source_path": "red4ext/THIRD_PARTY_LICENSES.txt",
+      "bytes": 10203,
+      "sha256": "b49e3d32f961c21e0b15f4c9b11da9455d7c9905a457b1dfa88504f6592220ff"
+    },
+    {
+      "path": "game-root/red4ext/plugins/CP2077Coop/CP2077Coop.dll",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/CP2077Coop/CP2077Coop.dll",
+      "bytes": 96256,
+      "sha256": "375723288e4c4d6b98f081b63703f8d1ff01d937fd287e1530d9ded2a2ab8eef"
+    },
+    {
+      "path": "game-root/red4ext/plugins/CP2077CoopNet/CP2077CoopNet.dll",
+      "source": "native_binary",
+      "source_path": "CP2077CoopNet.dll",
+      "bytes": 510976,
+      "sha256": "2fb3a6db6535af1c526fe9dc7e6827bae49af0966b77c8ca3db71137eb0dd5e4"
+    },
+    {
+      "path": "game-root/red4ext/plugins/CP2077CoopNet/Scripts/Helpers.reds",
+      "source": "repository",
+      "source_path": "plugin/scripts/CP2077CoopNet/Helpers.reds",
+      "bytes": 6931,
+      "sha256": "c47cbf71eb26568c2e5f5714bc78b31fea0f0dd057b7c7a238fcced4e57aeb45",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/red4ext/plugins/CP2077CoopNet/Scripts/Natives.reds",
+      "source": "repository",
+      "source_path": "plugin/scripts/CP2077CoopNet/Natives.reds",
+      "bytes": 3183,
+      "sha256": "90af4cfb3ae4a08bd2e644d607eccbb143c18bfb36bd36a1c81bdbd7034f1201",
+      "line_endings": "lf"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/Codeware.dll",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/Codeware.dll",
+      "bytes": 1790976,
+      "sha256": "b3fb9aebe185deec3fdabe3db912446c8992423322b56344db8945c764281679"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/Data/KnownHashes.txt",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/Data/KnownHashes.txt",
+      "bytes": 12263138,
+      "sha256": "392e48a8b26154f8d34aa3c1268506d84a2b0bcd3db1b374dfb9c212383a1c20"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/LICENSE",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/LICENSE",
+      "bytes": 1090,
+      "sha256": "dcd5cfc3e620a938b674b5b74a18bba24ac1d8c1353271dac8599b0620238629"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/Scripts/Codeware.Global.reds",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/Scripts/Codeware.Global.reds",
+      "bytes": 1580693,
+      "sha256": "6e1e0ebdb8f28dd7011bdc8fc23f2e0e4cb799fd5d10717d785185c41d4b44a5"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/Scripts/Codeware.Localization.reds",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/Scripts/Codeware.Localization.reds",
+      "bytes": 19187,
+      "sha256": "9eb492034685084015d25dd5da33a6da5d0ee5ae56015b77e83073e6efa286f0"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/Scripts/Codeware.UI.TextInput.reds",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/Scripts/Codeware.UI.TextInput.reds",
+      "bytes": 28317,
+      "sha256": "b8c71b7e118b758d8583367b533731f42f240a98b94466e469c6f77ca93b9280"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/Scripts/Codeware.UI.reds",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/Scripts/Codeware.UI.reds",
+      "bytes": 138537,
+      "sha256": "d93534c5cae4de9bf7c2aae6a1508b49e29872401ef6039c387f9ff4cbae464f"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/Scripts/Codeware.reds",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/Scripts/Codeware.reds",
+      "bytes": 37,
+      "sha256": "2f034099c0c703a13cc92a7a6bcf9b543395984b19bb02fb49aa02536e375260"
+    },
+    {
+      "path": "game-root/red4ext/plugins/Codeware/THIRD_PARTY_LICENSES",
+      "source": "bundle",
+      "source_path": "red4ext/plugins/Codeware/THIRD_PARTY_LICENSES",
+      "bytes": 11950,
+      "sha256": "56e48489d42ce6ebbc4eba4228ebfb422d82d57c79d8fec84763c3889026020e"
+    },
+    {
+      "path": "relay/coopnet/__init__.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/__init__.py",
+      "bytes": 87,
+      "sha256": "1f09298b98629a3f4e67f87a433f0fcdf7401bcbd09e717d7c11dc1b0b8e1bd0",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/authority.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/authority.py",
+      "bytes": 16949,
+      "sha256": "aa6726c248e6b031908df4e4454b616be2d614917fb7fef257caedfbbcd59f01",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/interp.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/interp.py",
+      "bytes": 8457,
+      "sha256": "83c2ed7020c47ef87f17828d2e228e2345c6b5d5c83caec170324dcf2cfa3792",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/legacy.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/legacy.py",
+      "bytes": 3725,
+      "sha256": "8a4e26690a5966306ce566f3c980a0f6347e8c3d15e8882291ba9b06576e253e",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/linksim.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/linksim.py",
+      "bytes": 2320,
+      "sha256": "53bfd0c0c2a8ae2fa3ea36a1a18bf0415905e3ec4e54333334738abb3cfe7dd8",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/proto.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/proto.py",
+      "bytes": 43426,
+      "sha256": "4af669632f7ac7ff200af1a00c8090121e0b726ab5e94cf8f3f48700acdabb32",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/ratelimit.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/ratelimit.py",
+      "bytes": 1108,
+      "sha256": "ac5d1eafb153b93f776bdd08b6324841b628911745ca410de422549d510b704b",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/reliability.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/reliability.py",
+      "bytes": 13328,
+      "sha256": "60decd47e98d7d0c8fe9b121a1347c040c1319227a0440c5947db0f466633237",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/snapshot.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/snapshot.py",
+      "bytes": 13005,
+      "sha256": "e73c0472f8b026a38b4aacf073c4578ccff3c305dd8b22f1ab9daa1966af824f",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/coopnet/testworld.py",
+      "source": "repository",
+      "source_path": "relay/coopnet/testworld.py",
+      "bytes": 11743,
+      "sha256": "e895477516825fa0474fce1592330d6e641387fb975afee65b9bcb6ab6e42495",
+      "line_endings": "lf"
+    },
+    {
+      "path": "relay/relay_v2.py",
+      "source": "repository",
+      "source_path": "relay/relay_v2.py",
+      "bytes": 48709,
+      "sha256": "992ab07c29db8fe9bf50c195cb6a2bb92a5ccab7bfeddd73b30fb4bb19a4cff3",
+      "line_endings": "lf"
+    }
+  ]
+}

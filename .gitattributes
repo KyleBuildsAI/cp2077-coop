@@ -1,2 +1,4 @@
 # Shell entry points must also work after a Windows checkout.
 *.sh text eol=lf
+/game-files/latest/** text eol=lf
+/scripts/package_game_files.py text eol=lf

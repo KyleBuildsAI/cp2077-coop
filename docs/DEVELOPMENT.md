@@ -68,6 +68,13 @@ is covered by the root native transport loopbacks and relay tests.
 
 ## Collaboration and releases
 
+The current complete install batch has its own entry point at
+[`game-files/latest/`](../game-files/latest/README.md). Its generated `game-root/`
+contains the files copied into Cyberpunk, and its GitHub release ZIP includes
+the pinned runtimes, matching relay, configuration examples and SHA256 manifest.
+`scripts/package_game_files.py` verifies every input before generating that batch;
+DLLs and third-party payloads remain release assets, outside source control.
+
 Suggested ownership split: one person owns game integration/live testing, another
 owns session policy/builds, and each reviews the other's cross-component changes.
 Record active tasks and exact file ownership in the pull request or task discussion.

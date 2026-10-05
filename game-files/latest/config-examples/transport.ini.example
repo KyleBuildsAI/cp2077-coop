@@ -1,0 +1,8 @@
+mode=v2
+host=127.0.0.1
+port=11778
+room=coop
+key=CHANGE_ME_TO_THE_SAME_PRIVATE_KEY_ON_BOTH_PCS
+probe_disabled=true
+npc_test=false
+native_retarget=false
