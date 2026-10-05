@@ -34,6 +34,19 @@ overload behavior instead of reporting a successful action that was not applied.
 
 ## Validation and reporting
 
+### Standing release instruction from Kyle (2026-10-04)
+
+For every new mod/runtime or installation-package version, update GitHub **and**
+refresh `game-files/latest/`, including its complete local `game-root/`, matched
+relay, ZIP, manifest, checksums and instructions. Publish the matching versioned
+GitHub release assets after verification; pushing source alone does not complete
+a version. This is standing user authorization, so do not ask for the same routine
+push/package/publication permission again. Follow `docs/RELEASE_WORKFLOW.md` and
+update the Obsidian handoff/status with the version, commit, links and results.
+Keep prior releases recoverable and do not publish failed builds as verified.
+Documentation-only edits do not require a new gameplay version or repackaging an
+unchanged, verified runtime.
+
 Run the checks appropriate to changed components. Portable C++ and Python tests
 belong in CI. `tests/run_all.ps1` also compiles redscript using a read-only local
 game reference; `-SkipRedscript` is only the explicit game-free CI subset.

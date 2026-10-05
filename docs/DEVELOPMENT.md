@@ -68,6 +68,11 @@ is covered by the root native transport loopbacks and relay tests.
 
 ## Collaboration and releases
 
+**Standing instruction:** every new version updates both GitHub and the local
+complete installation package, then the Obsidian handoff/status. Follow the
+[required release workflow](RELEASE_WORKFLOW.md); source-only pushes are not a
+completed version. This recurring work is already authorized by Kyle.
+
 The current complete install batch has its own entry point at
 [`game-files/latest/`](../game-files/latest/README.md). Its generated `game-root/`
 contains the files copied into Cyberpunk, and its GitHub release ZIP includes
