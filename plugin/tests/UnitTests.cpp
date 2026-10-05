@@ -1288,7 +1288,10 @@ void TestSessionWithFakeRelay()
     double worstError = 0.0;
     const auto truthX = [](double aRelayMs) { return 6.0 * (aRelayMs - FakeRelay::kRelayOffsetMs) / 1000.0; };
     const double originX = truthX(FakeRelay::RelayMs());
-    while (MillisSince(moveStart) < 1200.0)
+    // Preserve the sample-count and accuracy checks without assuming that the
+    // Windows scheduler services Pump(4 ms) at a fixed frequency on CI hosts.
+    // Missing samples still fail at the bounded four-second deadline.
+    while ((MillisSince(moveStart) < 1200.0 || sampled <= 100) && MillisSince(moveStart) < 4000.0)
     {
         const double relayMs = FakeRelay::RelayMs();
         if (relayMs - lastSnapshot >= 1000.0 / 30.0)

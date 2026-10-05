@@ -334,7 +334,24 @@ void TestUnreliableNeverRetransmitted()
     for (const SimConfig& run : {config, dupConfig})
     {
         const SimResult result = Simulate(run);
-        const std::set<Bytes> unique(result.gotB.unreliable.begin(), result.gotB.unreliable.end());
+        // An explicit byte comparison avoids GCC 13's vector <=> memcmp overread
+        // warning at -O3; equality and the duplicate-delivery check stay exact.
+        const auto bytesLess = [](const Bytes& left, const Bytes& right) {
+            if (left.size() != right.size())
+            {
+                return left.size() < right.size();
+            }
+            for (size_t index = 0; index < left.size(); ++index)
+            {
+                if (left[index] != right[index])
+                {
+                    return left[index] < right[index];
+                }
+            }
+            return false;
+        };
+        const std::set<Bytes, decltype(bytesLess)> unique(result.gotB.unreliable.begin(),
+                                                        result.gotB.unreliable.end(), bytesLess);
         CHECK(unique.size() == result.gotB.unreliable.size());
         CHECK(!result.gotB.unreliable.empty());
     }

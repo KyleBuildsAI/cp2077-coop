@@ -20,6 +20,7 @@
 #include "v2/V2Hash.hpp"
 
 #include <cinttypes>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>

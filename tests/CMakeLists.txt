@@ -13,7 +13,7 @@ add_test(NAME v2_clock COMMAND coop_check_v2_ClockTests)
 add_test(NAME v2_interpolation COMMAND coop_check_v2_InterpTests)
 add_test(NAME v2_fuzz COMMAND coop_check_v2_Fuzz 20000)
 
-find_package(Python3 3.11 COMPONENTS Interpreter REQUIRED)
+find_package(Python3 3.12 COMPONENTS Interpreter REQUIRED)
 set(relay_dir "${CMAKE_SOURCE_DIR}/relay")
 set(plugin_tools "${CMAKE_SOURCE_DIR}/plugin/tools")
 add_test(NAME v2_python_golden COMMAND "${Python3_EXECUTABLE}" "${plugin_tools}/v2_golden.py"
