@@ -155,6 +155,12 @@ The existing 115 ms +/-20 ms / 1% and 160 ms +/-30 ms / 2% test profiles are con
 
 The [timestamped fix and research backlog](PLAYTEST_V37_BACKLOG.md) records Kyle's 105.67-second recording and new requirements. All entries remain open: vehicle physics/camera disruption (V37-01), exact car model/appearance (02), confirmed shared driver/passenger seats (03), movement correction/visual-delay measurement (04), remote ADS animation and aim transitions (05), teammate icon with a facing arrow instead of a waypoint (06), pause/focus reconciliation (07), and scoped ambient-world consistency (08). ADS and directional-marker details extend M2; car instability/identity/seats extend M3/M4 and M6; interruption recovery applies throughout M7. Prioritize reproducing the final vehicle instability before claiming a shared ride. Video samples are qualitative evidence, not latency measurements or proof of common engine identities. No implementation or new runtime release accompanies this update.
 
+## Contributor checkpoint follow-up — 2026-10-04
+
+The [Bukczyk checkpoint comparison](BUKCZYK_CHECKPOINT_COMPARISON.md) records the user-supplied update against pinned source 20eb125 (already reviewed previously). Retain our CB77 runtime and existing two-player acceptance scope. Add explicit create/join/readiness transitions and a real-relay/game-bridge test to M1/M7; a domain-specific joiner bootstrap/save contract to M7/M9; a measured 20/30/60 Hz comparison to M2/M4/M10; and a matched-version retirement/rollback gate for legacy and transitional paths. These are pending research/acceptance tasks, not implemented behavior.
+
+Larger groups are a **future extension after two-player qualification**: audit single-peer gameplay state, then qualify a host plus two joiners headlessly and in three actual game clients, with independent avatars/markers, fairness and departure cleanup; four clients follow. Dynamic collections or a raised member limit alone do not establish support. His reported VPS and legacy combat tests require build/topology/log evidence before they count toward our real-link or authoritative-combat gates.
+
 ## Immediate work queue
 
 1. Continue from verified source 856721b and its consolidated build/runtime/authority tests. Prepare the isolated game-side authority dispatcher and seat observer; preserve v37 as the installed baseline until a separately verified deployment is made.
