@@ -222,6 +222,8 @@ The pose fixture reads the test relay's clock to construct its sample timestamp;
 this test does not measure client clock synchronization. Existing native clock
 and transport loopback tests cover that separate responsibility.
 
-These are local headless Windows/Python checks. They are not a two-PC gameplay
-test, public-server deployment, Linux execution, shared car ride or full-physics
-result. No games were launched for this experiment.
+The full relay suite also passed on Windows and Linux in
+[CI run 37259471154 at 856721b](https://github.com/KyleBuildsAI/cp2077-coop/actions/runs/37259471154).
+The optimized-Python subset was independently run locally on Windows. These are
+headless checks, not a two-PC gameplay test, public-server deployment, shared car
+ride or full-physics result. No games were launched for this experiment.

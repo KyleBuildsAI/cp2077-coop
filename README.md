@@ -2,6 +2,19 @@
 
 Experimental two-player co-op for Cyberpunk 2077 (game version 2.31a).
 
+The source tree now includes the native plugin (`plugin/`), relay (`relay/`), NPC
+harness and measurement tools with their Git histories preserved. Start with
+[shared development](docs/DEVELOPMENT.md), [integration provenance](docs/INTEGRATION_PROVENANCE.md)
+and the [multiplayer roadmap](docs/MULTIPLAYER_PLAN.md). The deployed gameplay
+baseline is still v0.0.37/alpha.5; build infrastructure and the opt-in headless
+authority experiment do not constitute a new complete multiplayer release.
+
+The [authority experiment](relay/docs/AUTHORITY_EXPERIMENT.md) adds host-approved
+vehicle/seat metadata, baseline readiness and stale-session rejection over the
+existing CB77 protocol. It is disabled by default and verified with actual UDP
+clients under loss and reconnect. Connecting it to observed game mounting and
+driving remains a later roadmap stage.
+
 Each player sends their position, facing and gameplay state to a relay server over UDP.
 The other player is shown as a stand-in NPC that copies that movement and state.
 
@@ -62,7 +75,8 @@ join, or straight away while the joiner sits in a car or a scene. Every attempt 
 Missing `transport.ini` keeps the established **v1** gameplay path. The **v2** path is
 an experimental integration requiring the separately installed CP2077CoopNet native
 plugin (alpha.5 or later with `Net_ConnectV2`, `Net_PushPlayer`, `Net_SampleRemote`) and
-its v2 relay. It has offline coverage; two-game live validation is still required.
+its v2 relay. Local two-instance testing on 2026-10-04 exercised v2 gameplay with
+simulated delay/loss. It is not a two-PC internet validation or complete-world pass.
 
 Before enabling it, close both games and disable the standalone `CoopNetCheck`
 probe in each installation. The current probe supports an empty `disabled.txt`
@@ -118,8 +132,10 @@ Neither transport constitutes full-world multiplayer synchronization yet.
 Set `npc_test=true` in both installations' `transport.ini` to opt into one temporary
 test actor. It requires v2 and the packaged `npc_test.lua`, `testnpc.lua` and
 `testnpc.reds`; default false does not call NPC methods or spawn actors. This is a
-source-tested experiment; live actor animation, collision and cleanup still need
-verification. It is separate from the broader NPC prototype and never enables
+controlled experiment. A 600.07-second interactive local test observed movement,
+removal, pause, quickload and peer-exit cleanup; broad animation, collision,
+streaming and repeated lifecycle coverage remain incomplete. It is separate from
+the broader NPC prototype and never enables
 population suppression, prevention changes, vanilla/quest binding or damage hooks.
 
 After both sides show **NPC test: ready**, use the host's **Spawn test NPC** button.
@@ -131,7 +147,7 @@ a transform demonstration, not autonomous synchronized AI. The controlled NPC us
 poses/yaws enqueue nothing, and only one command may be pending. After two seconds
 a pending command receives one cancellation request; replacement waits for a
 terminal state. Scoped removal/session cleanup cancels any retained command.
-The v0.0.37 movement change still needs live path validation. **Remove test NPC**
+The v0.0.37 path moved both actors in that local test. **Remove test NPC**
 retries removal until acknowledged. The panel reads the actor's actual position;
 `[NPC TEST]` events report state, message/expiry counts and movement-request/timeout
 counters every five seconds. Accepted commands are not measured movement; the
