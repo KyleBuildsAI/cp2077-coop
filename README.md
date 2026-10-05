@@ -2,7 +2,7 @@
 
 Experimental two-player co-op for Cyberpunk 2077. Current tested build: **v0.0.37 + CP2077CoopNet 0.2.0-alpha.5**, for Cyberpunk **2.31** (executable file version 3.0.80.51928).
 
-## Download v37 / alpha.5
+## Download v0.0.37 / alpha.5
 
 ### [Download the complete mod ZIP (39 MB)](https://github.com/KyleBuildsAI/cp2077-coop/releases/download/v0.0.37-game-bundle.1/CP2077Coop-v0.0.37-alpha5-game-files.zip)
 
@@ -73,3 +73,7 @@ Start the relay, then launch both games and choose HOST on one and JOINER on the
 - **v0.0.26:** Established the initial player-position synchronization baseline.
 
 [Technical reference](docs/RUNTIME_REFERENCE.md) · [Known issues](docs/PLAYTEST_V37_BACKLOG.md) · [Roadmap](docs/MULTIPLAYER_PLAN.md)
+
+## Contributors
+
+Kyle and Jakub, with AI-assisted development, testing and documentation from **Claude Code** and **ChatGPT**.

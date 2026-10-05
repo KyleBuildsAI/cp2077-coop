@@ -62,3 +62,5 @@ packaging-only revisions. Ordinary documentation/source-maintenance commits that
 create no new runtime/package version still get committed/pushed, but do not
 require a duplicate release of unchanged bytes. Packaging does not itself install
 or launch a game; actual deployment retains the existing backup and test workflow.
+
+Use full gameplay version labels in user-facing text (for example, `v0.0.37`, not `v37`). Keep the README contributor credits, including ChatGPT as AI assistance.
