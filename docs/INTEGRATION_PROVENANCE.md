@@ -1,5 +1,23 @@
 # Integration provenance
 
+## Typed large co-op foundation, 2026-10-05
+
+KyleBuildsAI explicitly requested integrating Bukczyk's session foundation into
+this repository for compatible game-side development. The merge retains upstream
+history at `7e3826d1c313595a4784f1b232e10cec222b6ca3` and the existing source at
+`67f33612f5f4d1833438858a86cbeda8fda5f7d2`. See
+[the import record](FOUNDATION_INTEGRATION.md) and
+[file-by-file baseline](foundation-import.json). Unlike the earlier design-only
+adoption below, this imports the actual typed networking, server, plugin, runtime
+and tests at their upstream paths. Six root/build/instruction files are adapted;
+62 other upstream files and 176 prototype source/test files are preserved.
+
+The active direction is dynamic large-group co-op. The old CB77 runtime remains
+a reference for individual feature ports and rollback; no matching gameplay
+cutover or new live capacity is claimed by this source merge.
+
+## Earlier prototype integration history
+
 The shared repository preserves the working v0.0.37 gameplay baseline at
 `af1f98f`. On 2026-10-04 these local components were imported with `git subtree add`
 without squashing, retaining their existing commit histories:

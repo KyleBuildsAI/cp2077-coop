@@ -1,0 +1,131 @@
+# Large co-op foundation integration
+
+KyleBuildsAI requested the session foundation from Bukczyk's repository in this
+repository so game-side development can start against the same interfaces.
+The goal is **large multiplayer co-op with dynamic player groups**, not a permanent
+two-player architecture.
+
+## What is integrated
+
+Upstream source: [Bukczyk/CP2077-Coop at 7e3826d1c313595a4784f1b232e10cec222b6ca3](https://github.com/Bukczyk/CP2077-Coop/tree/7e3826d1c313595a4784f1b232e10cec222b6ca3).
+KyleBuildsAI starting revision: `67f33612f5f4d1833438858a86cbeda8fda5f7d2`.
+The import retains both Git histories through a merge, preserving authorship and
+an upstream merge base for later updates.
+
+| Area | Current source |
+| --- | --- |
+| Typed protocol, sessions, ownership and identities | `shared/` |
+| TCP/UDP session server and Debian deployment inputs | `SessionServer/`, `deploy/debian/` |
+| RED4ext session integration | `CoopPlugin/` |
+| Dynamic player bridge and NPC projection foundation | `runtime/session/` |
+| Portable, real-socket and NPC lifecycle checks | Upstream C++/Lua tests in `tests/` |
+| Matched developer profiles | `scripts/package-session.ps1` |
+
+The [import manifest](foundation-import.json) records 62 upstream files that must
+match their original Git blobs, 176 retained prototype source/test files and four
+proposal documents. Run:
+
+```powershell
+python scripts/verify-foundation.py
+```
+
+This verifies source equality, not gameplay. An intentional later port must update
+the comparison record explicitly and explain the change in its PR. Do not change
+a hash just to hide accidental divergence.
+
+The six upstream files adapted here are `.gitattributes`, `.gitignore`,
+`AGENTS.md`, `README.md`, root `CMakeLists.txt` and `tests/CMakeLists.txt`.
+Build configuration selects the typed foundation by default and keeps old checks
+in an isolated reference mode. Runtime files, portable networking, native session
+code and upstream test implementations remain unchanged at import.
+
+## Preserve the existing work
+
+KyleBuildsAI's `bin/`, `r6/`, `plugin/`, `relay/`, `npcsync/`, measurements and tests
+remain available with their history. Markers, player recovery, NPC safeguards,
+presentation and vehicle experiments still need individual ports to the typed
+session bridge. Their presence here does not mean the active session runtime uses
+them already.
+
+[Bukczyk PR #1](https://github.com/Bukczyk/CP2077-Coop/pull/1),
+[PR #2](https://github.com/Bukczyk/CP2077-Coop/pull/2) and
+[PR #3](https://github.com/Bukczyk/CP2077-Coop/pull/3) contain collaboration and reuse
+plans. Their four documents are copied here without changing their proposal status.
+Those PRs are not feature implementations, and a merge here does not approve them
+for Bukczyk. This working repository contains additional reference code and build
+integration, so the whole repositories are not identical even though the imported
+foundation is aligned.
+
+## Build now
+
+See [development instructions](DEVELOPMENT.md) for the usual build scripts.
+Use fresh, separate build directories for the two SDK versions:
+
+```powershell
+# Typed session foundation, including the native plugin and session server.
+cmake -S . -B build/foundation-20261005 -A x64 -DCOOP_BUILD_PLUGIN=ON -DCOOP_BUILD_LEGACY_SERVER=OFF
+cmake --build build/foundation-20261005 --config Release --parallel
+ctest --test-dir build/foundation-20261005 -C Release --output-on-failure --no-tests=error
+
+# Preserved CB77 plugin, portable checks and real transport loopbacks.
+./scripts/build-reference.ps1 -NativePlugin -BuildDirectory build/reference-integration-20261005
+
+# Prepare private matched development profiles after the typed build passes.
+./scripts/package-session.ps1 -BuildDirectory build/foundation-20261005
+```
+
+Generated HOST/JOINER profiles contain a private test key under ignored
+`artifacts/`. Do not commit or publish that key. The package script does not install
+anything. Its Debian directory contains deployment inputs, not a Linux executable.
+Build the server on Linux using `scripts/build.sh`.
+
+The Windows session server is
+`build/foundation-20261005/SessionServer/Release/CP2077SessionServer.exe` and the
+typed plugin is `build/foundation-20261005/CoopPlugin/Release/CP2077Coop.dll`.
+The retained reference DLL is built in the other tree and must not be overlaid.
+
+## Capacity and current limits
+
+The imported server default is 16 members. Its current configuration parser allows
+an explicit `max_players` value up to 256; that is a configuration bound, not a
+claim of 256-player gameplay. The inherited headless test exercises 16 members.
+Larger live groups need measured engine, network and world-simulation qualification.
+
+Two game clients remain a useful first smoke test. New code must use collections
+keyed by player/entity ID and work toward larger groups instead of adding a new
+single-partner assumption.
+
+NPC projection creation and reconnect identity are implemented in the foundation.
+Passive JOINER AI, complete appearance, authoritative reactions/hits/death,
+shared seats/physics, campaign state and general world persistence remain open.
+Read the later checkpoints in [runtime/session/README.md](../runtime/session/README.md);
+early upstream README/migration statements are historical. No game launch or
+installation is part of this source integration.
+
+## Verification record
+
+- Import parity: 62 upstream files, 176 preserved reference files and four proposal documents checked.
+- Retained reference: Windows native build and all 15 CTests passed, including DLL load and four real UDP profiles.
+- Typed foundation: Windows native plugin and session server built; all 11 inherited CTests passed, including the 16-member session scenario, NPC catalog/reconnect, Lua projection lifecycle and runtime/native contract checks.
+- Imported REDscript: `natives.reds` and `remote.reds` compiled successfully with Codeware in an isolated sandbox at `2026-10-06T04:28:34Z`. Compiler, game cache and Codeware inputs were copied from a read-only test installation; input hashes were unchanged.
+- Hosted Windows/Linux/sanitizer checks: see the integration PR for exact-commit results.
+- Live game and larger real-client groups: not run by this source integration.
+
+Local evidence is under
+`D:\Downloads\syncfix\bench-artifacts\20261005-foundation-integration`.
+Source parity and offline passes do not prove shared-world gameplay.
+
+## Package and next task
+
+The last game-tested complete package remains **v0.0.37 / alpha.5** in
+`game-files/latest`. This source import creates no new gameplay version and does
+not replace that package with an unqualified foundation build. The public ZIP and
+its hashes remain the rollback/reference. Every later runtime/package release
+still follows [the release workflow](RELEASE_WORKFLOW.md).
+
+Start new game-side work in `runtime/session/`, on a new task branch, using the
+imported calls. The first joint milestone remains a stable, safely controlled NPC
+and then HOST-owned reactions to JOINER actions. Coordinate existing NPC-adapter
+work before editing the same files. Bukczyk owns shared networking contracts;
+KyleBuildsAI owns engine integration and presentation. Keep later contributions
+small and compatible so they can be reviewed upstream without a second rewrite.

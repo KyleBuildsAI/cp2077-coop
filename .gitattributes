@@ -1,4 +1,11 @@
-# Shell entry points must also work after a Windows checkout.
+# Auto detect text files and perform LF normalization
+* text=auto
+
+runtime/**/*.lua -text whitespace=cr-at-eol
+runtime/**/*.reds -text whitespace=cr-at-eol
+runtime/**/*.yaml -text whitespace=cr-at-eol
+
 *.sh text eol=lf
+
 /game-files/latest/** text eol=lf
 /scripts/package_game_files.py text eol=lf

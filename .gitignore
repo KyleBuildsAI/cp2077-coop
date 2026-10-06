@@ -54,3 +54,12 @@ tests/.deps/
 /game-files/latest/relay/
 /game-files/latest/SHA256SUMS.txt
 /game-files/latest/*.zip.sha256
+
+# Imported session foundation build outputs and local credentials
+/RED4ext.SDK/
+/RedLib/
+/CoopPlugin/build/
+/CoopServer/build/
+**/access.key
+*.pdb
+*.obj

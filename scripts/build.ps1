@@ -1,38 +1,16 @@
-<# Build/test the actual portable CB77 units and Python relay. No game is launched or changed.
-   -NativePlugin also builds the existing Windows transport/plugin and checks DLL loading.
-   Full local game-script compile remains tests/run_all.ps1 (CI uses -SkipRedscript).
-#>
-[CmdletBinding()]
 param(
-    [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release',
-    [string]$BuildDirectory = '',
-    [string]$Generator = '',
-    [switch]$NativePlugin,
-    [string]$SdkSource = ''
+    [switch]$CoreOnly,
+    [string]$SdkSource = '',
+    [ValidateSet('Debug','Release')][string]$Configuration = 'Release'
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if (-not $BuildDirectory) { $BuildDirectory = Join-Path $repoRoot 'build/portable-windows' }
-if (-not [IO.Path]::IsPathRooted($BuildDirectory)) { $BuildDirectory = Join-Path $repoRoot $BuildDirectory }
-
-$configure = @('-S', $repoRoot, '-B', $BuildDirectory, '-DBUILD_TESTING=ON', '-DCOOP_ENABLE_SANITIZERS=OFF')
-if ($Generator) { $configure += @('-G', $Generator) }
-if (-not $Generator -or $Generator -like 'Visual Studio*') { $configure += @('-A', 'x64') }
-else { $configure += "-DCMAKE_BUILD_TYPE=$Configuration" }
-$configure += "-DCOOP_BUILD_NATIVE_PLUGIN=$(if ($NativePlugin) { 'ON' } else { 'OFF' })"
-if ($NativePlugin) {
-    if (-not $SdkSource) {
-        $SdkSource = Join-Path $repoRoot 'plugin/deps/RED4ext.SDK'
-        if (-not (Test-Path -LiteralPath (Join-Path $SdkSource 'CMakeLists.txt'))) {
-            & (Join-Path $repoRoot 'plugin/tools/fetch_deps.ps1')
-            if ($LASTEXITCODE -ne 0) { throw 'Pinned SDK fetch failed' }
-        }
-    }
-    $configure += "-DCOOP_RED4EXT_SDK_DIR=$SdkSource"
-}
-& cmake @configure
+$buildDir = Join-Path $repoRoot 'build/windows'
+$plugin = if ($CoreOnly) { 'OFF' } else { 'ON' }
+$legacy = if ($CoreOnly) { 'OFF' } else { 'ON' }
+& cmake -S $repoRoot -B $buildDir -A x64 "-DCOOP_BUILD_PLUGIN=$plugin" "-DCOOP_BUILD_LEGACY_SERVER=$legacy" "-DCOOP_RED4EXT_SOURCE=$SdkSource"
 if ($LASTEXITCODE -ne 0) { throw 'Configure failed' }
-& cmake --build $BuildDirectory --config $Configuration --parallel
+& cmake --build $buildDir --config $Configuration --parallel
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-& ctest --test-dir $BuildDirectory -C $Configuration --output-on-failure --no-tests=error
+& ctest --test-dir $buildDir -C $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }

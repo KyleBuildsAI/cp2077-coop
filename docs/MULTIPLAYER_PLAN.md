@@ -1,3 +1,132 @@
+# Large multiplayer co-op roadmap
+
+Updated 2026-10-05. Build one shared multiplayer foundation with dynamic player
+groups. **Two players are not the product limit.** Two-client smoke tests are the
+first test case; larger headless tests check architecture, while actual game
+capacity must be demonstrated through progressively larger live groups. Do not
+claim unlimited players or convert sixteen headless members into a sixteen-player
+gameplay claim.
+
+The user authorized integrating Bukczyk's session foundation into
+`KyleBuildsAI/cp2077-coop`. `Bukczyk/CP2077-Coop` remains the collaboration
+upstream. Preserve its typed contracts and paths so game-side work can be proposed
+back through small PRs. This replaces the older plan to extend the CB77 two-player
+foundation. [FOUNDATION_INTEGRATION.md](FOUNDATION_INTEGRATION.md) records the exact
+source revisions, local adjustments and verification; it is the current evidence
+record for this merge.
+
+## Current state and boundaries
+
+- The active source foundation is `shared/`, `SessionServer/`, `CoopPlugin/` and
+  `runtime/session/`. It includes typed sessions, dynamic player/entity IDs,
+  ownership/epochs, reconnect/catalog handling and the engine bridge.
+- KyleBuildsAI's `bin/`, `r6/`, `plugin/`, `relay/` and existing tests remain
+  available as reference for specific ports. Their presence is not a completed
+  port into the session runtime.
+- The existing **v0.0.37 / alpha.5** install package remains the previously tested
+  prototype. Source integration and native compilation alone do not qualify its
+  replacement or prove a shared world.
+- Current JOINER NPC creation is not proven passive. Host-authoritative
+  stimulus/hit/reaction/death behavior, full appearance, seats and campaign
+  synchronization still require implementation and game evidence.
+- [Collaboration PR #1](https://github.com/Bukczyk/CP2077-Coop/pull/1),
+  [game-side reuse PR #2](https://github.com/Bukczyk/CP2077-Coop/pull/2) and
+  [network reuse PR #3](https://github.com/Bukczyk/CP2077-Coop/pull/3) remain
+  proposals until Bukczyk accepts them. A merge here does not accept them for him.
+
+## Responsibilities
+
+**Bukczyk:** sessions/server, typed protocol, IDs/ownership/epochs, reliable routing,
+reconnect/catalog restoration, interest management and accepted world-state
+distribution.
+
+**KyleBuildsAI:** engine integration, safe entity creation/movement/removal, player
+appearance/animation, map/UI, vehicle and seat engine hooks, live tests and
+measurements.
+
+Both agree on shared data meanings and combined acceptance tests. Changes to
+`CoopPlugin/` or the NPC bridge may cross that boundary, so declare exact files
+for each task and check existing upstream work. Use the existing interface when
+possible; investigate and prepare independent game-side tests without waiting for
+another maintainer to identify code already in the repository.
+
+## Milestones and observable gates
+
+| Order | Result | Gate before claiming it works |
+| --- | --- | --- |
+| 1 | One aligned source foundation | Imported history/revision recorded; core, native and retained-reference checks reported separately; no second wire design |
+| 2 | One safe shared NPC | Exact session/local identity, observed spawn placement, passive JOINER behavior and confirmed cleanup across reconnect |
+| 3 | Shared NPC reaction | JOINER sends supported stimulus/hit intent; HOST decides AI/damage; all clients show the same accepted reaction/death without duplicate effects |
+| 4 | Reuse player-facing features | Per-player spawn/recovery, pause handling, markers, crouch/weapon presentation and measured movement; no single-partner assumptions |
+| 5 | Confirmed shared vehicle and seats | Same identity/model/appearance; observed reservations/mount/dismount; one physics owner; stationary seats before driving/passengers |
+| 6 | Larger live groups | Independently identified avatars/markers, fair update delivery, bounded frame/network cost, departure/late-join/reconnect at each measured group size |
+| 7 | Supported shared world and progression | Allowlisted NPCs/combat/interactions and explicit quest/inventory/save adapters with recovery and exactly-once outcomes |
+| 8 | Release qualification | Matched install package, rollback, hashes, multi-PC runs and a published capacity/compatibility matrix covering every advertised feature |
+
+Group-safe design starts at milestone 1; it is not an expansion bolted on after a
+finished two-player product. Group tests should accompany each domain as soon as
+its game path works. The later group milestone is the qualification gate, not
+permission to hard-code a single partner until then.
+
+## First game-side implementation
+
+Use the existing `runtime/session/cet/CP2077Coop/npc_population.lua` and
+`npc_runtime.lua` boundary as the starting point. Adapt KyleBuildsAI's measured
+placement, bounded movement and confirmed-deletion safeguards while preserving
+Bukczyk's exact IDs, generations and catalog restoration. Do not copy the old
+single-actor test protocol or introduce private packet fields.
+
+Passive projection remains its own prerequisite. A queued spawn, successful
+DeleteEntity call, frozen transform or disabled senses component is not proof of
+completion or passive AI. Evaluate engine capabilities on controlled owned actors,
+keep broad population suppression disabled, and do not blindly apply NPC
+AI-controller movement methods to a render-only entity.
+
+Add mocked lifecycle regressions, compile the matched scripts/native bridge, then
+run isolated live acceptance checks with reversible deployment. The first shared
+reaction gate follows only after safe identity, passive presentation and cleanup.
+See the [shared NPC proposal](https://github.com/Bukczyk/CP2077-Coop/pull/1) for
+the joint goal; any new wire fields require Bukczyk's contract agreement.
+
+## Preserve useful work without duplicating it
+
+Game-side candidates are NPC safeguards, player recovery, pause/menu handling,
+per-player markers, supported stance/weapon presentation, measurement tools and
+complete installation packaging. Visible ADS animation, directional player icons,
+exact vehicle appearance and real passenger seats remain incomplete requirements,
+not finished features to copy.
+
+Networking candidates are poor-connection tests and measurements first, followed
+by a measured evaluation of clock synchronization/adaptive buffering. Seat/event
+failure cases and later bandwidth optimizations are additional references for
+Bukczyk. Do not replace his TCP/UDP session protocol or assume a technique is
+faster without equivalent tests. Keep old diagnostics and evidence reproducible.
+
+## Validation and release discipline
+
+Use [DEVELOPMENT.md](DEVELOPMENT.md) for separate typed and reference build modes.
+Record revision, configuration, identities, test topology and actual outcomes.
+Distinguish mocks, headless sockets, native compilation, redscript compilation,
+local game instances and multiple real PCs. Preserve the known legacy A10
+sprint-lag waiver until evidence resolves it.
+
+Every new runtime/package version follows [RELEASE_WORKFLOW.md](RELEASE_WORKFLOW.md):
+matched components, fresh staging, verified hashes, release assets, local package
+and vault handoff. Keep the previous tested package until the matched replacement
+passes its gates. This source alignment does not itself establish gameplay
+capacity, NPC AI authority, synchronized seats or campaign support.
+
+## Historical roadmap retained for evidence
+
+The expandable record below preserves the earlier design, thresholds and research
+links. Its two-player product scope, CB77/C3A1 implementation direction and old
+immediate queue are **superseded by the current plan above**. They are not active
+instructions. Retain useful acceptance cases, but adapt them to the typed session
+foundation rather than implementing a competing protocol.
+
+<details>
+<summary>Archived 2026-10-04 CB77 roadmap and evidence</summary>
+
 # Multiplayer implementation and acceptance plan
 
 Research expansion: [symptom-indexed atlas](research/README.md) supplies reported fixes, inspected diffs, unresolved issues and proposed tests for vehicles, ADS/markers, sessions, world/combat and delivery. These are research leads; existing milestone gates and documentation-only scope remain unchanged.
@@ -176,3 +305,5 @@ Larger groups are a **future extension after two-player qualification**: audit s
 5. Qualify the sandbox on two PCs before broad traffic, arbitrary vehicles or campaign expansion. Record unsupported areas as open work rather than quietly widening the completion claim.
 
 Source basis and engine uncertainties are in [RESEARCH_NOTES.md](RESEARCH_NOTES.md). Integration/provenance and contributor workflow are maintained by the repository's root documentation.
+
+</details>
