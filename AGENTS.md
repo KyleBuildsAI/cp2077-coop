@@ -11,11 +11,6 @@ is mutually agreed. Buck's repository is the recommended future upstream, not an
 already approved replacement. Permission to push there is not task ownership.
 Keep both protocols/packages separate until a matched cutover is verified.
 
-For every AI implementation session, follow the practical rules and interface record
-in `docs/COLLABORATION_PLAN.md`: shared task claim, exact paths, one provider per
-contract, agreed calls before both-end edits, and pushed UTC handoff. Local memory
-is not shared coordination. Record feature ports with source SHA and integration PR.
-
 ## Canonical project
 
 This repository is the shared source of truth. The gameplay scripts live in `bin/`

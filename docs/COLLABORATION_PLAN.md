@@ -2,37 +2,6 @@
 
 Prepared 2026-10-05. **Proposal for both maintainers to accept.** Buck's quoted offer is not recorded as mutual approval of a migration. See the [verified comparison](BUCK_REVIEW_2026-10-05.md).
 
-## Practical rules for every AI session
-
-Kyle clarified on 2026-10-05 that the conversation should build on Buck's named repository and proposed division, rather than repeatedly asking which repository to use. Prepare future shared work for Bukczyk/CP2077-Coop. This clarification does not certify a runtime migration or Buck's acceptance of these additional operating rules.
-
-1. **Read before spending implementation effort.** Fetch upstream and read its instructions, open task/PR records and latest handoff. Check whether the feature already exists. Research can proceed independently; do not duplicate another owner's implementation.
-2. **One task, one owner, one branch.** Record a unique task ID, person, agent, base full SHA, exact files and acceptance check in a shared GitHub task record. Create a task branch and link its PR. A private vault entry is not a shared claim. Conflicting claims require maintainer resolution before overlapping edits.
-3. **Follow the proposed division.** Buck: server, protocol, identities, ownership, epochs, reconnect and world routing. Kyle: engine hooks, presentation/animation, map/UI, vehicle/seat integration, live measurements and Windows delivery. Shared files need one named editor even when both domains use them.
-4. **Agree the calls before building both ends.** Link one versioned interface contract to both tasks. Record exact function names/signatures, producer/consumer, field types, ID meaning, units, thread, authority, lifecycle, return/error values and compatibility. Mark proposed calls as proposed; never invent a second API that merely sounds equivalent.
-5. **One implementation of each shared responsibility.** Consumers call the agreed provider. If a provider is unfinished, use an explicitly labeled test stub behind that contract, not another server, codec or production implementation. Contract changes require the other owner to review affected callers before adoption.
-6. **Stay inside the claimed files.** If a task needs another owner's path or API changed, record the dependency and request a coordinated change. Continue unrelated owned work. Do not silently broaden the task or refactor shared files.
-7. **Define done before coding.** Name the observable result and failure cases. Keep build/unit tests, engine compilation, local game tests and two-PC tests separate. No AI may claim that a passing mock proves a game feature works.
-8. **Account for existing work.** Every port records Kyle's source commit, destination paths, what is preserved/replaced/deferred and the integration PR. Reuse existing tests where applicable and rerun behavior after porting. A feature is integrated only after its PR is merged and the stated checks pass.
-9. **Leave a usable handoff.** Push the task branch and record UTC time, full SHA, PR, checks/failures, running processes, next action and whether ownership is retained or explicitly transferred. Sleep and an idle AI session do not release ownership.
-10. **Review and publish together.** No direct-main writes or unilateral cross-owner merges. After approved integration, publish matched client/server source and packages, verified hashes and release evidence. Update the local complete package and vault for each new runtime/package version.
-
-The AIs do not automatically share local memory. Shared GitHub records and contract files provide that memory; branch rules are procedural unless repository settings enforce them. These rules reduce overlap but cannot guarantee zero conflicts.
-
-### Minimum shared interface record
-
-```text
-Contract ID / version / status (proposed or agreed):
-Provider owner / consumer owner / task and PR links:
-Exact exported calls and types / canonical source path:
-IDs, units, clocks, thread and authority:
-Creation/update/removal lifecycle and error/overflow behavior:
-Compatibility fixture and observable acceptance check:
-Changes approved by both owners:
-```
-
-For example, Kyle's minimap adapter consumes accepted player identity and pose from Buck's session bridge. Buck owns delivery; Kyle owns marker creation/update/removal. Agree the existing bridge calls to use before writing the adapter. Kyle's marker source is commit 82428358c092afc88147165e39823aed747be26e; its port is not currently claimed or integrated.
-
 ## One upstream, one integration path
 
 Recommended upstream for future session/shared-world development: **Bukczyk/CP2077-Coop**. Keep **KyleBuildsAI/cp2077-coop** as the existing playable baseline, research and migration history until the new runtime passes its acceptance gates. Once agreed, new shared gameplay tasks branch from the same pinned upstream; do not develop two competing protocol implementations or automatically synchronize both mains.
