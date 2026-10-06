@@ -31,8 +31,6 @@
     "runtime/redscript/CP2077Coop/combat.reds": "c5288f50c8c409ddd5c7c1dbff9513ae44d715c4",
     "runtime/redscript/CP2077Coop/natives.reds": "8186981dacd1c71b1e7c6d7c2c4432996f9bb524",
     "runtime/redscript/CP2077Coop/remote.reds": "429954605a7b45b80973ba13064880f6ae3117a8",
-    "runtime/session/README.md": "8449eb2754856fd9de42e2ffcf5415453e2c9b67",
-    "runtime/session/cet/CP2077Coop/init.lua": "33ed19762b79b7e2333eb89cffe2938148228d1c",
     "runtime/session/cet/CP2077Coop/npc_population.lua": "55d7bdff58ad6f03ddd79c27b6552b85130436dc",
     "runtime/session/cet/CP2077Coop/npc_runtime.lua": "cbb7d3dc32f9659747112b3bafa27ca75969b4d0",
     "runtime/session/redscript/CP2077Coop/natives.reds": "8276367e8102a25284a02374bb776fbfa98d7b41",
@@ -74,7 +72,7 @@
     "AGENTS.md": "Combined development instructions and current user-authorized integration.",
     "CMakeLists.txt": "Session build default; isolated reference-only build switch.",
     "README.md": "Current source direction, preserved playable release, and contributor/download presentation.",
-    "tests/CMakeLists.txt": "Session tests default; isolated reference-only checks."
+    "tests/CMakeLists.txt": "Session tests default; isolated reference-only checks; includes the PR #4 lifecycle regression."
   },
   "reference_files": {
     "bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/init.lua": "b4df3ee1b7da5d1f72dd7e46cc39f4084cdbda10",
@@ -260,5 +258,24 @@
     "docs/KYLEBUILDSAI_INTEGRATION_PLAN.md": "6ab3d33d3d42b526be28ded07681a837484fd487",
     "docs/NETWORK_REUSE_PROPOSAL.md": "1371c7e5db270f38dc93d30f5cb9f1db1ce247cc"
   },
-  "proposal_status": "Copied pending PR #1/#2/#3 documentation; not accepted or merged in Bukczyk repository."
+  "proposal_status": "Copied pending PR #1/#2/#3 documentation; not accepted or merged in Bukczyk repository.",
+  "contribution_files": {
+    "runtime/session/README.md": "b20d99d01f36f7d5468f50b2c5a196316934e239",
+    "runtime/session/cet/CP2077Coop/init.lua": "7bb9b3c753d66fcbbe9de4f8e13f158cc71527a3",
+    "runtime/session/cet/CP2077Coop/config.lua": "c90bf07c482fcd4458cd97fce8daa0358013b834",
+    "tests/session_lifecycle_tests.lua": "22e76a3bdc468f1a9a0c2ff98be868a61117343f",
+    "docs/validation/CET_SESSION_LIFECYCLE.md": "dd408d05a0f971082e5fc77c854f2ed07f2d52eb"
+  },
+  "pending_contributions": [
+    {
+      "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/4",
+      "revision": "9b0d7065dc4e853ddc32b6b221330e412b403561",
+      "status": "Proposed for upstream review, not merged. Local mirror uses exact contribution files; tests/CMakeLists.txt retains reference-mode prefix.",
+      "original_upstream_blobs": {
+        "runtime/session/README.md": "8449eb2754856fd9de42e2ffcf5415453e2c9b67",
+        "runtime/session/cet/CP2077Coop/init.lua": "33ed19762b79b7e2333eb89cffe2938148228d1c"
+      },
+      "reason": "CET onInit observer registration, exact player EntityID.hash comparison, explicit opt-in for unfinished NPC replication, regression tests and evidence."
+    }
+  ]
 }

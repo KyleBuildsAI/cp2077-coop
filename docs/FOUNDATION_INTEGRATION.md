@@ -5,6 +5,25 @@ repository so game-side development can start against the same interfaces.
 The goal is **large multiplayer co-op with dynamic player groups**, not a permanent
 two-player architecture.
 
+## Current game-side correction
+
+[Bukczyk PR #4](https://github.com/Bukczyk/CP2077-Coop/pull/4) fixes CET startup
+and repeated player-session resets. Upstream review head:
+`9b0d7065dc4e853ddc32b6b221330e412b403561`. The local mirror is on
+`fix/cet-session-lifecycle-local`, not main. The contribution is proposed and
+tested, not accepted by Bukczyk or released as a new game package.
+
+The manifest now preserves 60 unchanged upstream blobs, 176 reference files and
+four proposal documents, plus five exact contribution files. It retains original
+blob IDs and PR provenance for the two deliberately changed upstream files.
+`tests/CMakeLists.txt` also includes the new regression while retaining the local
+reference-build prefix. The verifier checks all four groups.
+
+See [the test record](validation/CET_SESSION_LIFECYCLE.md): fresh Windows build,
+12/12 CTests, LuaJIT precision/lifecycle regression and two-game startup/reconnect
+evidence. Movement remains unresolved. The public v0.0.37 / alpha.5 package stays
+the tested reference while this focused source correction awaits upstream review.
+
 ## What is integrated
 
 Upstream source: [Bukczyk/CP2077-Coop at 7e3826d1c313595a4784f1b232e10cec222b6ca3](https://github.com/Bukczyk/CP2077-Coop/tree/7e3826d1c313595a4784f1b232e10cec222b6ca3).
@@ -21,9 +40,10 @@ an upstream merge base for later updates.
 | Portable, real-socket and NPC lifecycle checks | Upstream C++/Lua tests in `tests/` |
 | Matched developer profiles | `scripts/package-session.ps1` |
 
-The [import manifest](foundation-import.json) records 62 upstream files that must
-match their original Git blobs, 176 retained prototype source/test files and four
-proposal documents. Run:
+The [import manifest](foundation-import.json) originally recorded 62 unchanged
+upstream files, 176 retained prototype source/test files and four proposal
+documents. The current correction and its explicitly tracked differences are
+described above. Run:
 
 ```powershell
 python scripts/verify-foundation.py

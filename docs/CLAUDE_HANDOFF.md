@@ -1,5 +1,36 @@
 # Claude Code handoff - large co-op foundation
 
+## Current handoff - 2026-10-06 UTC
+
+KyleBuildsAI implemented the requested CET startup and repeated-reconnect fixes.
+[Bukczyk PR #4](https://github.com/Bukczyk/CP2077-Coop/pull/4) contains the tested
+change for Bukczyk review. Upstream head:
+`9b0d7065dc4e853ddc32b6b221330e412b403561`; tested runtime code: `89d619e`.
+The canonical local checkout is on `fix/cet-session-lifecycle-local` with the same
+runtime and test files, explicit import-manifest provenance and local handoff
+updates. Neither main has been changed by this task.
+
+Read [the evidence and exact owned files](validation/CET_SESSION_LIFECYCLE.md).
+KyleBuildsAI retains ownership of PR corrections. Existing native/network calls
+are unchanged. All 12 local CTests, LuaJIT regressions and code-commit hosted
+Windows/Debian/sanitizer checks passed. Fresh HOST/JOINER testing showed stable
+membership, successful actual reconnect and proxy removal after JOINER exit.
+This does not fix or certify movement, shared NPC authority or larger live groups.
+
+Both test games and the private server are closed. Graphics and hotkey bindings
+were restored; the separate diagnostic mod was archived outside the game. Saves
+were unchanged. The authorized Baseline/Test B copies retain the exact corrected
+Lua and matched typed native stack. Evidence/backups are in
+`D:/Downloads/syncfix/bench-artifacts/20261006-cet-lifecycle`; private keys stay local.
+
+No new versioned runtime/package release was requested or published by this
+source PR. Preserve `game-files/latest` v0.0.37 / alpha.5. The source correction
+must not silently replace that complete package while movement remains open.
+Next: Bukczyk reviews this focused PR; a separate, explicitly assigned task can
+port and measure the earlier movement safeguards against the typed bridge.
+
+## Previous foundation checkpoint
+
 Updated 2026-10-05. Source merge completed at **2026-10-06T04:41:09Z**.
 
 ## Current direction

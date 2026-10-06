@@ -15,7 +15,7 @@ def main() -> int:
     manifest = json.loads((ROOT / "docs/foundation-import.json").read_text(encoding="utf-8"))
     failures = []
     counts = {}
-    for group in ("upstream_files", "reference_files", "proposal_files"):
+    for group in ("upstream_files", "reference_files", "proposal_files", "contribution_files"):
         counts[group] = 0
         for name, expected in manifest[group].items():
             relative = PurePosixPath(name)
