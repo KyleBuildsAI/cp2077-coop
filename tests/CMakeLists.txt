@@ -1,45 +1,27 @@
-# These are the plugin's real protocol units, compiled without RED4ext/Winsock.
-set(v2_test_dir "${CMAKE_SOURCE_DIR}/plugin/tests")
-foreach(suite IN ITEMS Tests ReliabilityTests ClockTests InterpTests Fuzz Golden)
-    add_executable(coop_check_v2_${suite}
-        "${v2_test_dir}/V2${suite}.cpp"
-        "${v2_test_dir}/V2TestSupport.cpp"
-    )
-    target_link_libraries(coop_check_v2_${suite} PRIVATE coop_portable_v2)
+if(COOP_REFERENCE_ONLY)
+    include("${PROJECT_SOURCE_DIR}/build-support/ReferenceTests.cmake")
+    return()
+endif()
+
+foreach(suite protocol session net interpolation network_e2e game_bridge npc)
+    add_executable(${suite}_tests ${suite}_tests.cpp)
+    target_link_libraries(${suite}_tests PRIVATE coop::core)
+    add_test(NAME ${suite} COMMAND ${suite}_tests)
 endforeach()
-if(COOP_ENABLE_SANITIZERS)
-    target_compile_definitions(coop_check_v2_InterpTests PRIVATE COOP_INSTRUMENTED_TESTS=1)
-endif()
-add_test(NAME v2_codec COMMAND coop_check_v2_Tests)
-add_test(NAME v2_reliability COMMAND coop_check_v2_ReliabilityTests)
-add_test(NAME v2_clock COMMAND coop_check_v2_ClockTests)
-add_test(NAME v2_interpolation COMMAND coop_check_v2_InterpTests)
-add_test(NAME v2_fuzz COMMAND coop_check_v2_Fuzz 20000)
+add_test(NAME runtime_import COMMAND "${CMAKE_COMMAND}" -DROOT=${PROJECT_SOURCE_DIR}
+    -P "${PROJECT_SOURCE_DIR}/build-support/VerifyRuntime.cmake")
 
-find_package(Python3 3.12 COMPONENTS Interpreter REQUIRED)
-set(relay_dir "${CMAKE_SOURCE_DIR}/relay")
-set(plugin_tools "${CMAKE_SOURCE_DIR}/plugin/tools")
-add_test(NAME v2_python_golden COMMAND "${Python3_EXECUTABLE}" "${plugin_tools}/v2_golden.py"
-    --relay "${relay_dir}" run --exe $<TARGET_FILE:coop_check_v2_Golden>)
-add_test(NAME v2_python_reliability COMMAND "${Python3_EXECUTABLE}" "${plugin_tools}/v2_link_trace.py"
-    --relay "${relay_dir}" run --exe $<TARGET_FILE:coop_check_v2_ReliabilityTests>)
-add_test(NAME v2_python_interpolation COMMAND "${Python3_EXECUTABLE}" "${plugin_tools}/v2_interp_trace.py"
-    --relay "${relay_dir}" run --exe $<TARGET_FILE:coop_check_v2_InterpTests>)
-add_test(NAME relay_python COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s tests -v)
-set_tests_properties(relay_python PROPERTIES WORKING_DIRECTORY "${relay_dir}")
-set_tests_properties(v2_codec v2_reliability v2_clock v2_interpolation v2_fuzz
-    v2_python_golden v2_python_reliability v2_python_interpolation relay_python
-    PROPERTIES TIMEOUT 180)
+set_tests_properties(protocol session net interpolation network_e2e runtime_import PROPERTIES TIMEOUT 40)
 
-if(COOP_BUILD_NATIVE_PLUGIN)
-    add_test(NAME native_core COMMAND coopnet_tests)
-    add_test(NAME native_plugin_load COMMAND coopnet_plugin_probe $<TARGET_FILE:CP2077CoopNet>)
-    set_tests_properties(native_core native_plugin_load PROPERTIES TIMEOUT 60)
-    foreach(profile IN ITEMS clean bench lossy restart)
-        add_test(NAME native_transport_${profile} COMMAND "${Python3_EXECUTABLE}"
-            "${plugin_tools}/run_loopback.py" --relay "${relay_dir}"
-            --exe $<TARGET_FILE:coopnet_loopback> --profile "${profile}"
-            --out "${CMAKE_BINARY_DIR}/loopback/${profile}")
-        set_tests_properties(native_transport_${profile} PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
-    endforeach()
+if(COOP_BUILD_SESSION_SERVER)
+    add_test(NAME server_smoke COMMAND CP2077SessionServer --config "${CMAKE_CURRENT_SOURCE_DIR}/server.ini" --run-for-ms 50)
+    set_tests_properties(server_smoke PROPERTIES TIMEOUT 10 PASS_REGULAR_EXPRESSION "STOP accepted_states=0")
 endif()
+
+add_test(NAME session_bridge_contract COMMAND "${CMAKE_COMMAND}" -DROOT=${PROJECT_SOURCE_DIR}
+    -P "${PROJECT_SOURCE_DIR}/build-support/VerifySessionBridge.cmake")
+set_tests_properties(game_bridge npc session_bridge_contract PROPERTIES TIMEOUT 40)
+
+include("${PROJECT_SOURCE_DIR}/build-support/LuaTests.cmake")
+add_test(NAME npc_population COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/npc_population_tests.lua" "${PROJECT_SOURCE_DIR}")
+set_tests_properties(npc_population PROPERTIES TIMEOUT 15)

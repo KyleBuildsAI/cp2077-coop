@@ -1,67 +1,96 @@
 # Shared development instructions
 
-## Canonical project
+## Direction and repositories
 
-This repository is the shared source of truth. The gameplay scripts live in `bin/`
-and `r6/`; `plugin/` contains CP2077CoopNet, `relay/` the current CB77 relay,
-`npcsync/` the isolated NPC harness, and `phase1/` plus `phase1-check/` the measurement
-tools. Their original histories were imported as Git subtrees. The old standalone
-checkouts are historical references; make new changes in this repository.
+Build large multiplayer co-op with dynamic player groups. Two-client smoke tests
+are a starting test case, not a product limit. Headless member counts do not prove
+live game capacity; do not promise unlimited players.
 
-Read `docs/DEVELOPMENT.md`, `docs/INTEGRATION_PROVENANCE.md` and
-`docs/MULTIPLAYER_PLAN.md` before changing cross-component behavior. Preserve user
-edits and test evidence. Work in a feature branch or separate worktree, coordinate
-file ownership with other agents, and keep commits reviewable. Do not infer that a
-second contributor has approved a change just because an AI review passed.
+`Bukczyk/CP2077-Coop` is the collaboration upstream. KyleBuildsAI authorized
+integrating its foundation into `KyleBuildsAI/cp2077-coop` so compatible game-side
+work can start here. Preserve the imported typed contracts and root paths. Do not
+create a competing network design. Track the exact upstream revision and local
+changes in `docs/FOUNDATION_INTEGRATION.md`.
 
-## Protocol and authority
+Read `docs/DEVELOPMENT.md`, `docs/FOUNDATION_INTEGRATION.md` and the current section
+of `docs/MULTIPLAYER_PLAN.md` before implementation. `ARCHITECTURE.md` and
+`MIGRATION_PLAN.md` preserve upstream design and checkpoint history; early status
+paragraphs may describe older revisions. The archived CB77 roadmap is historical,
+not permission to continue a second foundation.
 
-Keep the working CB77 v2.1 transport and game-facing API compatible. The friend's
-CPS1 protocol is a separate design, not a drop-in replacement. There must be one
-owner of native polling. New experimental channels need explicit allocation,
-bounded queues, session/generation checks and separate lifecycle cleanup.
+Use task branches and pull requests. Record exact file ownership and UTC handoffs;
+do not push directly to main. Bukczyk owns network/session/server contracts;
+KyleBuildsAI owns game integration, presentation, map/UI, vehicle/seat engine hooks
+and live measurements. Preserve unrelated edits, authorship and test evidence.
+Proposals in Bukczyk PRs #1, #2 and #3 remain proposals until Bukczyk accepts them.
+An AI review or a merge in KyleBuildsAI's repository is not that acceptance.
 
-HOST owns world identity and accepted gameplay results. JOINER sends intent.
-The relay authenticates membership and enforces routing/policy; it does not run
-Cyberpunk's simulation. A seat grant is not proof of an engine mount, and a spawn
-or delete request is not proof that an entity exists or is gone. Observe the
-actual game state before acknowledging those operations.
+Questions and explanations authorize discussion and read-only inspection only.
+Edit, commit, push or create PRs only for explicitly requested implementation.
+Routine release permission applies only to that requested implementation.
 
-Never use coordinates as identity or encode new events in movement float sentinels.
-Keep old epochs, disconnected memberships and duplicate requests from changing
-current state. Validate data before mutation. Preserve explicit rejection and
-overload behavior instead of reporting a successful action that was not applied.
+## Source and build boundaries
 
-## Validation and reporting
+- Active foundation: `shared/`, `SessionServer/`, `CoopPlugin/`, `runtime/session/`.
+- Retained reference implementation: `bin/`, `r6/`, `plugin/`, `relay/`, `npcsync/`.
+- Retained measurements: `phase1/`, `phase1-check/`, `coop-tools/` and their tests.
+- Frozen upstream legacy import: `runtime/cet/`, `runtime/redscript/`,
+  `runtime/tweaks/`, `CoopServer/` and `CoopPlugin/src/legacy_main.cpp`.
 
-### Standing release instruction from Kyle (2026-10-04)
+Default root CMake and `scripts/build.ps1` / `scripts/build.sh` use the typed
+foundation. `scripts/build-reference.ps1` / `scripts/build-reference.sh` select
+`COOP_REFERENCE_ONLY=ON` for preserved CB77 checks. Use separate build directories.
+The native plugins use different pinned SDKs; never configure both in one tree.
+Do not alter vendor code to hide build failures or deploy mixed runtime stacks.
 
-For every new mod/runtime or installation-package version, update GitHub **and**
-refresh `game-files/latest/`, including its complete local `game-root/`, matched
-relay, ZIP, manifest, checksums and instructions. Publish the matching versioned
-GitHub release assets after verification; pushing source alone does not complete
-a version. This is standing user authorization, so do not ask for the same routine
-push/package/publication permission again. Follow `docs/RELEASE_WORKFLOW.md` and
-update the Obsidian handoff/status with the version, commit, links and results.
-Keep prior releases recoverable and do not publish failed builds as verified.
-Documentation-only edits do not require a new gameplay version or repackaging an
-unchanged, verified runtime.
+## Protocol, authority and engine rules
 
-Run the checks appropriate to changed components. Portable C++ and Python tests
-belong in CI. `tests/run_all.ps1` also compiles redscript using a read-only local
-game reference; `-SkipRedscript` is only the explicit game-free CI subset.
-The known A10 sprint-lag assertion is a tracked failure, not a passing assertion.
+Keep protocol/session code portable and separate from engine integration. Use
+explicit packet types, SessionId, PlayerId, SessionEntityId and world epochs.
+Preserve opaque 64-bit identities through Lua. Coordinates and local engine
+EntityIDs are not session identity. Never encode new actions in movement floats,
+extend CP1/RP1 sentinels or copy the CB77 wire protocol into the typed bridge.
 
-Separate evidence levels: codec/unit checks, actual transport integration,
-compiled game bridge, local two-game test, and two-PC internet test. Do not promote
-one level into another. Record commit, configuration, duration and limitations.
-Archive negative results as well as successful ones.
+HOST owns world simulation and accepted gameplay outcomes. JOINER sends intent.
+The server validates membership, roles, routing and accepted state; it does not
+run Cyberpunk's simulation. Encode bytes explicitly, never native struct memory.
+Validate lengths, enums, finite values, ownership, sequence, epoch and capacity.
+Old connections, duplicate requests and stale generations must not mutate current
+state. Reject or reconcile overload rather than claiming an unapplied success.
 
-Use only the authorized test installations for deployments, with both games
-closed. Preserve saves and settings before live tests and restore them afterward.
-Close only test-owned programs. The broad NPC population-suppression prototype
-must remain disabled; controlled owned actors are the current supported experiment.
+No engine object access from network threads. Deliver coherent snapshots and
+bounded events to the game thread. Observe actual spawn placement, mounting,
+damage and disappearance before acknowledging completion. A seat grant is not an
+engine mount, and DeleteEntity returning true is not proof of disappearance.
 
-Keep the repository roadmap and the Obsidian handoff in `G:\CyberpunkMP` aligned
-with completed work. Do not call complete multiplayer achieved while player,
-vehicle, NPC, combat, world and persistence acceptance gates remain unmet.
+The current JOINER NPC adapter is not proven passive. A normal NPC with one
+component disabled is not proof that autonomous AI is stopped. Keep broad ambient
+population suppression disabled and use controlled owned actors for experiments.
+
+## Validation and release
+
+Run checks appropriate to changed components. Protocol/session changes require
+malformed-input, authority, isolation, ordering, disconnect and resource-bound
+tests. Documentation-only changes require review and `git diff --check`.
+Record PASS, FAIL and SKIP honestly. Reference `tests/run_all.ps1` compiles legacy
+redscript against a read-only game reference; `-SkipRedscript` explicitly omits
+that check. Its known A10 sprint-lag assertion remains a visible waiver.
+
+Separate portable tests, real-socket tests, native compilation, script compilation,
+two-game smoke tests and multi-PC group qualification. Record revision, topology,
+configuration, duration and limitations. Source alignment does not certify a
+playable cutover. Keep the tested v0.0.37 / alpha.5 package until a matched typed
+replacement passes its gates; do not silently install newly built DLLs over it.
+
+Standing instruction from KyleBuildsAI (2026-10-04): every requested new runtime or
+package version must update GitHub and the complete local `game-files/latest/`,
+including matched components, manifest, verified hashes and release assets.
+Follow `docs/RELEASE_WORKFLOW.md` and update `G:\CyberpunkMP` status/handoff/resume.
+Preserve earlier releases. Source integration that publishes no runtime/package
+version does not require repackaging unchanged, verified bytes.
+
+Deploy only to authorized test installations with games closed. Preserve saves
+and settings, restore them after tests, and close only test-owned processes.
+Keep the roadmap and vault aligned with observed evidence. Do not claim complete
+multiplayer while advertised player, vehicle, NPC, combat or persistence gates
+remain open.

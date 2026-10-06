@@ -21,7 +21,7 @@ jobs:
           python-version: '3.13'
       - name: Build pinned SDK plugin and run portable/native tests
         shell: pwsh
-        run: ./scripts/build.ps1 -NativePlugin
+        run: ./scripts/build-reference.ps1 -NativePlugin
       - name: Preserve CTest diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Build and test deployed protocol units
-        run: bash scripts/build.sh
+        run: bash scripts/build-reference.sh
       - name: Preserve CTest diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -64,7 +64,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Instrument and test the same protocol sources
-        run: bash scripts/build.sh build/sanitizers
+        run: bash scripts/build-reference.sh build/sanitizers
       - name: Preserve sanitizer and CTest diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -84,6 +84,8 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: tests/requirements.txt
+      - name: Verify imported foundation and preserved reference sources
+        run: python scripts/verify-foundation.py
       - name: Load LuaJIT and run all mock, relay and tool checks
         shell: pwsh
         env:
