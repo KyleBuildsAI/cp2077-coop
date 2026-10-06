@@ -2,6 +2,7 @@
 local NpcRuntime = require("npc_runtime")
 local population = require("npc_population")
 local config = require("config")
+local PlayerMotor = require("player_motor")
 local npcProjection = NpcRuntime.new(population)
 local pendingNpcs, hostNpcs = {}, {}
 local npcLimit, npcWarning = 128, false
@@ -11,6 +12,7 @@ local generation, localEntity, joined = nil, nil, false
 local active, failed, time = false, false, 0
 local commonTag = "CP2077Session.Projection"
 local function clear()
+    for _, entry in pairs(proxies) do if entry.motor then entry.motor:stop() end end
     npcProjection:reset()
     local system = Game.GetDynamicEntitySystem()
     if system ~= nil and system:IsReady() then
@@ -90,13 +92,18 @@ local function update(delta)
                     entry.nextSpawn = time + 1
                 end
             else
+                local localKey = tostring(proxy:GetEntityID().hash)
+                if entry.localKey ~= localKey then
+                    if entry.motor then entry.motor:stop() end
+                    Game.CP2077Session_Unbind(entry.entity)
+                    entry.localKey = localKey
+                    entry.motor = PlayerMotor.new(proxy)
+                end
                 if not Game.CP2077Session_Bind(entry.entity, proxy:GetEntityID()) then
                     error("Remote projection binding rejected for player " .. tostring(id))
                 end
                 bubble.exclusions[#bubble.exclusions+1] = proxy:GetEntityID()
-                -- Each render frame samples the shared interpolation buffer. This is not
-                -- packet-triggered teleportation; extrapolation/snap policy lives in C++.
-                Game.GetTeleportationFacility():Teleport(proxy, Vector4.new(x, y, z, 1), EulerAngles.new(0, 0, math.deg(yaw)))
+                entry.motor:step({x=x,y=y,z=z,yaw=yaw}, delta)
             end
         end
     end
@@ -157,7 +164,11 @@ local function update(delta)
         end
     end -- experimentalNpcReplication; player cleanup always runs
     for id, entry in pairs(proxies) do
-        if not seen[id] then system:DeleteTagged(entry.tag); proxies[id] = nil end
+        if not seen[id] then
+            if entry.motor then entry.motor:stop() end
+            Game.CP2077Session_Unbind(entry.entity)
+            system:DeleteTagged(entry.tag); proxies[id] = nil
+        end
     end
 end
 registerForEvent("onInit", function()

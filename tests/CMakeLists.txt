@@ -22,3 +22,5 @@ add_test(NAME npc_population COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/
 set_tests_properties(npc_population PROPERTIES TIMEOUT 15)
 add_test(NAME session_lifecycle COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/session_lifecycle_tests.lua" "${PROJECT_SOURCE_DIR}")
 set_tests_properties(session_lifecycle PROPERTIES TIMEOUT 15)
+add_test(NAME player_motor COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/player_motor_tests.lua" "${PROJECT_SOURCE_DIR}")
+set_tests_properties(player_motor PROPERTIES TIMEOUT 15)
