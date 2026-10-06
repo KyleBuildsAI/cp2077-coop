@@ -1,5 +1,9 @@
 # Claude Code handoff — 2026-10-04
 
+## Latest steering: collaboration review, 2026-10-05
+
+Usage reset; Kyle supplied Buck's current collaboration proposal and asked for structure and guidance. Read [verified source comparison](BUCK_REVIEW_2026-10-05.md), [collaboration proposal](COLLABORATION_PLAN.md) and [draft NPC milestone contract](SHARED_NPC_MILESTONE.md). Buck main reviewed at 7e3826d with passing exact-head CI; GitHub push access confirmed. Both mains are actually unprotected. Use task branches/PRs for new work, with exact file ownership and UTC handoffs; no direct-main publication in this pass. Buck upstream is recommended but not recorded as mutually accepted. No gameplay implementation/testing requested by this review. Earlier usage-conservation and next-agent statements below are historical context, not current usage facts.
+
 ## Expanded research handoff
 
 Kyle requested a deeper documentation pass after b6516cc. Start with the [research atlas](research/README.md), its six subject chapters and [source ledger](research/SOURCES.md). It adds concrete CyberMP RPC diffs, dated OPEN//77 bug reports/contracts, open Cyberverse/CyberMP issues and three additional project categories. Follow symptom -> evidence -> unknowns -> proposed test. A vendor report or closed issue is not our verified fix. GitHub evidence: `D:\Downloads\syncfix\bench-artifacts\20261004-research-atlas`. No code, game test, installation or package change occurred. Runtime remains v0.0.37 / alpha.5; current scope remains research/documentation only.

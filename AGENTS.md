@@ -1,5 +1,16 @@
 # Shared development instructions
 
+## Collaboration review, 2026-10-05
+
+Read `docs/COLLABORATION_PLAN.md`, `docs/BUCK_REVIEW_2026-10-05.md` and
+`docs/SHARED_NPC_MILESTONE.md` before new integration work. Use task branches and
+PRs; do not push directly to main or merge cross-owner changes without the other
+maintainer's review. Record task owner, exact paths, base SHA and UTC handoff.
+This repository remains the existing runtime/reference source until a migration
+is mutually agreed. Buck's repository is the recommended future upstream, not an
+already approved replacement. Permission to push there is not task ownership.
+Keep both protocols/packages separate until a matched cutover is verified.
+
 ## Canonical project
 
 This repository is the shared source of truth. The gameplay scripts live in `bin/`

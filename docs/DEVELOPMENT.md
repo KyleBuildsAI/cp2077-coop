@@ -1,5 +1,7 @@
 # Working on one shared project
 
+2026-10-05 collaboration proposal: read [the ownership and handoff rules](COLLABORATION_PLAN.md), [Buck's current source review](BUCK_REVIEW_2026-10-05.md) and [the shared NPC acceptance contract](SHARED_NPC_MILESTONE.md). Future upstream migration is proposed, not completed. Task branches and PR review supersede the earlier direct-main documentation publication practice for new collaboration work.
+
 Use this repository as the canonical codebase. Each person or AI works in a local
 clone and a feature branch/worktree, then submits a small pull request. Review both
 the code and its evidence before merging. A common repository does not mean two
