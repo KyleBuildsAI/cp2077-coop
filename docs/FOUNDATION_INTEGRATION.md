@@ -1,11 +1,39 @@
 # Large co-op foundation integration
 
+## Current player-presentation work - 2026-10-06T06:48:16+00:00
+
+KyleBuildsAI owns the game-side movement task requested after the regression was
+seen in the typed preview. [Draft Bukczyk PR #5](https://github.com/Bukczyk/CP2077-Coop/pull/5)
+is stacked on lifecycle PR #4; upstream head `e61456b1b4d78b973721e485767eeacf928b2573`.
+Canonical branch: `feat/session-player-presentation`. Both main branches remain
+unchanged. See [exact files and test results](validation/PLAYER_PRESENTATION.md).
+
+The previous per-frame NPC transform call left the body frozen in the measured
+route. The new per-player motor restores engine movement. P95 tracking error fell
+from 10.191 m to 4.861 m forward; reverse measured 5.355 m. This is still a failed
+smooth-tracking gate, not a completed multiplayer port. Weapons/crouch/ADS are
+not networked. Unqualified local action hooks live only in `experiments/`.
+
+All 13 local CTests pass and final movement scripts compile against the installed
+game/Codeware in isolation. Both games/server are closed; graphics and bindings
+are restored byte for byte; current saves were retained without rollback. The
+test copies retain the movement candidate. The larger-window shortcut still
+works for future tests. Evidence: `D:/Downloads/syncfix/bench-artifacts/20261006-player-presentation`.
+
+Hosted Windows, Debian and ASan/UBSan checks passed at exact upstream head `e61456b1b4d78b973721e485767eeacf928b2573`: [CI run 37425748668](https://github.com/Bukczyk/CP2077-Coop/actions/runs/37425748668). Current manifest verification passed: 59 unchanged upstream, 176 preserved reference, 4 proposal and 12 contribution files.
+
+Next: measure and reduce engine path/turn lag, qualify actual weapon/posture
+effects, and review `docs/PLAYER_PRESENTATION_CONTRACT.md` with Bukczyk for the
+missing shared state route. Do not change protocol/server or world-NPC adapters
+under this task. Keep `game-files/latest` v0.0.37 / alpha.5 until a complete matched
+replacement passes live gates. This is source research, not a new version release.
+
 KyleBuildsAI requested the session foundation from Bukczyk's repository in this
 repository so game-side development can start against the same interfaces.
 The goal is **large multiplayer co-op with dynamic player groups**, not a permanent
 two-player architecture.
 
-## Current game-side correction
+## Previous lifecycle correction
 
 [Bukczyk PR #4](https://github.com/Bukczyk/CP2077-Coop/pull/4) fixes CET startup
 and repeated player-session resets. Upstream review head:
