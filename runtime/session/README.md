@@ -14,13 +14,29 @@ enabling it does not make shared NPC simulation safe. Edit it with games closed
 and restart both clients for a controlled NPC experiment.
 
 See [lifecycle validation](../../docs/validation/CET_SESSION_LIFECYCLE.md) for the
-focused test record. Player proxy movement remains a separate unresolved issue.
+focused test record.
+
+## Experimental player movement
+
+The per-frame NPC transform call was observed to leave the body frozen. The
+game-thread `player_motor.lua` uses per-PlayerId movement commands, current
+movement policies, bounded recovery and idle turns. Body replacement and
+departure stop the owned command. Existing network interpolation is consumed
+without applying a second prediction step.
+
+Two-game tests restored visible movement but still measured roughly 5 m P95
+tracking error. This is an unfinished development candidate. See the exact
+[movement evidence](../../docs/validation/PLAYER_PRESENTATION.md).
+Weapon, crouch and aiming state are not transmitted by the current typed route;
+unqualified local hook experiments remain outside this runtime under
+`experiments/player-presentation`. Keep the v0.0.37 package until replacement
+gameplay passes its acceptance gates.
 
 Default plugin: build/windows/CoopPlugin/Release/CP2077Coop.dll. Matching files are in this directory only. Generate role-specific, non-installed packages with `./scripts/package-session.ps1 -Server <IPv4> -Session <name> [-AccessKeyFile <path>]`; it creates HOST/JOINER profiles, matched scripts, Debian config/key and hashes under ignored artifacts/. Rates default to 60 Hz; interpolation is sampled on every CET update. No save or installation writes occur.
 
 The native frame is coherent from BeginFrame until the next BeginFrame. SetActive(false) invalidates it; workers own SessionClient and never access REDengine. SessionEntityId/engine EntityID remain exact 64-bit values. Game-thread EntityRegistry holds Player/NPC/Vehicle/World projections and rejects foreign epochs, authorities and duplicate local bindings. Player IDs currently correspond to server-registered player EntityIds. NPC adoption/state/release use the bounded SessionBridge NPC interface and protocol v3. Other world-action contracts remain Unsupported; no combat or stimuli are enabled.
 
-Judy is a temporary non-persistent player proxy, not an NPC simulation implementation. Spawned proxies use unique PlayerId tags and are removed on interest loss/disconnect. JOINER teleports once to its received HOST baseline. The engine transform setter consumes interpolated samples each render frame; it does not apply raw packets. Native registration/CET names are checked by CTest; this does not compile REDscript or certify actual engine behavior.
+Judy is a temporary non-persistent player proxy, not an NPC simulation implementation. Spawned proxies use unique PlayerId tags and are removed on interest loss/disconnect. JOINER teleports once to its received HOST baseline. The player motor consumes interpolated samples each render frame; it does not apply raw packets. Native registration/CET names are checked by CTest; this does not compile REDscript or certify actual engine behavior.
 
 ## Missing hooks/routes for Shared World Reaction MVP
 - VPS entity allocation/adoption acknowledgement for NPC/Vehicle/World, snapshot descriptors/archetypes, stable IDs across local streaming and explicit session epoch reset. Never derive identity from coordinates or invent it from a nearest-NPC query.

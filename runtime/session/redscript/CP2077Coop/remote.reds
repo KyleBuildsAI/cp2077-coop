@@ -42,14 +42,16 @@ public func CP2077Session_StartMove(x: Float, y: Float, z: Float, gait: Int32) -
     command.movementType = moveMovementType.Walk;
     if gait == 1 { command.movementType = moveMovementType.Run; }
     if gait == 2 { command.movementType = moveMovementType.Sprint; }
-    command.finishWhenDestinationReached = true;
+    command.useStart = false;
+    command.useStop = false;
+    command.finishWhenDestinationReached = false;
     command.alwaysUseStealth = false;
     controller.SendCommand(command);
     return command;
 }
 
 @addMethod(NPCPuppet)
-public func CP2077Session_RetargetMove(command: ref<AIMoveToCommand>, x: Float, y: Float, z: Float) -> Int32 {
+public func CP2077Session_RetargetMove(command: ref<AIMoveToCommand>, x: Float, y: Float, z: Float, gait: Int32) -> Int32 {
     if !IsDefined(command) { return -1; }
     if NotEquals(command.state, AICommandState.Executing) { return EnumInt(command.state); }
     let target: WorldPosition;
@@ -57,6 +59,22 @@ public func CP2077Session_RetargetMove(command: ref<AIMoveToCommand>, x: Float, 
     let position: AIPositionSpec;
     AIPositionSpec.SetWorldPosition(position, target);
     command.movementTarget = position;
+    command.movementType = moveMovementType.Walk;
+    if gait == 1 { command.movementType = moveMovementType.Run; }
+    if gait == 2 { command.movementType = moveMovementType.Sprint; }
+    // Updating the command object alone did not keep the engine path current
+    // in the live test. Refresh its active movement policy on this owned actor.
+    let component = this.GetMovePolicesComponent();
+    if IsDefined(component) {
+        let policies = component.GetTopPolicies();
+        if IsDefined(policies) {
+            policies.SetDestinationPosition(new Vector4(x, y, z, 1.0));
+            policies.SetMovementType(command.movementType);
+            policies.SetUseStartStop(false, false);
+            policies.SetDistancePolicy(0.05, 0.05);
+            component.ChangeMovementType(command.movementType);
+        }
+    }
     return 2;
 }
 
