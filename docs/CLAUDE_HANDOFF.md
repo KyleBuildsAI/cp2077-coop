@@ -1,73 +1,100 @@
-# Claude Code handoff — 2026-10-04
+# Claude Code handoff - large co-op foundation
 
-## Expanded research handoff
+Updated 2026-10-05. Source merge completed at **2026-10-06T04:41:09Z**.
 
-Kyle requested a deeper documentation pass after b6516cc. Start with the [research atlas](research/README.md), its six subject chapters and [source ledger](research/SOURCES.md). It adds concrete CyberMP RPC diffs, dated OPEN//77 bug reports/contracts, open Cyberverse/CyberMP issues and three additional project categories. Follow symptom -> evidence -> unknowns -> proposed test. A vendor report or closed issue is not our verified fix. GitHub evidence: `D:\Downloads\syncfix\bench-artifacts\20261004-research-atlas`. No code, game test, installation or package change occurred. Runtime remains v0.0.37 / alpha.5; current scope remains research/documentation only.
+## Current direction
 
-## Current instruction
+KyleBuildsAI requested and authorized integrating Bukczyk's foundation into this
+repository. That source work is merged. The goal is **large multiplayer co-op
+with dynamic player groups**, not a two-player product limit.
 
-Kyle requested **research, documentation and future plans only** while conserving remaining Codex usage. Claude Code is expected to take over next. Do not interpret earlier game-launch permission or this plan as a request to implement/test now. Preserve the documentation-only scope until Kyle requests development again. No new agent/chat, external message or MCP install was initiated.
+[Bukczyk/CP2077-Coop](https://github.com/Bukczyk/CP2077-Coop) remains the
+collaboration upstream. New game-side work uses `runtime/session/` and the typed
+`shared/`, `CoopPlugin/`, `SessionServer/` foundation. The old `bin/`, `r6/`,
+`plugin/` and `relay/` trees preserve features and tests for deliberate ports.
+They are not a competing network design. Feature ports are still pending.
 
-## Source of truth
+Read `AGENTS.md`, [foundation integration](FOUNDATION_INTEGRATION.md),
+[development instructions](DEVELOPMENT.md) and the current section of
+[the roadmap](MULTIPLAYER_PLAN.md). Also read `G:\CyberpunkMP\handoff.md` and
+`RESUME HERE.md`. Fetch/status before work; use a new task branch and PR, exact
+file ownership and UTC handoffs. Do not resume the old `feat/state-sync` workflow
+or push directly to main.
 
-- Repository: `D:\Downloads\syncfix\MP=Jakub`; GitHub `https://github.com/KyleBuildsAI/cp2077-coop`.
-- Working branch: `feat/state-sync`; default `main` kept current by safe fast-forward. Fetch/status before editing; preserve Bukczyk's possible concurrent work.
-- Pre-research docs checkpoint: **d22a9ee**. This handoff is in a subsequent documentation commit; inspect current HEAD/remote for its exact SHA.
-- Vault: `G:\CyberpunkMP`. Read its `AGENTS.md`, `handoff.md`, `RESUME HERE.md` and Release Workflow, plus repo `AGENTS.md` / `CLAUDE.md`.
-- Canonical components: `plugin`, `relay`, `npcsync`, `phase1`, `phase1-check`, and main `bin`/`r6`. Old standalone checkouts are historical references.
+## Merged source and verification
 
-## Playable version and package
+- [KyleBuildsAI source PR #3](https://github.com/KyleBuildsAI/cp2077-coop/pull/3)
+  merged as `9d019e8f00abe712f0786ca8f30420be1a9f6130`.
+- Integration head: `ba67405a80d2b209a331b95f17cbd80d3e3ec964`.
+- Imported Bukczyk revision: `7e3826d1c313595a4784f1b232e10cec222b6ca3`.
+  Both histories are retained; the import manifest checks exact source parity.
+- Local Windows checks: typed native/server build and **11/11 CTests** passed;
+  retained reference native build and **15/15 CTests** passed.
+- Imported REDscript compiled with Codeware in an isolated sandbox.
+- All **seven distinct hosted checks** passed across
+  [typed CI](https://github.com/KyleBuildsAI/cp2077-coop/actions/runs/37414562588)
+  and [reference PR CI](https://github.com/KyleBuildsAI/cp2077-coop/actions/runs/37414562568).
+- No installation, game launch or live group test occurred in this integration.
+  A sixteen-member headless test does not prove sixteen live players.
 
-**v0.0.37 + CP2077CoopNet 0.2.0-alpha.5**. Game-tested source `af1f98f`; native historical checkpoint `1f270f1`. Later consolidated source/CI includes `856721b`; headless authority is not a game vehicle bridge.
+Detailed evidence: `D:\Downloads\syncfix\bench-artifacts\20261005-foundation-integration`.
+Use separate typed and reference build directories because their SDK pins differ.
 
-Local package: `game-files/latest` (copy contents of `game-root`). Release: `v0.0.37-game-bundle.1`.
+## Package boundary
 
-[Complete installation ZIP](https://github.com/KyleBuildsAI/cp2077-coop/releases/download/v0.0.37-game-bundle.1/CP2077Coop-v0.0.37-alpha5-game-files.zip)
+The public and local tested package is still **v0.0.37 / alpha.5** at
+`game-files/latest/`. Its ZIP and all 69 payloads remain unchanged.
+[Download the existing prototype](https://github.com/KyleBuildsAI/cp2077-coop/releases/download/v0.0.37-game-bundle.1/CP2077Coop-v0.0.37-alpha5-game-files.zip).
 
-ZIP SHA256: `4205990ab92d0a9754232067e2082ba170df7850acc30bcb97a5153d45032ddc`. Earlier this session a fresh GitHub download matched the local archive and all 69 payload hashes. No new runtime/package was created for this research.
+Private matched development profiles were generated under
+`artifacts/session-20261005-213421-701/`. They contain a private test key; keep them
+unpublished. They are not a qualified replacement package. Do not overlay typed
+DLLs/scripts onto the old prototype or infer gameplay readiness from compilation.
 
-## Machine and save state
+Every requested new runtime/package version follows
+[RELEASE_WORKFLOW.md](RELEASE_WORKFLOW.md): verified matching source, complete
+local package, release assets/hashes and vault notes. Source-only integration
+does not require publishing unchanged runtime bytes again.
 
-Read-only check at **2026-10-04 23:14 PDT** found no Cyberpunk2077 processes. Manual-play helper recorded `settings_restored=true` at **23:04:31 PDT** (2026-10-05 06:04:31 UTC). This is its recorded result, not a fresh independent audit of every configuration file.
+## Useful next task
 
-Evidence: `D:\Downloads\syncfix\bench-artifacts\20261004-user-play-041710Z\restoration.json`. All 161 original save files were backed up before that session. **User play progress was retained; saves were not rolled back.** Never restore older backups over that progress automatically. Verify process/settings state before any newly requested test. Baseline and Test B are the designated test installs, not the ordinary main install.
+Use the typed bridge for the next explicitly requested game-side task. The first joint goal is
+one stable, safely controlled NPC, followed by HOST-owned reactions to JOINER
+stimuli/hits. Check upstream ownership before editing
+`runtime/session/cet/CP2077Coop/npc_population.lua`, `npc_runtime.lua` or their
+tests. Existing calls are available locally; no reply is needed just to inspect
+them or prepare an isolated engine experiment.
 
-`D:\Downloads\Open77Launcher.exe` was checked only for metadata/signature/hash. Its hash matches the published official download, it is unsigned, and it was not run. Do not launch it under this scope.
+Adapt measured spawn placement and confirmed-deletion safeguards without replacing
+Bukczyk's exact IDs/catalog/generations. Passive JOINER AI remains unresolved.
+Add lifecycle regressions and matched script/native checks before live acceptance.
+A queued request, cleared tag or successful DeleteEntity call is not completion.
+Keep broad ambient-population suppression disabled.
 
-## Proven and open
+Bukczyk owns protocol/session/server authority; KyleBuildsAI owns engine
+integration, presentation, maps, vehicle/seat hooks and live measurement.
+Coordinate shared-interface changes. The collaboration and reuse proposals in
+Bukczyk PRs #1, #2 and #3 are not approved merely because this source merge landed.
+Do not start unrelated implementations or send collaborator messages without the
+user's request.
 
-- Local two-game v2 connection, remote stand-in and map/nearby minimap marker work; controlled single test-NPC pose/lifecycle evidence exists. RTT is not visual latency.
-- Player movement still lags/corrects. A10 long-sprint assertion remains waived, not fixed. Retained steering stays off without a matched improvement.
-- Cars remain cosmetic replicas. Model/appearance, seats, physics ownership and damage agreement remain open. Kyle's video shows severe airborne-car/camera disruption at 01:33–01:45.
-- User requirements: visible remote ADS, teammate icon with facing arrow, matched cars and two-person shared rides.
-- Native v2 authoritative combat, broad NPC AI, inventory/world/quests/persistence and real two-PC qualification remain unfinished.
-- Baseline flags were `npc_test=false`, `native_retarget=false`, bots/trace off and standalone probes disabled. Verify actual configs rather than assuming. Preserve one native poll owner.
+## Historical evidence and save protection
 
-## Read next
+The [2026-10-04 handoff](history/CLAUDE_HANDOFF_2026-10-04.md) is preserved
+byte for byte. Its research-only scope, working branch and old source directions
+are superseded. Its relative links were written for the original `docs/`
+location; use the current indexes below to reach those documents.
 
-1. [Landscape research](MULTIPLAYER_LANDSCAPE_2026-10-04.md): OPEN//77, CyberMP, Cyberverse, Choomlink, source boundaries and independent implementation ideas.
-2. [Video backlog](PLAYTEST_V37_BACKLOG.md): eight open tickets, timestamps and acceptance checks.
-3. [Canonical plan](MULTIPLAYER_PLAN.md) and [engine/API research](RESEARCH_NOTES.md).
-4. [Bukczyk comparison](BUKCZYK_CHECKPOINT_COMPARISON.md): checkpoint 20eb125, session policy and work-in-progress, not a completed new runtime.
-5. Vault notes `Vehicle Authority Readiness` and `Remote Player Map Marker` for earlier failed approaches.
+Its process/settings checks describe October 4, not the present machine state.
+User play progress was retained then; never restore old save backups over newer
+progress automatically. Before an authorized live test, verify processes and
+settings, back up current saves/configuration, use designated test installations
+and restore test changes. The older launcher inspection did not execute it.
 
-## Work sequence once Kyle requests implementation
-
-1. Create a small API knowledge pack from **our** source and installed versions: signatures, scope/thread, units, async completion, evidence and known failures. Markdown/JSON first; an Open77-specific MCP cannot provide our missing native APIs.
-2. Specify/add a scoped vehicle observer, compile, then run a newly requested backed-up stationary probe. Log stable IDs/model/appearance, actual parent/seat, physics owner/epoch, transform/velocities, corrections and pause state.
-3. Diagnose the video failure before changing physics flags. Public vendor reports about kinematic proxies/mesh bodies are leads, not verified mechanisms. Separate world authority from any future driver simulation lease.
-4. Prove matching parked car and confirmed driver/passenger seats before motion. Then qualify moving rides and cleanup.
-5. Probe ADS state/remote pose and directional map rendering separately. Animation is not damage authority.
-6. Refine readiness/pause/load recovery and measured movement. Extra players, arbitrary traffic and campaign expansion remain later gates.
-
-## User preferences and release rules
-
-- Every **new version**: push source, keep default README current, refresh complete local package, publish matching release assets, verify hashes and update vault. Preserve previous releases. Documentation-only edits are pushed without repackaging unchanged runtime.
-- Use full versions such as **v0.0.37**. README below Run stays concise: one bullet per version, detailed docs linked separately.
-- Preserve prominent ZIP link, screenshot/caption and credits: **KyleBuildsAI**, **Bukczyk**, AI assistance **Claude Code**, **ChatGPT**, **local AI models**.
-- Kyle says he invited Bukczyk as collaborator; access/acceptance was not checked or modified. Coordinate ownership and use reviewable branches/PRs. Do not infer permission to message him from this research request.
-- Keep provenance for research; do not relabel third-party code as original or remove required notices if later reused. No competitors added as contributors. Tilted Phoques implementation remains excluded by the prior research decision.
-
-## Validation and evidence
-
-Primary online sources and selected pinned interfaces reviewed; launcher hash/metadata and session restoration record read. Documentation diffs/links checked before publication. No new game test, benchmark, build, dependency change or deployment. Local research evidence: `D:\Downloads\syncfix\bench-artifacts\20261004-multiplayer-landscape`.
+Useful retained evidence: [research atlas](research/README.md),
+[source ledger](research/SOURCES.md), [landscape review](MULTIPLAYER_LANDSCAPE_2026-10-04.md),
+[video backlog](PLAYTEST_V37_BACKLOG.md), [engine research](RESEARCH_NOTES.md)
+and [older comparison](BUKCZYK_CHECKPOINT_COMPARISON.md).
+The legacy A10 sprint-lag waiver, cosmetic vehicles, missing shared seats and
+unfinished visible ADS/directional markers are still open; source alignment did
+not fix them.
