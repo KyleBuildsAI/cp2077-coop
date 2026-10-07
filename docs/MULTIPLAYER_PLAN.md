@@ -17,6 +17,12 @@ record for this merge.
 
 ## Current state and boundaries
 
+- Current delivery order is core co-op/shared-world gameplay first, then measured
+  stability/capacity, then possible RP, races or persistent-world expansion.
+  Dynamic membership remains a foundation requirement. Today, qualify one passive
+  NPC and supply engine evidence for the merged encounter proposal; that proposal
+  is not an implemented combat route. See `docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md`
+  and `docs/validation/PASSIVE_NETWORK_HUMANOID.md`.
 - The active source foundation is `shared/`, `SessionServer/`, `CoopPlugin/` and
   `runtime/session/`. It includes typed sessions, dynamic player/entity IDs,
   ownership/epochs, reconnect/catalog handling and the engine bridge.
