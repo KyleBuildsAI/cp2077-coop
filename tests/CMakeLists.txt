@@ -3,7 +3,7 @@ if(COOP_REFERENCE_ONLY)
     return()
 endif()
 
-foreach(suite protocol session net interpolation network_e2e game_bridge npc)
+foreach(suite protocol session net interpolation network_e2e network_impairment game_bridge npc)
     add_executable(${suite}_tests ${suite}_tests.cpp)
     target_link_libraries(${suite}_tests PRIVATE coop::core)
     add_test(NAME ${suite} COMMAND ${suite}_tests)
@@ -12,6 +12,7 @@ add_test(NAME runtime_import COMMAND "${CMAKE_COMMAND}" -DROOT=${PROJECT_SOURCE_
     -P "${PROJECT_SOURCE_DIR}/build-support/VerifyRuntime.cmake")
 
 set_tests_properties(protocol session net interpolation network_e2e runtime_import PROPERTIES TIMEOUT 40)
+set_tests_properties(network_impairment PROPERTIES TIMEOUT 60)
 
 if(COOP_BUILD_SESSION_SERVER)
     add_test(NAME server_smoke COMMAND CP2077SessionServer --config "${CMAKE_CURRENT_SOURCE_DIR}/server.ini" --run-for-ms 50)
@@ -24,7 +25,10 @@ set_tests_properties(game_bridge npc session_bridge_contract PROPERTIES TIMEOUT 
 
 include("${PROJECT_SOURCE_DIR}/build-support/LuaTests.cmake")
 add_test(NAME npc_population COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/npc_population_tests.lua" "${PROJECT_SOURCE_DIR}")
-set_tests_properties(npc_population PROPERTIES TIMEOUT 15)
+add_test(NAME npc_static_population COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/npc_static_population_tests.lua" "${PROJECT_SOURCE_DIR}")
+add_test(NAME npc_static_identity COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/npc_static_identity_tests.lua" "${PROJECT_SOURCE_DIR}")
+add_test(NAME npc_projection_asset_contract COMMAND "${CMAKE_COMMAND}" -DROOT=${PROJECT_SOURCE_DIR} -P "${PROJECT_SOURCE_DIR}/build-support/VerifyNpcProjectionAsset.cmake")
+set_tests_properties(npc_population npc_static_population npc_static_identity npc_projection_asset_contract PROPERTIES TIMEOUT 15)
 add_test(NAME session_lifecycle COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/session_lifecycle_tests.lua" "${PROJECT_SOURCE_DIR}")
 set_tests_properties(session_lifecycle PROPERTIES TIMEOUT 15)
 add_test(NAME player_motor COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/player_motor_tests.lua" "${PROJECT_SOURCE_DIR}")

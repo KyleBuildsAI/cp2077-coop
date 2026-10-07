@@ -1,5 +1,23 @@
 # Large co-op foundation integration
 
+## Passive checkpoint mirror - 2026-10-07 UTC
+
+The `feat/session-passive-humanoid-20261006` branch combines upstream
+`c60e14ad4d729688d0ac96504fba5f0354188414` from
+[Bukczyk PR #9](https://github.com/Bukczyk/CP2077-Coop/pull/9) with the existing
+KyleBuildsAI player-presentation checkpoint `6e50dbc2a279af0bbbce6f7e58cb7267ab4eb5f1`.
+Both source histories and the retained reference implementation are preserved.
+This is an isolated source integration; the primary checkout, game installations
+and public `game-files/latest` are not changed by it. Current merge differences,
+test results and pending upstream follow-up are recorded in
+[the mirror validation note](validation/PASSIVE_FOUNDATION_MIRROR.md).
+
+The static NPC adapter matches the pinned upstream contribution. The combined
+entrypoint also retains PR #5's per-player movement motor. This composition needs
+its own qualification; a live result from either input branch is not proof that
+the combined mirror was live-tested. The v0.0.37 / alpha.5 package remains the
+tested public reference. No new runtime release is claimed.
+
 ## Current player-presentation work - 2026-10-06T06:48:16+00:00
 
 KyleBuildsAI owns the game-side movement task requested after the regression was
