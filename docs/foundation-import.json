@@ -64,9 +64,9 @@
     "tests/server.ini": "11409859f87f3fc61d3060bbdba8dc0fda528812",
     "tests/session_tests.cpp": "a2296833d6e2ac4d0343cc22965d485571116f21",
     "tests/test-access.key": "93f308c87c1f16c5c0f5909bc83e04727b9d0465",
-    "build-support/VerifyNpcProjectionAsset.cmake": "df2056cda8d1238545b5039c9e82a091baf01778",
+    "build-support/VerifyNpcProjectionAsset.cmake": "09c9581a564ae4e7ed51ad9ad50176637e1585dc",
     "docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md": "f2c957e3d1c330768547b45f588a656ac0806551",
-    "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "7297bd92423c3cf91c628f6ad68138493cf657ee",
+    "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "6797bb6d24b23309ad4e7013e827adedeb662078",
     "runtime/session/assets/CP2077Coop_Experimental.archive": "eb472574682d2f9f39ed523d1fc6ef99e94f0857",
     "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent": "62a915460020fc362c176fdcc7ffd03fb47f1b04",
     "runtime/session/assets/source/raw/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent.json": "a6c07e627e646b20170f08be58cd16e0022d8fe7",
@@ -74,11 +74,11 @@
     "tests/network_impairment_tests.cpp": "a6b6963d92533690f32df107b2626ab2cb3c050e",
     "tests/npc_static_identity_tests.lua": "57ddf02706eeedfd3f1677bf146c921cd1143a10",
     "tests/npc_static_population_tests.lua": "4244eeff731532d2da063e7c9104209003902f42",
-    "docs/ENCOUNTER_ENGINE_FINDINGS.md": "13418804051f5f1458f4784e18c3c320af1952d9",
+    "docs/ENCOUNTER_ENGINE_FINDINGS.md": "ccbcee7ac850c1a254662b2aaeb3a44c067fab31",
     "experiments/shared-encounter/README.md": "1bfd351c249bf5adc7700adbeb109120ec16aa32",
     "experiments/shared-encounter/engine_hooks.reds": "60db18ed13e8356aeb69d88669077a731ec47cc3",
     "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/animations/networkhumanoid_idle.animgraph": "f34e4070375a3fc981fb4675d2a6252029c50e18",
-    "runtime/session/assets/README.md": "a4e8392862fdc6aa0eef4b51cc5bd8a8ef04f6d2",
+    "runtime/session/assets/README.md": "7546dd6ad4f47156ae087f5c43dcfc8ce402eb2d",
     "runtime/session/assets/source/raw/base/cp2077coop/animations/networkhumanoid_idle.animgraph.json": "9232f24023f62f8cff1a53ffb1c7b9ce17d2d38e",
     "scripts/build-passive-idle-archive.py": "2ea498631657df7fe54d7c84b43c08dd2d4f10fb"
   },
@@ -292,8 +292,8 @@
   "pending_contributions": [
     {
       "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/4",
-      "revision": "9b0d7065dc4e853ddc32b6b221330e412b403561",
-      "status": "Proposed for upstream review, not merged. Local mirror uses exact contribution files; tests/CMakeLists.txt retains reference-mode prefix.",
+      "revision": "614c145063759bbdf38f36942192d294be53361c",
+      "status": "Latest-main refresh proposed upstream; lifecycle changes retained in combined entrypoint/tests alongside PR5 and PR9. Not a new release.",
       "original_upstream_blobs": {
         "runtime/session/README.md": "8449eb2754856fd9de42e2ffcf5415453e2c9b67",
         "runtime/session/cet/CP2077Coop/init.lua": "33ed19762b79b7e2333eb89cffe2938148228d1c"
@@ -313,6 +313,12 @@
         "tests/session_lifecycle_tests.lua": "22e76a3bdc468f1a9a0c2ff98be868a61117343f"
       },
       "reason": "Per-player engine movement, observed-error recovery, lifecycle tests, failed action experiments and measured evidence; network contracts unchanged."
+    },
+    {
+      "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/9",
+      "revision": "b0cdce98fc6cb81516e09ef1cd5f70b128499a90",
+      "status": "Draft engine-validation contribution; passive identity/idle/cleanup and local HOST fixture evidence. Shared encounter and combined mirror live qualification remain incomplete.",
+      "reason": "Reuse experimental static asset; verified opaque identity and cleanup, authored idle graph, isolated encounter hook evidence. No combat transport implemented."
     }
   ],
   "upstream_refreshes": [
@@ -383,6 +389,25 @@
         "tests/npc_static_population_tests.lua": "d7f34ce241c3773eca361676daa8674d9db25e8c"
       },
       "reason": "Use upstream observed-cleanup fixes, isolated encounter probe and authored idle asset. Existing player motor and retained reference files unchanged."
+    },
+    {
+      "revision": "b0cdce98fc6cb81516e09ef1cd5f70b128499a90",
+      "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/9",
+      "status": "Final source mirrored; corrected asset invariants and all17 combined tests pass. No combined-mirror live qualification or new package release.",
+      "exact_files": {
+        "build-support/VerifyNpcProjectionAsset.cmake": "09c9581a564ae4e7ed51ad9ad50176637e1585dc",
+        "docs/ENCOUNTER_ENGINE_FINDINGS.md": "ccbcee7ac850c1a254662b2aaeb3a44c067fab31",
+        "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "6797bb6d24b23309ad4e7013e827adedeb662078",
+        "runtime/session/assets/README.md": "7546dd6ad4f47156ae087f5c43dcfc8ce402eb2d"
+      },
+      "previous_upstream_blobs": {
+        "build-support/VerifyNpcProjectionAsset.cmake": "df2056cda8d1238545b5039c9e82a091baf01778",
+        "docs/ENCOUNTER_ENGINE_FINDINGS.md": "13418804051f5f1458f4784e18c3c320af1952d9",
+        "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "7297bd92423c3cf91c628f6ad68138493cf657ee",
+        "runtime/session/assets/README.md": "a4e8392862fdc6aa0eef4b51cc5bd8a8ef04f6d2"
+      },
+      "reason": "Import upstream asset-contract fix and final three-trial evidence/restoration handoff. Preserve prior failures and distinguish HOST-only fixture from shared combat."
     }
-  ]
+  ],
+  "latest_upstream_revision": "b0cdce98fc6cb81516e09ef1cd5f70b128499a90"
 }

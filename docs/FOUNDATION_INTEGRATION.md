@@ -3,7 +3,7 @@
 ## Passive checkpoint mirror - 2026-10-07 UTC
 
 The `feat/session-passive-humanoid-20261006` branch combines upstream
-`47332132fc7a86f685b117a61ddce759798577ff` from
+`b0cdce98fc6cb81516e09ef1cd5f70b128499a90` from
 [Bukczyk PR #9](https://github.com/Bukczyk/CP2077-Coop/pull/9) with the existing
 KyleBuildsAI player-presentation checkpoint `6e50dbc2a279af0bbbce6f7e58cb7267ab4eb5f1`.
 Both source histories and the retained reference implementation are preserved.
