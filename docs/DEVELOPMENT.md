@@ -10,6 +10,12 @@ Source integration does not port every feature or qualify a new game package.
 The existing **v0.0.37 / alpha.5** download remains the tested two-client prototype.
 Do not mix its DLLs or scripts with the new typed session bridge.
 
+The current experimental physical-query and reaction/death source mirror is
+tracked in [PHYSICAL_ENCOUNTER_MIRROR.md](validation/PHYSICAL_ENCOUNTER_MIRROR.md).
+Local presentation and geometric-hit evidence do not complete the shared encounter
+route; use the existing contracts and keep the missing `SubmitWorld` delivery
+dependency explicit.
+
 ## File ownership
 
 | Area | Paths | Lead responsibility |
