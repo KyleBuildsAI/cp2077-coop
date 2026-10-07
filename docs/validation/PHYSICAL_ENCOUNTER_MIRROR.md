@@ -5,9 +5,10 @@ Branch: `feat/session-passive-encounter-20261007`.
 Starting canonical revision: `bde2cc039a4e455ab678287180afbd52c401d190`.
 Upstream implementation: `63b70987c249860097bfc460a3406fcea5bf2837` from
 [draft Bukczyk PR #10](https://github.com/Bukczyk/CP2077-Coop/pull/10).
-The planned canonical PR is stacked on the existing
+Final upstream evidence: `3aecdc114aee3762f812635bf5ad07793ac3d571`, three Markdown
+files only after the implementation revision. This canonical PR is stacked on the existing
 [KyleBuildsAI PR #5](https://github.com/KyleBuildsAI/cp2077-coop/pull/5).
-Final upstream evidence documentation and publication are pending.
+Both main branches remain unchanged; this is a draft contribution.
 
 ## What is imported
 
@@ -40,8 +41,17 @@ engine results; they do not establish synchronized HOST-approved combat.
 is not native bullet damage or corpse physics, and occlusion, moving targets,
 spread and penetration remain open. The controller requires its caller to validate
 accepted authority. Its local serial guard is not a distributed event ledger.
-Final matched HOST hit/damage findings will arrive in the upstream documentation
-refresh and must not be inferred from the earlier trials.
+Matched HOST trial 11 recorded seven genuine shots, two exact native target-hit
+pipelines, observed nonlethal health loss and later persistent death after vanilla
+`OnDied`. The initial `OnDeath` callback reported health 0 before the persistent
+dead flag became true, so application must await readback. Trial 11's JOINER
+selected the idle-only fixture by mistake; its queued poses did not qualify.
+Trial 12 corrected only the private template selection and visibly passed held
+reaction, idle, death and a fresh-ID recreation preserving the corpse. Its 1,893
+bound frames retained exact identity. No JOINER shots occurred in trial 12;
+physical query and final presentation evidence come from separate trials.
+The [engine answers on PR7](https://github.com/Bukczyk/CP2077-Coop/pull/7#issuecomment-6031592494)
+record those observations and the remaining shared-delivery contract.
 
 ## Validation
 
@@ -54,10 +64,20 @@ refresh and must not be inferred from the earlier trials.
   four proposals and 12 contribution files. The combined CMake blob is recorded
   separately. Player presentation and `game-files/latest` remain unchanged from
   the starting canonical revision. Both staged and unstaged `git diff --check` pass.
+- Final upstream refresh contains only three Markdown files. No implementation,
+  authored asset, build configuration or test changed since the passing combined
+  build/test run, so no redundant build was performed.
+- [Upstream implementation CI](https://github.com/Bukczyk/CP2077-Coop/actions/runs/37574659468):
+  PASS at `63b7098`. Final upstream documentation-head and canonical PR hosted
+  checks remain pending at publication.
 - Combined mirror live game, multi-PC and larger live groups: NOT RUN.
 - No game deployment, public package update or new runtime release by this mirror.
 
 The source merge retains the existing player-presentation work without claiming
 that the two experimental paths were live-tested together. The tested public
-v0.0.37 / alpha.5 package stays unchanged. Await the final upstream documentation
-commit before publishing the compatible canonical PR.
+v0.0.37 / alpha.5 package stays unchanged, with its 70 checksum entries and ZIP
+verified. The upstream test owner closed both games/server and restored graphics,
+runtime, input and bindings at `2026-10-07T05:23:55.0108458Z`; all 167 current saves
+were preserved without rollback. The mirror performed no deployment. Exact
+restoration evidence is in the upstream checkpoint and private
+`runtime-restore-20261007T0523537922296Z.json`.

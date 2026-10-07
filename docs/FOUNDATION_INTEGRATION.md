@@ -3,7 +3,8 @@
 ## Physical encounter mirror - 2026-10-07 UTC
 
 The `feat/session-passive-encounter-20261007` branch imports upstream implementation
-`63b70987c249860097bfc460a3406fcea5bf2837` from
+`63b70987c249860097bfc460a3406fcea5bf2837` and final evidence documentation
+`3aecdc114aee3762f812635bf5ad07793ac3d571` from
 [draft Bukczyk PR #10](https://github.com/Bukczyk/CP2077-Coop/pull/10), stacked on
 the previous passive checkpoint and KyleBuildsAI PR #5. Both histories remain.
 The merge preserves existing player presentation, every retained reference file,
@@ -14,8 +15,9 @@ The new source provides exact local firing/query candidates, local reaction/deat
 presentation and safe pending-retirement handling. It does not implement shared
 combat transport: `SessionBridge::SubmitWorld` still returns `Unsupported`.
 The combined source has its own offline validation; upstream live evidence must
-not be described as a live test of this combined mirror. Final upstream evidence
-documentation is still pending. See [the current mirror record](validation/PHYSICAL_ENCOUNTER_MIRROR.md).
+not be described as a live test of this combined mirror. Final upstream evidence documents native HOST health loss/death and the corrected
+local presentation trial. All 20 combined local tests pass; the three-file final
+upstream refresh is documentation only. See [the current mirror record](validation/PHYSICAL_ENCOUNTER_MIRROR.md).
 No game installation or v0.0.37 / alpha.5 package changes are part of this mirror.
 
 ## Passive checkpoint mirror - 2026-10-07 UTC

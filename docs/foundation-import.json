@@ -29,9 +29,9 @@
     "docs/PROTOCOL.md": "c2bf80d35763d42284949941bbc54d42c7ae91e4",
     "docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md": "f2c957e3d1c330768547b45f588a656ac0806551",
     "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "6797bb6d24b23309ad4e7013e827adedeb662078",
-    "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "8728e85261e7544f6ae3cd383697386d40f006e0",
-    "experiments/shared-encounter/PHYSICAL_SHOTS.md": "8ae0c442f16cc707d3a3df402aa804326b315523",
-    "experiments/shared-encounter/PRESENTATION.md": "f205e9993405aea5f0155de506e55b26c094b259",
+    "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "5ccc4cbf4af5514ffd9edb63e9d75598c3b9ff99",
+    "experiments/shared-encounter/PHYSICAL_SHOTS.md": "b1b44951e8152f611e8db6e80b399efe65d0bdc2",
+    "experiments/shared-encounter/PRESENTATION.md": "77a01a16a6d9a86b43b57cc021aed94c89048243",
     "experiments/shared-encounter/README.md": "6100b3b49d4d51082f7f887c927625a42412a08c",
     "experiments/shared-encounter/assets/raw/base/cp2077coop/animations/networkhumanoid_encounter.animgraph.json": "638177257a9044a9fd65136933e77a2d4352238c",
     "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_encounter.ent.json": "8b429311f466149ed87543f71d5f1df9f8d1867a",
@@ -337,8 +337,8 @@
     },
     {
       "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
-      "revision": "63b70987c249860097bfc460a3406fcea5bf2837",
-      "status": "Draft stacked engine contribution; local exact physical-query and presentation fixtures. Final evidence documentation pending. Shared encounter delivery and combined-mirror live qualification remain incomplete.",
+      "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
+      "status": "Draft stacked engine contribution with final local query/native HOST damage/death/presentation evidence. Shared encounter delivery and combined-mirror live qualification remain incomplete. Implementation CI passed; final documentation-head CI pending.",
       "reason": "Local fire-to-query candidate, exact entity scope, authored reaction/death graph and bounded local state guard, with retirement regressions. No backend/session/protocol change or release."
     }
   ],
@@ -432,7 +432,7 @@
     {
       "revision": "63b70987c249860097bfc460a3406fcea5bf2837",
       "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
-      "status": "Implementation source imported; Windows Release build, all20 combined CTests and source parity pass. Final upstream evidence documentation pending. No combined live qualification, package or deployment.",
+      "status": "Implementation source imported; Windows Release build, all20 combined CTests and source parity pass. Final evidence imported in the following documentation-only refresh. No combined live qualification, package or deployment.",
       "exact_files": {
         "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "8728e85261e7544f6ae3cd383697386d40f006e0",
         "experiments/shared-encounter/PHYSICAL_SHOTS.md": "8ae0c442f16cc707d3a3df402aa804326b315523",
@@ -466,7 +466,23 @@
         "tests/CMakeLists.txt": "3876b68f40ed22e57ceeac2c80083422ce650f5c"
       },
       "reason": "Import exact local physical-query probes, passive reaction/death fixtures and safe retirement fixes. Preserve player presentation, reference mode and prior source histories. No shared combat transport added."
+    },
+    {
+      "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
+      "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Final local-test and restoration documentation imported exactly; implementation remains63b7098. No runtime/test change since the passing combined build and20 CTests. Final-head hosted CI pending.",
+      "exact_files": {
+        "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "5ccc4cbf4af5514ffd9edb63e9d75598c3b9ff99",
+        "experiments/shared-encounter/PHYSICAL_SHOTS.md": "b1b44951e8152f611e8db6e80b399efe65d0bdc2",
+        "experiments/shared-encounter/PRESENTATION.md": "77a01a16a6d9a86b43b57cc021aed94c89048243"
+      },
+      "previous_upstream_blobs": {
+        "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "8728e85261e7544f6ae3cd383697386d40f006e0",
+        "experiments/shared-encounter/PHYSICAL_SHOTS.md": "8ae0c442f16cc707d3a3df402aa804326b315523",
+        "experiments/shared-encounter/PRESENTATION.md": "f205e9993405aea5f0155de506e55b26c094b259"
+      },
+      "reason": "Record natural HOST damage/death, corrected final passive presentation, exact limitations and restored test installations. No backend route or package change."
     }
   ],
-  "latest_upstream_revision": "63b70987c249860097bfc460a3406fcea5bf2837"
+  "latest_upstream_revision": "3aecdc114aee3762f812635bf5ad07793ac3d571"
 }
