@@ -40,13 +40,20 @@ is intentionally not byte-identical to PR #9 because it also contains PR #5.
 ## Verification
 
 - Direct Lua lifecycle and static opaque-identity regressions: PASS.
-- Windows server/core build and all 17 CTests: PASS. Tests include the retained
+- Full Windows x64 Release plugin/server/core build and all 17 CTests: PASS.
+  Configuration used Visual Studio 17 2022 / MSVC 19.41, the existing clean pinned
+  RED4ext SDK checkout and checksum-pinned Lua sources. Tests include the retained
   player motor/lifecycle assertions and upstream network impairment/static suites.
-  Full plugin/SDK build is still running at this intermediate checkpoint.
 - Source provenance: PASS, 69 upstream files, 176 retained reference files,
   4 proposal files and 12 contribution files at the initial import.
 - Combined-mirror live game, two-PC and larger real-client tests: NOT RUN.
 - No game deployment or installation-package version was produced by this mirror.
+
+Local validation finished `2026-10-07T01:58Z` for source merge
+`5fd88132313fee1f51d00cd699588efc3b2699ae`. The generated build directory is
+`build/canonical-passive`; its CTest `Testing/Temporary/LastTest.log` retains
+the test results. Retained prototype source and all `game-files/latest` content are
+unchanged from `6e50dbc2a279af0bbbce6f7e58cb7267ab4eb5f1`.
 
 The upstream implementation owner is still testing and may add fixes. Merge that
 final source head, rerun affected checks and record it before publishing this
