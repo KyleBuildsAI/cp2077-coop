@@ -66,14 +66,21 @@
     "tests/test-access.key": "93f308c87c1f16c5c0f5909bc83e04727b9d0465",
     "build-support/VerifyNpcProjectionAsset.cmake": "df2056cda8d1238545b5039c9e82a091baf01778",
     "docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md": "f2c957e3d1c330768547b45f588a656ac0806551",
-    "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "bf891f36cca376e5701cb10dd1eccb0f04cf9add",
-    "runtime/session/assets/CP2077Coop_Experimental.archive": "39946d039c814bbcf773dc9071fd93b86fbd4043",
-    "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent": "8e6b291a15b517dd6b69d93a48c4fe849806a4fe",
-    "runtime/session/assets/source/raw/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent.json": "528dd80647d7aba51c729b47933a5591a36beb3a",
-    "runtime/session/cet/CP2077Coop/npc_static_population.lua": "808c57aec0fa52217d3c2763ccf81da634cd392c",
+    "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "7297bd92423c3cf91c628f6ad68138493cf657ee",
+    "runtime/session/assets/CP2077Coop_Experimental.archive": "eb472574682d2f9f39ed523d1fc6ef99e94f0857",
+    "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent": "62a915460020fc362c176fdcc7ffd03fb47f1b04",
+    "runtime/session/assets/source/raw/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent.json": "a6c07e627e646b20170f08be58cd16e0022d8fe7",
+    "runtime/session/cet/CP2077Coop/npc_static_population.lua": "0dc318fa160858d97ea3190673947fa200343b23",
     "tests/network_impairment_tests.cpp": "a6b6963d92533690f32df107b2626ab2cb3c050e",
-    "tests/npc_static_identity_tests.lua": "dbb4ca631ed69921f2e18e0025adf1df1bfb4aaf",
-    "tests/npc_static_population_tests.lua": "d7f34ce241c3773eca361676daa8674d9db25e8c"
+    "tests/npc_static_identity_tests.lua": "57ddf02706eeedfd3f1677bf146c921cd1143a10",
+    "tests/npc_static_population_tests.lua": "4244eeff731532d2da063e7c9104209003902f42",
+    "docs/ENCOUNTER_ENGINE_FINDINGS.md": "13418804051f5f1458f4784e18c3c320af1952d9",
+    "experiments/shared-encounter/README.md": "1bfd351c249bf5adc7700adbeb109120ec16aa32",
+    "experiments/shared-encounter/engine_hooks.reds": "60db18ed13e8356aeb69d88669077a731ec47cc3",
+    "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/animations/networkhumanoid_idle.animgraph": "f34e4070375a3fc981fb4675d2a6252029c50e18",
+    "runtime/session/assets/README.md": "a4e8392862fdc6aa0eef4b51cc5bd8a8ef04f6d2",
+    "runtime/session/assets/source/raw/base/cp2077coop/animations/networkhumanoid_idle.animgraph.json": "9232f24023f62f8cff1a53ffb1c7b9ce17d2d38e",
+    "scripts/build-passive-idle-archive.py": "2ea498631657df7fe54d7c84b43c08dd2d4f10fb"
   },
   "adapted_files": {
     ".gitattributes": "Combine raw runtime import attributes with existing package/shell rules.",
@@ -345,6 +352,37 @@
         "tests/CMakeLists.txt": "ad0d616809b6373855a55edc07a6c75a2868806c"
       },
       "reason": "Import passive checkpoint and latest-main lifecycle/network impairment work while preserving existing PR5 movement and reference mode. Runtime init combines both engine paths; no new wire design."
+    },
+    {
+      "revision": "47332132fc7a86f685b117a61ddce759798577ff",
+      "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/9",
+      "status": "Imported exact upstream source; asset contract check needs matching authored-graph update; final live/documentation head pending. No package/deployment.",
+      "exact_files": {
+        "docs/ENCOUNTER_ENGINE_FINDINGS.md": "13418804051f5f1458f4784e18c3c320af1952d9",
+        "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "7297bd92423c3cf91c628f6ad68138493cf657ee",
+        "experiments/shared-encounter/README.md": "1bfd351c249bf5adc7700adbeb109120ec16aa32",
+        "experiments/shared-encounter/engine_hooks.reds": "60db18ed13e8356aeb69d88669077a731ec47cc3",
+        "runtime/session/assets/CP2077Coop_Experimental.archive": "eb472574682d2f9f39ed523d1fc6ef99e94f0857",
+        "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/animations/networkhumanoid_idle.animgraph": "f34e4070375a3fc981fb4675d2a6252029c50e18",
+        "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent": "62a915460020fc362c176fdcc7ffd03fb47f1b04",
+        "runtime/session/assets/README.md": "a4e8392862fdc6aa0eef4b51cc5bd8a8ef04f6d2",
+        "runtime/session/assets/source/raw/base/cp2077coop/animations/networkhumanoid_idle.animgraph.json": "9232f24023f62f8cff1a53ffb1c7b9ce17d2d38e",
+        "runtime/session/assets/source/raw/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent.json": "a6c07e627e646b20170f08be58cd16e0022d8fe7",
+        "runtime/session/cet/CP2077Coop/npc_static_population.lua": "0dc318fa160858d97ea3190673947fa200343b23",
+        "scripts/build-passive-idle-archive.py": "2ea498631657df7fe54d7c84b43c08dd2d4f10fb",
+        "tests/npc_static_identity_tests.lua": "57ddf02706eeedfd3f1677bf146c921cd1143a10",
+        "tests/npc_static_population_tests.lua": "4244eeff731532d2da063e7c9104209003902f42"
+      },
+      "previous_upstream_blobs": {
+        "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "bf891f36cca376e5701cb10dd1eccb0f04cf9add",
+        "runtime/session/assets/CP2077Coop_Experimental.archive": "39946d039c814bbcf773dc9071fd93b86fbd4043",
+        "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent": "8e6b291a15b517dd6b69d93a48c4fe849806a4fe",
+        "runtime/session/assets/source/raw/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent.json": "528dd80647d7aba51c729b47933a5591a36beb3a",
+        "runtime/session/cet/CP2077Coop/npc_static_population.lua": "808c57aec0fa52217d3c2763ccf81da634cd392c",
+        "tests/npc_static_identity_tests.lua": "dbb4ca631ed69921f2e18e0025adf1df1bfb4aaf",
+        "tests/npc_static_population_tests.lua": "d7f34ce241c3773eca361676daa8674d9db25e8c"
+      },
+      "reason": "Use upstream observed-cleanup fixes, isolated encounter probe and authored idle asset. Existing player motor and retained reference files unchanged."
     }
   ]
 }

@@ -5,6 +5,24 @@ Session: 2026-10-06 Pacific / 2026-10-07 UTC. Initial state: local integration,
 not published or live-qualified. Update this record after the final upstream
 checkpoint is imported.
 
+## Upstream refresh - `47332132fc7a86f685b117a61ddce759798577ff`
+
+The next 14 source files merged without conflicts. They add observed cleanup
+corrections, the isolated encounter probe/findings, authored idle graph and asset
+build script. PlayerMotor and its existing entrypoint/test composition are intact.
+No native/C++ file changed in this refresh. The combined mirror was not deployed.
+
+The 17-test rerun passed 16 checks, including lifecycle, static identity and player
+motor. `npc_projection_asset_contract` failed because its old graph assertion
+still required the generic humanoid graph. The authored idle graph needs the
+corresponding upstream invariant check update. This failure was reported to the
+upstream implementation owner; it is not hidden or waived.
+
+Upstream's first trial did not establish the requested scripted motion. The
+revised idle asset trial was stationary and proves a pose correction and reconnect
+only. Actual HOST reaction movement with the new asset remains under investigation.
+The earlier initial-import results below do not cover this newer asset.
+
 ## Starting sources
 
 - KyleBuildsAI: `6e50dbc2a279af0bbbce6f7e58cb7267ab4eb5f1`, existing player motor,
