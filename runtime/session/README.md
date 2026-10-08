@@ -1,5 +1,20 @@
 # Typed game integration foundation (not a gameplay release)
 
+## Connected diagnostic source candidate - 2026-10-08
+
+The current mirror includes PR #11's opaque reliable `GameplayIntent` /
+`GameplayResult` routing and the script-facing `CP2077Session_Gameplay*` bridge.
+Use [the connected diagnostic](../../experiments/shared-encounter/connected/README.md)
+for exact calls and experimental body meanings. It is default-off and separate
+from the normal runtime entrypoint. The older `SubmitWorld` method remains
+unsupported; earlier missing-route descriptions below predate this candidate.
+
+The preparation includes pending PR #9 and work intended for draft PR #10.
+No connected live pass or combined-mirror live test is claimed. HOST-current-weapon
+application is a controlled diagnostic, not JOINER weapon parity, attributed
+damage, ammunition consumption or production death recovery. Keep the public
+v0.0.37 / alpha.5 package unchanged until a matched replacement passes its gates.
+
 ## CET startup and player session lifecycle
 
 The NPC observer registers during `onInit`, when CET exposes `Observe`. Player

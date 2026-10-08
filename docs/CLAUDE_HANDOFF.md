@@ -1,5 +1,29 @@
 # Claude Code handoff - large co-op foundation
 
+## Current connected-source preparation - 2026-10-08 UTC
+
+Use `work/canonical-connected-combat-20261008` in
+`D:/Downloads/syncfix/collaboration/canonical-connected-combat-20261008`.
+It merges candidate `755ab0cf883ad80b519060814ff45f43f6d25714` from the upstream
+preparation branch into Kyle PR #6's `2f29c27`, preserving upstream ancestry,
+player presentation and reference sources. The candidate contains PR #11's
+generic routing plus the script bridge and default-off encounter diagnostic.
+PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc` is still pending; draft PR #10
+must remain separate. This local branch has not advanced or published Kyle PR #6.
+
+Read [the exact merge and validation record](validation/CONNECTED_ENCOUNTER_MIRROR.md)
+before continuing. KyleBuildsAI owns this merge's CMake/provenance/documentation
+and the engine diagnostic. Bukczyk owns session/server/network contracts.
+The `CPEX1` body is a proposal and HOST-current-weapon fixture, not a production
+remote hit/damage model. No connected live pass or combined-mirror live test is
+claimed. Public v0.0.37 / alpha.5 package bytes are unchanged. This subtask does not
+operate games; the root live-test owner records installation and process state.
+
+Next: review any live-test fixes against the exact upstream candidate, merge the
+validated follow-up commit if needed, then publish through the existing draft
+PR #6 without pushing main. After Bukczyk merges PR #9, update PR #10 against that
+actual main and mirror its tested revision. The older sections are historical.
+
 ## Current player-presentation work - 2026-10-06T06:48:16+00:00
 
 KyleBuildsAI owns the game-side movement task requested after the regression was

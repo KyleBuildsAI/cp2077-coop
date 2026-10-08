@@ -1,5 +1,9 @@
 # Physical encounter source mirror
 
+Historical component checkpoint. Current source preparation and validation are
+in [CONNECTED_ENCOUNTER_MIRROR.md](CONNECTED_ENCOUNTER_MIRROR.md). The new generic
+gameplay route does not turn these earlier separate trials into connected evidence.
+
 Owner: KyleBuildsAI. UTC checkpoint: 2026-10-07.
 Branch: `feat/session-passive-encounter-20261007`.
 Starting canonical revision: `bde2cc039a4e455ab678287180afbd52c401d190`.

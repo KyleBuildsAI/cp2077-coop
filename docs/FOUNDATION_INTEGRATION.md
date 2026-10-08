@@ -1,5 +1,30 @@
 # Large co-op foundation integration
 
+## Connected diagnostic source preparation - 2026-10-08 UTC
+
+Local branch `work/canonical-connected-combat-20261008` merges upstream candidate
+`755ab0cf883ad80b519060814ff45f43f6d25714` into Kyle PR #6's `2f29c27` checkpoint.
+The source candidate is from `work/connected-combat-20261007`, prepared for draft
+Bukczyk PR #10. It includes PR #11's merged generic gameplay routing and updated
+PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc`. PR #9 remains pending;
+this preparation does not claim that its engine changes have reached main.
+Kyle PR #6 remains draft and unchanged until this isolated integration is handed
+back for publication. Neither main is modified.
+
+The merge preserves both histories, Kyle's player motor and all retained reference
+files. Its only conflict was the test list: the reference-only entry, player motor
+and every upstream suite remain registered. The generic bridge now exposes opaque
+reliable gameplay requests/results to scripts. The default-off `CPEX1` diagnostic
+is an experimental proposal, not agreed production combat. It applies the HOST's
+current weapon through a labelled synthetic fixture and reports observed health
+and life state, without claiming remote weapon parity or attributed damage.
+
+No connected live pass or combined-mirror live test is claimed. The public
+**v0.0.37 / alpha.5** package and release assets remain unchanged. Exact provenance,
+owned files, validation and next steps are in
+[the connected mirror record](validation/CONNECTED_ENCOUNTER_MIRROR.md).
+Earlier sections below retain their historical evidence and limitations.
+
 ## Physical encounter mirror - 2026-10-07 UTC
 
 The `feat/session-passive-encounter-20261007` branch imports upstream implementation

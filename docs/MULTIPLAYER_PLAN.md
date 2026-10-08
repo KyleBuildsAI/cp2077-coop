@@ -1,6 +1,6 @@
 # Large multiplayer co-op roadmap
 
-Updated 2026-10-05. Build one shared multiplayer foundation with dynamic player
+Updated 2026-10-08. Build one shared multiplayer foundation with dynamic player
 groups. **Two players are not the product limit.** Two-client smoke tests are the
 first test case; larger headless tests check architecture, while actual game
 capacity must be demonstrated through progressively larger live groups. Do not
@@ -21,10 +21,13 @@ record for this merge.
   stability/capacity, then possible RP, races or persistent-world expansion.
   Dynamic membership remains a foundation requirement. The experimental passive
   checkpoint now has local exact physical-query and reaction/death evidence.
-  Connect qualified engine behavior to the agreed accepted-result path next;
-  the merged encounter proposal is not an implemented combat route.
-  See `docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md` and the current source/test limits
-  in `docs/validation/PHYSICAL_ENCOUNTER_MIRROR.md`.
+  PR #11's generic reliable request/result route is now imported with an opt-in
+  game-side diagnostic candidate prepared for draft PR #10. PR #9 remains pending.
+  Production combat meanings and connected gameplay are still unqualified; the
+  diagnostic uses HOST weapon damage and reports observed state only.
+  See `docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md`,
+  `experiments/shared-encounter/connected/README.md` and the current source/test
+  limits in `docs/validation/CONNECTED_ENCOUNTER_MIRROR.md`.
 - The active source foundation is `shared/`, `SessionServer/`, `CoopPlugin/` and
   `runtime/session/`. It includes typed sessions, dynamic player/entity IDs,
   ownership/epochs, reconnect/catalog handling and the engine bridge.
