@@ -7,6 +7,8 @@ Worktree: `D:/Downloads/syncfix/collaboration/canonical-connected-combat-2026100
 Starting Kyle PR #6 revision: `2f29c27431c28c3fef38c1ef74d89a5abdbbf2c6`.
 Imported candidate: `755ab0cf883ad80b519060814ff45f43f6d25714`, from upstream
 preparation branch `work/connected-combat-20261007`, intended for draft PR #10.
+Follow-up source: `aa289044907a273a34a6819dafae36a21fc50378`.
+Initial local merge: `cca5954c591afc94b76dfe92e51cf6527d9268b7`.
 Upstream main prerequisite: `b4a289c350af50ab5695615afd6b12e5121f9409` (PR #11).
 Updated pending PR #9: `5526210f669310ae4ba20ad58b8bb8712fd272fc`.
 
@@ -83,9 +85,22 @@ runtime log is `reference-runtime.log`; its focused corrected-setup rerun is
 
 The upstream preparation's Debian GCC 12 Release check exposed a string-formatting
 `-Werror=restrict` diagnostic. Upstream correction
-`aa289044907a273a34a6819dafae36a21fc50378` is queued for a separate ancestry-preserving
-merge and incremental validation; this initial source checkpoint is not the
-cross-platform final candidate.
+`aa289044907a273a34a6819dafae36a21fc50378` is imported through a separate
+ancestry-preserving merge. It changes only string assembly in
+`shared/src/game_bridge.cpp`, preserving the textual ABI and leaving engine
+scripts, player presentation and reference code unchanged. The incremental
+Windows Release plugin/server build passed, followed by all three affected
+`game_bridge`, `gameplay_bridge` and `connected_encounter` CTests. Evidence:
+`typed-build-aa28904.log` and `typed-ctest-aa28904.log`. The original full 24-test
+and reference runs remain evidence for the preceding merge; unchanged scripts
+and reference sources were not redundantly rebuilt or recompiled.
+Final parity recheck at 2026-10-08T03:05Z passed the same 103 upstream, 176
+reference, four proposal and 12 contribution files. Final whitespace checks and
+unchanged player-code/package comparisons passed. Evidence:
+`foundation-parity-aa28904.log`.
+Upstream CI for that correction is
+[run 37720214660](https://github.com/Bukczyk/CP2077-Coop/actions/runs/37720214660);
+the merge itself does not establish its status or a mirror hosted pass.
 
 ## Handoff and package boundary
 

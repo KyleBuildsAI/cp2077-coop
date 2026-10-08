@@ -8,6 +8,8 @@ It merges candidate `755ab0cf883ad80b519060814ff45f43f6d25714` from the upstream
 preparation branch into Kyle PR #6's `2f29c27`, preserving upstream ancestry,
 player presentation and reference sources. The candidate contains PR #11's
 generic routing plus the script bridge and default-off encounter diagnostic.
+The subsequent import `aa289044907a273a34a6819dafae36a21fc50378` corrects GCC 12
+string-formatting compilation without changing the textual bridge ABI.
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc` is still pending; draft PR #10
 must remain separate. This local branch has not advanced or published Kyle PR #6.
 

@@ -80,7 +80,7 @@
     "shared/include/coop/server.hpp": "a5fa8a83bc95bb9cdee1475b5619c0b973ddca08",
     "shared/include/coop/session.hpp": "80e7ea3bbee5d26761bf11072d6e28abff30b811",
     "shared/src/client.cpp": "1785b3074ce40702ed71b88c799ef2f622dbdb2d",
-    "shared/src/game_bridge.cpp": "3a1cace176735644d0fc0b1f0de0b7e6dd6e2273",
+    "shared/src/game_bridge.cpp": "8049b8be20960a849b2f59334411b3948ca28f1f",
     "shared/src/interpolation.cpp": "1f51e260956ec9a06ce160b63cf6005a6b0e2c51",
     "shared/src/net.cpp": "88e5a0027341791c270f0ec27e77e04b3872938e",
     "shared/src/protocol.cpp": "9497df586cefa23a10206cda96023f97cc4c7249",
@@ -353,7 +353,7 @@
       "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
       "status": "Draft PR remains separate. Candidate imported from local upstream preparation, not claimed as published PR head or accepted main. No connected live pass or combined-mirror live qualification.",
       "reason": "Local fire-to-query candidate, exact entity scope, authored reaction/death graph and bounded local state guard, with retirement regressions. No backend/session/protocol change or release.",
-      "candidate_revision": "755ab0cf883ad80b519060814ff45f43f6d25714",
+      "candidate_revision": "aa289044907a273a34a6819dafae36a21fc50378",
       "candidate_branch": "work/connected-combat-20261007"
     }
   ],
@@ -565,7 +565,20 @@
         "runtime/session/README.md": "8e637c11fcdbf8365eba66a7f7cd3e88bd48e5ba"
       },
       "reason": "Preserve both histories while importing existing PR11 routing, bounded generic gameplay bridge and opt-in engine diagnostic. Retain player motor, reference-only build and reference source; update current runtime guidance without claiming production combat."
+    },
+    {
+      "revision": "aa289044907a273a34a6819dafae36a21fc50378",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Exact GCC12 formatting correction imported; incremental Windows Release native build, three affected CTests and full foundation parity passed at 2026-10-08T03:05Z. Earlier full 24 typed/15 reference passes remain scoped to initial merge. No connected live pass, release, hosted mirror CI or publication.",
+      "exact_files": {
+        "shared/src/game_bridge.cpp": "8049b8be20960a849b2f59334411b3948ca28f1f"
+      },
+      "previous_upstream_blobs": {
+        "shared/src/game_bridge.cpp": "3a1cace176735644d0fc0b1f0de0b7e6dd6e2273"
+      },
+      "reason": "Resolve GCC12 Release -Werror=restrict by explicit string append, preserving lossless bridge record bytes. No engine script, fixture, player presentation or reference change."
     }
   ],
-  "latest_upstream_revision": "755ab0cf883ad80b519060814ff45f43f6d25714"
+  "latest_upstream_revision": "aa289044907a273a34a6819dafae36a21fc50378"
 }
