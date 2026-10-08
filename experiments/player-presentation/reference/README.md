@@ -14,8 +14,10 @@ session package script. Do not install them alongside the active runtime:
 
 The original `runtime/session/cet/CP2077Coop/player_motor.lua`, its standalone
 regression tests and the other player-presentation experiments remain unchanged.
-The active entrypoint now uses only upstream `player_pose.lua` from `97d7c1a`.
-Its owned AI teleport command addresses observed proxy placement, not natural
+The active entrypoint uses upstream `player_pose.lua` by default; the explicit,
+false-by-default passive-player option selects `player_passive.lua` instead.
+Neither path loads this historical motor. The pose adapter's owned AI teleport
+command addresses observed proxy placement, not natural
 locomotion or synchronized weapons/posture. The old motor still has a failed
 smooth-tracking gate and remains reference work, not a second active controller.
 

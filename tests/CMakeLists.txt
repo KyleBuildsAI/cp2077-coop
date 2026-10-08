@@ -35,6 +35,8 @@ add_test(NAME player_motor COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/pl
 set_tests_properties(player_motor PROPERTIES TIMEOUT 15)
 add_test(NAME player_pose COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/player_pose_tests.lua" "${PROJECT_SOURCE_DIR}")
 set_tests_properties(player_pose PROPERTIES TIMEOUT 15)
+add_test(NAME passive_player COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/passive_player_tests.lua" "${PROJECT_SOURCE_DIR}")
+set_tests_properties(passive_player PROPERTIES TIMEOUT 15)
 add_test(NAME encounter_presentation COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/encounter_presentation_tests.lua" "${PROJECT_SOURCE_DIR}")
 set_tests_properties(encounter_presentation PROPERTIES TIMEOUT 15)
 add_test(NAME encounter_presentation_adapter COMMAND coop_lua_test "${CMAKE_CURRENT_SOURCE_DIR}/encounter_presentation_adapter_tests.lua" "${PROJECT_SOURCE_DIR}")

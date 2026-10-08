@@ -7,13 +7,16 @@ Local branch `work/canonical-connected-combat-20261008` merges upstream candidat
 It then imports the GCC 12 formatting correction
 `aa289044907a273a34a6819dafae36a21fc50378` through a second merge.
 Import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds bounded HOST ray
-rejection diagnostics. The current import,
+rejection diagnostics. Pose import
 `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238`, fixes the observed frozen player
 proxy through one owned AI teleport pose command with real placement readback.
 Documentation import `a5a1e06cbe3975c703a69535f3ff602d2d34620a` records the
 upstream controlled placement pass and unchanged shooter-first-hit rejection.
-Connected damage/death still has no live pass. Later experiments are not included
-in this pinned mirror checkpoint.
+Connected damage/death still has no live pass. Current import
+`481609a57ccf775657818fe059f6b87652836ef3` additionally
+includes an explicitly opt-in static cosmetic player controller and an evidence
+wording correction. Its source implementation is `8416637`; the option remains
+false by default. Trial 5 belongs to the root test owner and is not a mirror pass.
 The source candidate is from `work/connected-combat-20261007`, prepared for draft
 Bukczyk PR #10. It includes PR #11's merged generic gameplay routing and updated
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc`. PR #9 remains pending;
@@ -22,13 +25,17 @@ Kyle PR #6 remains draft and unchanged until this isolated integration is handed
 back for publication. Neither main is modified.
 
 The merge preserves both histories and all retained reference files. Active
-`init.lua`, `player_pose.lua` and `remote.reds` now match upstream `97d7c1a`
-exactly. Kyle's original motor module, tests, experiments and evidence remain
+`init.lua`, `config.lua`, both current player adapters and `remote.reds` now
+match upstream `481609a` exactly. Kyle's original motor module, tests,
+experiments and evidence remain
 inactive reference; its previous entrypoint and helpers are archived byte for
 byte under `experiments/player-presentation/reference/`. The old motor diagnostics
-API is archived with that entrypoint. The current runtime uses one actuator.
+API is archived with that entrypoint. The current runtime selects one
+representation: default Judy/pose or explicit
+passive static player, never both.
 Actual README, entrypoint, REDscript and test-list conflicts were reconciled;
-every suite remains registered and lifecycle tests cover the chosen adapter. The generic bridge now exposes opaque
+every suite remains registered and lifecycle tests cover the chosen adapter.
+The generic bridge now exposes opaque
 reliable gameplay requests/results to scripts. The default-off `CPEX1` diagnostic
 is an experimental proposal, not agreed production combat. It applies the HOST's
 current weapon through a labelled synthetic fixture and reports observed health

@@ -10,7 +10,9 @@ preparation branch `work/connected-combat-20261007`, intended for draft PR #10.
 Follow-up source: `aa289044907a273a34a6819dafae36a21fc50378`.
 Ray diagnostic source: `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc`.
 Current pose source: `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238`.
-Final imported documentation: `a5a1e06cbe3975c703a69535f3ff602d2d34620a`.
+Trial 4 documentation: `a5a1e06cbe3975c703a69535f3ff602d2d34620a`.
+Current opt-in source: `481609a57ccf775657818fe059f6b87652836ef3`
+(implementation `84166374849f1c7f512fb0e2cb87f165305318dc`).
 Local pose merge: `f7e510a2590b4f61f3576e5e31cde67394e44043`.
 Initial local merge: `cca5954c591afc94b76dfe92e51cf6527d9268b7`.
 Portability local merge: `c0db56a122e38083b5faa4810429ab1241223c38`.
@@ -54,8 +56,10 @@ import `97d7c1a` also conflicted in the runtime README, player entrypoint and
 `remote.reds`. The reference-only CMake entry and every upstream suite remain,
 including both the inactive motor's regression tests and active pose tests.
 
-The active `init.lua`, `player_pose.lua` and `remote.reds` now exactly match
-`97d7c1a`. Only `player_pose` applies movement. The previous `player_motor.lua`,
+The active `init.lua`, `config.lua`, both player adapters and `remote.reds`
+now exactly match `481609a`. Default `experimentalPassivePlayers=false` uses
+Judy/player_pose; explicit opt-in selects only passive static cosmetic players.
+These paths do not drive the same actor simultaneously. The previous `player_motor.lua`,
 its tests, presentation experiments, proposed state contract and failed
 smooth-tracking evidence stay unchanged. Their previous entrypoint and REDscript
 helpers are archived byte for byte in `experiments/player-presentation/reference/`:
@@ -190,8 +194,46 @@ and matched script compilation remain applicable.
 Final source parity: 109 exact upstream, 176 retained reference, four proposal
 and 14 contribution files; see `foundation-parity-a5a1e06.log`. The combined
 active init/player_pose/remote still equal `97d7c1a` exactly and both original
-motor integration blobs remain preserved. This mirror ends at `a5a1e06`;
-subsequent parent-owned collider-free player experiments are not included.
+motor integration blobs remain preserved. That checkpoint ended at `a5a1e06`; its later opt-in experiment import is
+recorded below.
+
+### Default-off passive player import
+
+Import `481609a57ccf775657818fe059f6b87652836ef3` includes implementation
+`84166374849f1c7f512fb0e2cb87f165305318dc` and a documentation correction that
+accurately labels upstream's pinned Lua 5.4 runner and opaque identity mocks.
+The passive controller uses the original static NetworkHumanoid template,
+separate tags, exact session/engine bindings, bounded spawning and observed
+asynchronous cleanup. Old dynamic player bodies must disappear before activation.
+It handles scope retirement, unload, bridge failure and explicit reconnect;
+no networking/session/protocol bytes are changed.
+
+The option stays false in the exact imported config. Default Judy/player_pose
+remains active; enabling the option selects the static controller exclusively.
+The old player_motor module, tests, evidence and archived helpers remain intact
+and inactive. Runtime and archive READMEs now explain all three states clearly.
+The config moves from the contribution hash set to exact upstream parity.
+The test-list merge was automatic and retained every suite, including player_motor.
+
+- Windows x64 Release plugin/server incremental build: PASS with parallelism two.
+- Full combined CTests: PASS, 26/26; `typed-build-481609a.log` and
+  `typed-ctest-481609a.log`.
+- Separate LuaJIT 2.1 runs: PASS for session lifecycle, 36 pose checks and 108
+  passive player checks. Lifecycle exercises real Uint64 cdata; pose/passive
+  fixtures use opaque ID mocks even under LuaJIT. Evidence:
+  `luajit-lifecycle-passive-481609a.log`.
+- All typed REDscripts, encounter probes and native source are unchanged from
+  the preceding tested mirror. Isolated script compilation from
+  `20261008T034207094726Z` remains applicable; no redundant compiler run or live
+  installation is claimed.
+- Exact source parity: 112 upstream, 176 retained reference, four proposal and
+  13 contribution files. Evidence: `foundation-parity-481609a.log`.
+
+This is an opt-in cosmetic experiment with no player hit collider or PvP promise.
+Automated tests prove modeled identity/lifecycle behavior, not actual placement,
+query exclusion, successful connected damage or death. Root owns trial 5 and
+any subsequent source changes. This checkpoint makes no mirror live claim and
+ends at `481609a`; public v0.0.37 / alpha.5 remains unchanged.
 
 ## Handoff and package boundary
 

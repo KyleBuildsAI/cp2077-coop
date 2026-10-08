@@ -11,19 +11,25 @@ generic routing plus the script bridge and default-off encounter diagnostic.
 The subsequent import `aa289044907a273a34a6819dafae36a21fc50378` corrects GCC 12
 string-formatting compilation without changing the textual bridge ABI.
 Import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds bounded HOST ray
-readback. Current import `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238` replaces
+readback. Pose import `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238` replaces
 ineffective NPC placement with one owned, bounded AI teleport command and actual
 readback. Active init/player_pose/remote match upstream exactly. The prior motor,
 its tests and presentation research stay inactive; its previous entrypoint and
 REDscript helpers are archived byte for byte outside packaged runtime. Do not
 activate both controllers or expect the archived playerDiagnostics API.
-Windows Release build, all 25 CTests, LuaJIT pose/lifecycle and isolated matched
-REDscript compilation pass for this combined tree. Live evidence belongs to the
+Current Windows Release build, all 26 CTests and separate LuaJIT
+pose/lifecycle/passive tests pass. The preceding isolated matched REDscript
+compilation applies to the unchanged scripts. Live evidence belongs to the
 upstream test owner and does not qualify this mirror or smooth movement.
-The final imported checkpoint is documentation-only
-`a5a1e06cbe3975c703a69535f3ff602d2d34620a`: controlled placement passed, but the
+Documentation checkpoint `a5a1e06cbe3975c703a69535f3ff602d2d34620a` records
+controlled placement passing, but the
 HOST ray still hit the authenticated shooter proxy. There was no connected damage
-or death. Later parent-owned passive player experiments are outside this checkpoint.
+or death. Current source import `481609a57ccf775657818fe059f6b87652836ef3` adds the
+false-by-default passive static-player option from `8416637`. It replaces Judy
+only when explicitly enabled and retains exact bindings/observed cleanup. Active
+runtime bytes match that upstream head. Automated tests do not prove its live
+collision behavior or successful connected damage. Root owns trial 5 and any
+later fixes or deployment; those results must be recorded separately.
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc` is still pending; draft PR #10
 must remain separate. This local branch has not advanced or published Kyle PR #6.
 

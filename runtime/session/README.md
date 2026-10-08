@@ -34,8 +34,11 @@ live acceptance gates are recorded in [player proxy pose validation](../../docs/
 
 ## One active player actuator
 
-The active `init.lua`, `player_pose.lua` and `remote.reds` match upstream
-`97d7c1a0b0fb7751800bf0fa2697769ca4e4b238`. Only `player_pose` drives player actors.
+Active `init.lua`, `config.lua`, `player_pose.lua`, `player_passive.lua` and
+`remote.reds` match upstream `481609a57ccf775657818fe059f6b87652836ef3`.
+With the default `experimentalPassivePlayers = false`, only `player_pose` drives
+the temporary Judy player actors. Explicit opt-in selects the passive controller
+instead; it does not run the two actuators on the same player.
 The earlier `player_motor.lua` and its tests remain unchanged as inactive
 reference. Its previous entrypoint and REDscript helpers are preserved byte for
 byte under `experiments/player-presentation/reference/`, outside the packaged
@@ -45,10 +48,26 @@ entrypoint and is not exposed by the current one.
 The old motor restored visible movement but still measured roughly 5 m P95
 tracking error. Its [evidence](../../docs/validation/PLAYER_PRESENTATION.md),
 weapon/posture experiments and proposed state contract remain available for
-later work. No second movement controller runs alongside the pose adapter.
+later work. No second movement controller runs alongside the selected adapter.
 The current correction is placement research, not qualified smooth locomotion,
 weapon/crouch/aim synchronization or a new gameplay release. Keep v0.0.37 until
 a matched replacement passes its acceptance gates.
+
+## Opt-in passive player experiment
+
+`experimentalPassivePlayers = true` selects the original idle-only
+NetworkHumanoid asset through `StaticEntitySystem`, with separate passive-player
+tags, exact session/engine binding and observed asynchronous cleanup. It requires
+the experimental asset archive. Old dynamic player bodies must disappear before
+static activation; temporary observation failure retains owned tokens for cleanup.
+Both generation reset and failure recovery continue pumping retirement.
+
+This cosmetic body has no player hit collider, autonomous NPC AI or PvP behavior.
+It is intended for the controlled shooter-ray experiment; no collision, accepted
+connected damage or death outcome is established by the automated tests. The
+controller submits static transforms; actual placement still requires independent
+live readback. Default Judy/pose behavior and the inactive motor reference remain
+available. No new network data, appearance parity or release version is introduced.
 
 Default plugin: build/windows/CoopPlugin/Release/CP2077Coop.dll. Matching files are in this directory only. Generate role-specific, non-installed packages with `./scripts/package-session.ps1 -Server <IPv4> -Session <name> [-AccessKeyFile <path>]`; it creates HOST/JOINER profiles, matched scripts, Debian config/key and hashes under ignored artifacts/. Rates default to 60 Hz; interpolation is sampled on every CET update. No save or installation writes occur.
 
