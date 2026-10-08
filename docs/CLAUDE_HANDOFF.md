@@ -10,6 +10,9 @@ player presentation and reference sources. The candidate contains PR #11's
 generic routing plus the script bridge and default-off encounter diagnostic.
 The subsequent import `aa289044907a273a34a6819dafae36a21fc50378` corrects GCC 12
 string-formatting compilation without changing the textual bridge ABI.
+The current source import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds bounded
+HOST ray diagnostic readback without changing its acceptance checks. Do not infer
+a connected damage or presentation pass from that instrumentation.
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc` is still pending; draft PR #10
 must remain separate. This local branch has not advanced or published Kyle PR #6.
 

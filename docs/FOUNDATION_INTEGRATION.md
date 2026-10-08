@@ -6,6 +6,9 @@ Local branch `work/canonical-connected-combat-20261008` merges upstream candidat
 `755ab0cf883ad80b519060814ff45f43f6d25714` into Kyle PR #6's `2f29c27` checkpoint.
 It then imports the GCC 12 formatting correction
 `aa289044907a273a34a6819dafae36a21fc50378` through a second merge.
+The next source import, `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc`, adds controlled
+HOST ray rejection diagnostics only. Existing ray acceptance and damage behavior
+remain unchanged; live trial results belong to the test owner's later record.
 The source candidate is from `work/connected-combat-20261007`, prepared for draft
 Bukczyk PR #10. It includes PR #11's merged generic gameplay routing and updated
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc`. PR #9 remains pending;

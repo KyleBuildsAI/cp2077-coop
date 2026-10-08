@@ -41,7 +41,7 @@
     "experiments/shared-encounter/connected/codec.lua": "6bb80edd1952601666d0cb72bc4e44a8aac8398b",
     "experiments/shared-encounter/connected/engine.lua": "c104527eff24bb0d3b7af992dd17c7757dcf56c4",
     "experiments/shared-encounter/connected/host.lua": "cc4214b928e361ffe69c1bacb60564e0b6479f24",
-    "experiments/shared-encounter/connected/host_ray.reds": "68a0571b7079d01bc5a42a504a7042c563959567",
+    "experiments/shared-encounter/connected/host_ray.reds": "27cc9cfb36ec8729a941acf0bf854168442905b8",
     "experiments/shared-encounter/engine_hooks.reds": "3be98db93d763ea26365e92cbc2f34fadef444f8",
     "experiments/shared-encounter/physical_shots.reds": "e82cd0cd3bc75c3a7f2c96a1c96ee2bc6ecfd617",
     "experiments/shared-encounter/physical_trace.reds": "bd757e4989e1fbbf83cd19c72049e2e8f702c3fe",
@@ -353,7 +353,7 @@
       "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
       "status": "Draft PR remains separate. Candidate imported from local upstream preparation, not claimed as published PR head or accepted main. No connected live pass or combined-mirror live qualification.",
       "reason": "Local fire-to-query candidate, exact entity scope, authored reaction/death graph and bounded local state guard, with retirement regressions. No backend/session/protocol change or release.",
-      "candidate_revision": "aa289044907a273a34a6819dafae36a21fc50378",
+      "candidate_revision": "a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc",
       "candidate_branch": "work/connected-combat-20261007"
     }
   ],
@@ -578,7 +578,20 @@
         "shared/src/game_bridge.cpp": "3a1cace176735644d0fc0b1f0de0b7e6dd6e2273"
       },
       "reason": "Resolve GCC12 Release -Werror=restrict by explicit string append, preserving lossless bridge record bytes. No engine script, fixture, player presentation or reference change."
+    },
+    {
+      "revision": "a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Exact diagnostic-only REDscript imported. Isolated matched REDscript compilation passed at 20261008T031417107646Z with all inputs unchanged; full parity passed for 103 upstream/176 reference/4 proposal/12 contribution files. No connected live pass, release, mirror publication or PR6 head change.",
+      "exact_files": {
+        "experiments/shared-encounter/connected/host_ray.reds": "27cc9cfb36ec8729a941acf0bf854168442905b8"
+      },
+      "previous_upstream_blobs": {
+        "experiments/shared-encounter/connected/host_ray.reds": "68a0571b7079d01bc5a42a504a7042c563959567"
+      },
+      "reason": "Expose bounded HOST ray rejection-stage, exact binding and first-hit observations without changing acceptance, damage or routing. Live trial and outcome evidence remain root-owned."
     }
   ],
-  "latest_upstream_revision": "aa289044907a273a34a6819dafae36a21fc50378"
+  "latest_upstream_revision": "a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc"
 }

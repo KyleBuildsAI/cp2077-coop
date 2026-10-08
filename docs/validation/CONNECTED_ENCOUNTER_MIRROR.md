@@ -8,7 +8,9 @@ Starting Kyle PR #6 revision: `2f29c27431c28c3fef38c1ef74d89a5abdbbf2c6`.
 Imported candidate: `755ab0cf883ad80b519060814ff45f43f6d25714`, from upstream
 preparation branch `work/connected-combat-20261007`, intended for draft PR #10.
 Follow-up source: `aa289044907a273a34a6819dafae36a21fc50378`.
+Current diagnostic source: `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc`.
 Initial local merge: `cca5954c591afc94b76dfe92e51cf6527d9268b7`.
+Portability local merge: `c0db56a122e38083b5faa4810429ab1241223c38`.
 Upstream main prerequisite: `b4a289c350af50ab5695615afd6b12e5121f9409` (PR #11).
 Updated pending PR #9: `5526210f669310ae4ba20ad58b8bb8712fd272fc`.
 
@@ -100,7 +102,28 @@ unchanged player-code/package comparisons passed. Evidence:
 `foundation-parity-aa28904.log`.
 Upstream CI for that correction is
 [run 37720214660](https://github.com/Bukczyk/CP2077-Coop/actions/runs/37720214660);
-the merge itself does not establish its status or a mirror hosted pass.
+the parent task verified all Windows, Debian and sanitizer jobs passed at
+`aa289044`. That is upstream evidence, not a mirror hosted pass.
+
+### Controlled ray diagnostics follow-up
+
+Import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds 50 lines only to
+`experiments/shared-encounter/connected/host_ray.reds`. Its bounded status readback
+identifies the rejection stage, exact shooter/target mappings and the first ray
+hit. The validation conditions and acceptance return expression are unchanged.
+No damage, routing, fixture admission, player motor or reference implementation
+is changed. This instrumentation supports a pending live investigation; its
+presence does not establish successful connected damage or death presentation.
+
+Affected matched REDscript compilation passed in isolation at
+`20261008T031417107646Z`; all hashed game/compiler/source inputs remained unchanged.
+Evidence: `redscript/compile-20261008T031417107646Z.json`. Exact source parity
+passed for 103 upstream, 176 reference, four proposal and 12 contribution files;
+see `foundation-parity-a8b98c.log`. Both whitespace checks passed. No C++ source
+changed, so the native
+and reference builds above remain applicable. The live-test owner retains the
+current trial and final outcome record; this source mirror does not claim that
+trial as its own qualification.
 
 ## Handoff and package boundary
 
