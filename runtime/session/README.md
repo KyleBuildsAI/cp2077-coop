@@ -10,9 +10,11 @@ from the normal runtime entrypoint. The older `SubmitWorld` method remains
 unsupported; earlier missing-route descriptions below predate this candidate.
 
 The preparation includes pending PR #9 and work intended for draft PR #10.
-No connected live pass or combined-mirror live test is claimed. HOST-current-weapon
-application is a controlled diagnostic, not JOINER weapon parity, attributed
-damage, ammunition consumption or production death recovery. Keep the public
+The separate upstream trial at `481609a` passed controlled connected health/death
+and same-body JOINER presentation; see [the exact checkpoint](../../docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md).
+This combined mirror has not been tested live. HOST-current-weapon application
+remains a controlled diagnostic, not JOINER weapon parity, attributed damage,
+ammunition consumption or production death recovery; reconnect restored idle. Keep the public
 v0.0.37 / alpha.5 package unchanged until a matched replacement passes its gates.
 
 ## CET startup and player session lifecycle
@@ -63,8 +65,9 @@ static activation; temporary observation failure retains owned tokens for cleanu
 Both generation reset and failure recovery continue pumping retirement.
 
 This cosmetic body has no player hit collider, autonomous NPC AI or PvP behavior.
-It is intended for the controlled shooter-ray experiment; no collision, accepted
-connected damage or death outcome is established by the automated tests. The
+It is intended for the controlled shooter-ray experiment. Separate upstream live
+evidence supports that encounter's accepted health/death route; the automated
+tests alone establish no live collision or damage outcome. The
 controller submits static transforms; actual placement still requires independent
 live readback. Default Judy/pose behavior and the inactive motor reference remain
 available. No new network data, appearance parity or release version is introduced.

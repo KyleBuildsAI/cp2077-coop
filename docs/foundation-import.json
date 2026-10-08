@@ -28,8 +28,9 @@
     "docs/ENCOUNTER_ENGINE_FINDINGS.md": "ccbcee7ac850c1a254662b2aaeb3a44c067fab31",
     "docs/PROTOCOL.md": "c2bf80d35763d42284949941bbc54d42c7ae91e4",
     "docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md": "f2c957e3d1c330768547b45f588a656ac0806551",
-    "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "52d4651d095280702b882896a779e4d360ffdfb0",
+    "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "23d91897eceddb05203d5a3adeaef493c31cd2ae",
     "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "6797bb6d24b23309ad4e7013e827adedeb662078",
+    "docs/validation/PASSIVE_PLAYER.md": "675a83114bf413b91f97c211ed8ddb077aeee0db",
     "docs/validation/PLAYER_PROXY_POSE.md": "1a7ad997e8d1df5b9531cb58b141a1ff6b4f87c2",
     "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "5ccc4cbf4af5514ffd9edb63e9d75598c3b9ff99",
     "experiments/shared-encounter/PHYSICAL_SHOTS.md": "b1b44951e8152f611e8db6e80b399efe65d0bdc2",
@@ -38,7 +39,7 @@
     "experiments/shared-encounter/assets/raw/base/cp2077coop/animations/networkhumanoid_encounter.animgraph.json": "638177257a9044a9fd65136933e77a2d4352238c",
     "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_encounter.ent.json": "8b429311f466149ed87543f71d5f1df9f8d1867a",
     "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_hittable.ent.json": "579eca9f62c4e1acc366ec076be0680536eebe4d",
-    "experiments/shared-encounter/connected/README.md": "d10a9a8caad5a7c5680eb5489c47f5030d75516a",
+    "experiments/shared-encounter/connected/README.md": "e68a39fd6d4ba13a38bdf4888613f261bd2e75fc",
     "experiments/shared-encounter/connected/bridge.lua": "a6c0ee84848e9525f2ff725e5f75e1ccf61ac0e4",
     "experiments/shared-encounter/connected/codec.lua": "6bb80edd1952601666d0cb72bc4e44a8aac8398b",
     "experiments/shared-encounter/connected/engine.lua": "c104527eff24bb0d3b7af992dd17c7757dcf56c4",
@@ -313,7 +314,7 @@
   },
   "proposal_status": "Copied pending PR #1/#2/#3 documentation; not accepted or merged in Bukczyk repository.",
   "contribution_files": {
-    "runtime/session/README.md": "ca607fa9df40685afd2f44f7e00aed36b1edb87f",
+    "runtime/session/README.md": "49cb51d84f1fcb0d5c47de0a47ca596cff791f88",
     "tests/session_lifecycle_tests.lua": "8b1f0d301ad2c973eca0226f595c6a24b953b049",
     "docs/validation/CET_SESSION_LIFECYCLE.md": "88472a0ba0aa1834c247289bc012f1bd5c64b1c5",
     "runtime/session/cet/CP2077Coop/player_motor.lua": "c0442c427f723b5bc7cc7899c463812c446668c8",
@@ -365,7 +366,7 @@
       "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
       "status": "Draft PR remains separate. Candidate imported from local upstream preparation, not claimed as published PR head or accepted main. No connected live pass or combined-mirror live qualification.",
       "reason": "Local fire-to-query candidate, exact entity scope, authored reaction/death graph and bounded local state guard, with retirement regressions. No backend/session/protocol change or release.",
-      "candidate_revision": "481609a57ccf775657818fe059f6b87652836ef3",
+      "candidate_revision": "0a8103e316d1994d6be05123fd81d599b8de5bb1",
       "candidate_branch": "work/connected-combat-20261007"
     }
   ],
@@ -687,7 +688,42 @@
       "actuator_decision": "Default experimentalPassivePlayers=false retains Judy/player_pose. Explicit true selects StaticEntitySystem passive cosmetic players exclusively. The original player_motor and archived integration remain inactive reference.",
       "validation": "LuaJIT session_lifecycle uses real Uint64 cdata. Pose/passive suites use opaque ID mocks, even under LuaJIT; 36 pose and 108 passive checks passed. REDscript and C++ source unchanged, prior isolated script compile remains applicable.",
       "scope": "Ends at 481609a. Trial 5 is root-owned, not a mirror live pass; no inferred collision exclusion, accepted damage or death."
+    },
+    {
+      "revision": "0a8103e316d1994d6be05123fd81d599b8de5bb1",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Documentation-only checkpoint of upstream trial 5: limited connected health/death and same-body presentation pass, failed F9/quickload and reconnect death recovery, verified final cleanup/restoration. No runtime changes or combined-mirror live claim.",
+      "exact_files": {
+        "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "23d91897eceddb05203d5a3adeaef493c31cd2ae",
+        "docs/validation/PASSIVE_PLAYER.md": "675a83114bf413b91f97c211ed8ddb077aeee0db",
+        "experiments/shared-encounter/connected/README.md": "e68a39fd6d4ba13a38bdf4888613f261bd2e75fc"
+      },
+      "previous_upstream_blobs": {
+        "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "52d4651d095280702b882896a779e4d360ffdfb0",
+        "experiments/shared-encounter/connected/README.md": "d10a9a8caad5a7c5680eb5489c47f5030d75516a"
+      },
+      "previous_contribution_blobs": {
+        "runtime/session/README.md": "ca607fa9df40685afd2f44f7e00aed36b1edb87f"
+      },
+      "adapted_files": {
+        "README.md": "Preserve Kyle image, version history, contributor names, installation and release links; add only a development checkpoint pointer.",
+        "runtime/session/README.md": "Distinguish upstream controlled pass from untested mirror and retained production/reconnect limits."
+      },
+      "source_revision_unchanged": "481609a57ccf775657818fe059f6b87652836ef3",
+      "validation": "No local build/test rerun for Markdown-only merge. Active source parity unchanged; previous b361c8e 26/26 CTests, LuaJIT evidence and all three hosted workflows remain prior-source evidence. Final parity covers 113 upstream/176 reference/4 proposal/13 contribution files.",
+      "prior_mirror_publication": {
+        "revision": "b361c8e88acf5520eecef70038014af8716f7866",
+        "pr": "https://github.com/KyleBuildsAI/cp2077-coop/pull/6",
+        "status": "Published by normal fast-forward, draft, all hosted checks passed at first attempt.",
+        "runs": [
+          37725974750,
+          37725974757,
+          37725972268
+        ]
+      }
     }
   ],
-  "latest_upstream_revision": "481609a57ccf775657818fe059f6b87652836ef3"
+  "latest_upstream_revision": "0a8103e316d1994d6be05123fd81d599b8de5bb1",
+  "active_runtime_revision": "481609a57ccf775657818fe059f6b87652836ef3"
 }

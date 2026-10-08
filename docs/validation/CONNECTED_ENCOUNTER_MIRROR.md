@@ -2,7 +2,8 @@
 
 Owner: KyleBuildsAI. UTC checkpoint: 2026-10-08.
 Repository: `KyleBuildsAI/cp2077-coop`.
-Local-only branch: `work/canonical-connected-combat-20261008`.
+Task branch: `work/canonical-connected-combat-20261008`.
+Publication branch: `feat/session-passive-encounter-20261007`, draft Kyle PR #6.
 Worktree: `D:/Downloads/syncfix/collaboration/canonical-connected-combat-20261008`.
 Starting Kyle PR #6 revision: `2f29c27431c28c3fef38c1ef74d89a5abdbbf2c6`.
 Imported candidate: `755ab0cf883ad80b519060814ff45f43f6d25714`, from upstream
@@ -13,6 +14,8 @@ Current pose source: `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238`.
 Trial 4 documentation: `a5a1e06cbe3975c703a69535f3ff602d2d34620a`.
 Current opt-in source: `481609a57ccf775657818fe059f6b87652836ef3`
 (implementation `84166374849f1c7f512fb0e2cb87f165305318dc`).
+Current documentation: `0a8103e316d1994d6be05123fd81d599b8de5bb1`.
+Previously published mirror: `b361c8e88acf5520eecef70038014af8716f7866`.
 Local pose merge: `f7e510a2590b4f61f3576e5e31cde67394e44043`.
 Initial local merge: `cca5954c591afc94b76dfe92e51cf6527d9268b7`.
 Portability local merge: `c0db56a122e38083b5faa4810429ab1241223c38`.
@@ -22,8 +25,10 @@ Updated pending PR #9: `5526210f669310ae4ba20ad58b8bb8712fd272fc`.
 ## Scope and dependency order
 
 This isolated source merge preserves both histories and the existing player
-presentation research. Its active actuator changes explicitly as described below. Kyle's draft PR #6 remains on its earlier head and stacked on Kyle
-PR #5 until the parent task publishes this preparation. Neither main is changed.
+presentation research. Its active actuator changes explicitly as described below.
+Kyle's draft PR #6 was fast-forwarded from `2f29c27` to `b361c8e`, retaining its
+base on Kyle PR #5. This follow-up imports final documentation, with actual
+runtime still pinned to `481609a`. Neither main is changed.
 PR #9 is pending, not implicitly accepted by including its source here. After it
 lands, update upstream PR #10 onto actual main and mirror that tested checkpoint.
 
@@ -36,8 +41,9 @@ reports observed health/life, not an attributed per-request damage amount.
 Native bullet collision, remote weapon parity, ammunition consumption, credit,
 production combat/death schema and reconnect death restoration are not claimed.
 
-No connected live pass or combined-mirror live test is claimed. Earlier upstream
-component results remain separate evidence. This task does not install a runtime,
+The upstream controlled trial now passed connected health/death and same-body
+JOINER presentation. That is separate source evidence, not a combined-mirror live
+test, production combat or reconnect death recovery. This task does not install a runtime,
 operate game processes or change saves/settings. The root live-test owner records
 those actions and their limitations independently.
 
@@ -235,11 +241,53 @@ query exclusion, successful connected damage or death. Root owns trial 5 and
 any subsequent source changes. This checkpoint makes no mirror live claim and
 ends at `481609a`; public v0.0.37 / alpha.5 remains unchanged.
 
+### Final connected checkpoint and published source evidence
+
+This merge imports documentation `0a8103e316d1994d6be05123fd81d599b8de5bb1`
+without changing actual runtime `481609a`. The source trial confirmed two genuine
+JOINER requests, independent HOST ray acceptance, labelled HOST-current-weapon
+application, correlated observed health/persistent death, returned results and
+the same JOINER body's reaction/death display. It does not establish native
+bullet collision, JOINER weapon/attacker parity, attributed per-shot damage,
+PvP, general world simulation or a two-PC test.
+
+The F9 recreation attempt also invoked native quickload; visual recreation was
+not qualified. After reconnect, the NPC catalog identity returned but terminal
+death did not. The docs retain every failed trial and replace future recreation
+instructions with game/CET input preflight and an unused F7 binding. Final
+upstream cleanup, 29-file evidence capture, restored runtime/settings and
+preserved current saves are recorded in the exact imported checkpoint. These
+are test-owner observations, not live actions by this mirror task.
+
+The only conflict was adapted root `README.md`. Kyle's image, download/checksum
+links, install instructions, contributor names and version history are retained;
+only a short development checkpoint pointer is added. Runtime README and
+foundation/handoff notes now distinguish the upstream pass from the mirror's
+unperformed live test. Three upstream documentation files are imported exactly,
+including the new passive-player validation note.
+
+The preceding mirror `b361c8e` was published to existing draft PR #6 by normal
+fast-forward. All hosted workflows passed at that exact head on first attempt:
+
+- [Typed Windows/Debian/sanitizers](https://github.com/KyleBuildsAI/cp2077-coop/actions/runs/37725974750), completed 2026-10-08T04:12:12Z.
+- [Reference PR regressions](https://github.com/KyleBuildsAI/cp2077-coop/actions/runs/37725974757), completed 2026-10-08T04:10:52Z.
+- [Reference push regressions](https://github.com/KyleBuildsAI/cp2077-coop/actions/runs/37725972268), completed 2026-10-08T04:11:05Z.
+
+No local build/test rerun is needed for this Markdown-only merge. All native,
+active runtime, test and archive bytes match the preceding validated source.
+Foundation parity checks 113 exact upstream, 176 retained reference, four proposal
+and 13 contribution files. Relative documentation links and whitespace checks
+pass; evidence is `foundation-parity-0a8103e.log`. The documentation checkpoint's
+automatically triggered hosted runs are recorded on PR #6 after publication;
+this note does not substitute the preceding runs for those results.
+
 ## Handoff and package boundary
 
 The public v0.0.37 / alpha.5 manifest, payload instructions and release assets are
 unchanged. No package version is created by this source-only experiment.
 Preserve any later root-owned live fixes as explicit follow-up source imports;
 do not amend evidence to suggest this earlier tree contained or tested them.
-After validation, hand the local commit to the parent task for review and the
-existing draft PR #6 update. No push or PR head change is performed by this subtask.
+Publish only the validated documentation merge by normal fast-forward to existing
+draft PR #6. Preserve its base and neither main; record its exact head and hosted
+checks in the task handoff. This is a documentation/source checkpoint, not a new
+runtime or package version.

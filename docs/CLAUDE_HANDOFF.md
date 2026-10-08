@@ -28,22 +28,27 @@ or death. Current source import `481609a57ccf775657818fe059f6b87652836ef3` adds 
 false-by-default passive static-player option from `8416637`. It replaces Judy
 only when explicitly enabled and retains exact bindings/observed cleanup. Active
 runtime bytes match that upstream head. Automated tests do not prove its live
-collision behavior or successful connected damage. Root owns trial 5 and any
-later fixes or deployment; those results must be recorded separately.
+collision behavior or successful connected damage. Trial 5 results and final restoration are now imported through docs-only
+`0a8103e316d1994d6be05123fd81d599b8de5bb1`: two connected requests yielded
+observed HOST health/death and the same JOINER body's reaction/death pose. F9
+also triggered quickload; subsequent reconnect restored an idle projection,
+so corpse recreation and terminal-state recovery remain unqualified.
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc` is still pending; draft PR #10
-must remain separate. This local branch has not advanced or published Kyle PR #6.
+must remain separate. Kyle PR #6 is published at `b361c8e`, still draft, with typed and reference CI
+passing on first attempts. The current follow-up imports documentation only.
 
 Read [the exact merge and validation record](validation/CONNECTED_ENCOUNTER_MIRROR.md)
 before continuing. KyleBuildsAI owns this merge's CMake/provenance/documentation
 and the engine diagnostic. Bukczyk owns session/server/network contracts.
 The `CPEX1` body is a proposal and HOST-current-weapon fixture, not a production
-remote hit/damage model. No connected live pass or combined-mirror live test is
-claimed. Public v0.0.37 / alpha.5 package bytes are unchanged. This subtask does not
+remote hit/damage model. The upstream controlled pass does not establish a
+combined-mirror live test. Public v0.0.37 / alpha.5 package bytes are unchanged. This subtask does not
 operate games; the root live-test owner records installation and process state.
 
-Next: review any live-test fixes against the exact upstream candidate, merge the
-validated follow-up commit if needed, then publish through the existing draft
-PR #6 without pushing main. After Bukczyk merges PR #9, update PR #10 against that
+Next: retain runtime `481609a` and the verified public package. Publish this
+validated documentation follow-up through existing draft PR #6 without pushing
+main, then record its hosted checks. Prioritize non-conflicting recreation input
+and agreed accepted-state restoration before wider combat claims. After Bukczyk merges PR #9, update PR #10 against that
 actual main and mirror its tested revision. The older sections are historical.
 
 ## Current player-presentation work - 2026-10-06T06:48:16+00:00

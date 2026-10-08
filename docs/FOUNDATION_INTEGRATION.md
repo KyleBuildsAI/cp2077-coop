@@ -12,17 +12,21 @@ rejection diagnostics. Pose import
 proxy through one owned AI teleport pose command with real placement readback.
 Documentation import `a5a1e06cbe3975c703a69535f3ff602d2d34620a` records the
 upstream controlled placement pass and unchanged shooter-first-hit rejection.
-Connected damage/death still has no live pass. Current import
+The earlier ray blocker is retained in that historical record. Source import
 `481609a57ccf775657818fe059f6b87652836ef3` additionally
 includes an explicitly opt-in static cosmetic player controller and an evidence
 wording correction. Its source implementation is `8416637`; the option remains
-false by default. Trial 5 belongs to the root test owner and is not a mirror pass.
+false by default. Documentation import `0a8103e316d1994d6be05123fd81d599b8de5bb1`
+records the separate upstream trial 5 connected health/death and same-body
+presentation pass, failed reconnect death recovery, and completed restoration.
+Runtime bytes remain at `481609a`; the combined mirror was not live-tested.
 The source candidate is from `work/connected-combat-20261007`, prepared for draft
 Bukczyk PR #10. It includes PR #11's merged generic gameplay routing and updated
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc`. PR #9 remains pending;
 this preparation does not claim that its engine changes have reached main.
-Kyle PR #6 remains draft and unchanged until this isolated integration is handed
-back for publication. Neither main is modified.
+Kyle PR #6 was fast-forwarded to `b361c8e` and remains draft. Its typed and
+reference hosted checks passed on their first attempts. This next merge adds
+documentation only. Neither main is modified.
 
 The merge preserves both histories and all retained reference files. Active
 `init.lua`, `config.lua`, both current player adapters and `remote.reds` now
@@ -41,7 +45,7 @@ is an experimental proposal, not agreed production combat. It applies the HOST's
 current weapon through a labelled synthetic fixture and reports observed health
 and life state, without claiming remote weapon parity or attributed damage.
 
-No connected live pass or combined-mirror live test is claimed. The public
+The upstream controlled pass is separate from combined-mirror live qualification. The public
 **v0.0.37 / alpha.5** package and release assets remain unchanged. Exact provenance,
 owned files, validation and next steps are in
 [the connected mirror record](validation/CONNECTED_ENCOUNTER_MIRROR.md).
