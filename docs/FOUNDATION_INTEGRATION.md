@@ -10,6 +10,10 @@ Import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds bounded HOST ray
 rejection diagnostics. The current import,
 `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238`, fixes the observed frozen player
 proxy through one owned AI teleport pose command with real placement readback.
+Documentation import `a5a1e06cbe3975c703a69535f3ff602d2d34620a` records the
+upstream controlled placement pass and unchanged shooter-first-hit rejection.
+Connected damage/death still has no live pass. Later experiments are not included
+in this pinned mirror checkpoint.
 The source candidate is from `work/connected-combat-20261007`, prepared for draft
 Bukczyk PR #10. It includes PR #11's merged generic gameplay routing and updated
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc`. PR #9 remains pending;

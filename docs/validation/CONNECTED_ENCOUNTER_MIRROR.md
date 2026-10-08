@@ -10,6 +10,8 @@ preparation branch `work/connected-combat-20261007`, intended for draft PR #10.
 Follow-up source: `aa289044907a273a34a6819dafae36a21fc50378`.
 Ray diagnostic source: `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc`.
 Current pose source: `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238`.
+Final imported documentation: `a5a1e06cbe3975c703a69535f3ff602d2d34620a`.
+Local pose merge: `f7e510a2590b4f61f3576e5e31cde67394e44043`.
 Initial local merge: `cca5954c591afc94b76dfe92e51cf6527d9268b7`.
 Portability local merge: `c0db56a122e38083b5faa4810429ab1241223c38`.
 Upstream main prerequisite: `b4a289c350af50ab5695615afd6b12e5121f9409` (PR #11).
@@ -174,6 +176,22 @@ there is no connected damage/death pass. Final source evidence is imported throu
 the test owner's separate documentation commit, not substituted for mirror live
 validation. Smooth movement, remote actions and the combined mirror remain
 unqualified in game.
+
+### Final documentation import
+
+Merge `a5a1e06cbe3975c703a69535f3ff602d2d34620a` imports exactly three Markdown
+files. It records trial 4's source, controlled placement, returned rejection,
+failed scoped collision-disable attempt and outstanding engine gates in the
+[upstream live checkpoint](CONNECTED_ENCOUNTER_2026-10-08.md). The two existing
+upstream document hashes are refreshed and the new checkpoint is pinned in the
+manifest. No runtime source changed, so the preceding build, 25 tests, LuaJIT
+and matched script compilation remain applicable.
+
+Final source parity: 109 exact upstream, 176 retained reference, four proposal
+and 14 contribution files; see `foundation-parity-a5a1e06.log`. The combined
+active init/player_pose/remote still equal `97d7c1a` exactly and both original
+motor integration blobs remain preserved. This mirror ends at `a5a1e06`;
+subsequent parent-owned collider-free player experiments are not included.
 
 ## Handoff and package boundary
 

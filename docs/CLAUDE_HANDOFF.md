@@ -20,6 +20,10 @@ activate both controllers or expect the archived playerDiagnostics API.
 Windows Release build, all 25 CTests, LuaJIT pose/lifecycle and isolated matched
 REDscript compilation pass for this combined tree. Live evidence belongs to the
 upstream test owner and does not qualify this mirror or smooth movement.
+The final imported checkpoint is documentation-only
+`a5a1e06cbe3975c703a69535f3ff602d2d34620a`: controlled placement passed, but the
+HOST ray still hit the authenticated shooter proxy. There was no connected damage
+or death. Later parent-owned passive player experiments are outside this checkpoint.
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc` is still pending; draft PR #10
 must remain separate. This local branch has not advanced or published Kyle PR #6.
 

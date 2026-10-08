@@ -28,8 +28,9 @@
     "docs/ENCOUNTER_ENGINE_FINDINGS.md": "ccbcee7ac850c1a254662b2aaeb3a44c067fab31",
     "docs/PROTOCOL.md": "c2bf80d35763d42284949941bbc54d42c7ae91e4",
     "docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md": "f2c957e3d1c330768547b45f588a656ac0806551",
+    "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "52d4651d095280702b882896a779e4d360ffdfb0",
     "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "6797bb6d24b23309ad4e7013e827adedeb662078",
-    "docs/validation/PLAYER_PROXY_POSE.md": "fd99bfc7965aaf632ebb63d2e0cd1a3663464428",
+    "docs/validation/PLAYER_PROXY_POSE.md": "a3ff2fd68b029d1a4026659b5874d4c9d42ed4de",
     "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "5ccc4cbf4af5514ffd9edb63e9d75598c3b9ff99",
     "experiments/shared-encounter/PHYSICAL_SHOTS.md": "b1b44951e8152f611e8db6e80b399efe65d0bdc2",
     "experiments/shared-encounter/PRESENTATION.md": "77a01a16a6d9a86b43b57cc021aed94c89048243",
@@ -37,7 +38,7 @@
     "experiments/shared-encounter/assets/raw/base/cp2077coop/animations/networkhumanoid_encounter.animgraph.json": "638177257a9044a9fd65136933e77a2d4352238c",
     "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_encounter.ent.json": "8b429311f466149ed87543f71d5f1df9f8d1867a",
     "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_hittable.ent.json": "579eca9f62c4e1acc366ec076be0680536eebe4d",
-    "experiments/shared-encounter/connected/README.md": "78c8a521c40faa6d3d78a859d5d9cc2b50ef9be1",
+    "experiments/shared-encounter/connected/README.md": "d10a9a8caad5a7c5680eb5489c47f5030d75516a",
     "experiments/shared-encounter/connected/bridge.lua": "a6c0ee84848e9525f2ff725e5f75e1ccf61ac0e4",
     "experiments/shared-encounter/connected/codec.lua": "6bb80edd1952601666d0cb72bc4e44a8aac8398b",
     "experiments/shared-encounter/connected/engine.lua": "c104527eff24bb0d3b7af992dd17c7757dcf56c4",
@@ -362,7 +363,7 @@
       "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
       "status": "Draft PR remains separate. Candidate imported from local upstream preparation, not claimed as published PR head or accepted main. No connected live pass or combined-mirror live qualification.",
       "reason": "Local fire-to-query candidate, exact entity scope, authored reaction/death graph and bounded local state guard, with retirement regressions. No backend/session/protocol change or release.",
-      "candidate_revision": "97d7c1a0b0fb7751800bf0fa2697769ca4e4b238",
+      "candidate_revision": "a5a1e06cbe3975c703a69535f3ff602d2d34620a",
       "candidate_branch": "work/connected-combat-20261007"
     }
   ],
@@ -636,7 +637,24 @@
       ],
       "actuator_decision": "Only player_pose is active, with exact upstream init/remote. The earlier player_motor and its broader presentation experiments remain inactive reference, with exact historical entrypoint/helpers preserved outside packaged runtime. No duplicate actuators; old playerDiagnostics API belongs to the archived entrypoint.",
       "upstream_validation": "Parent verified all Windows/Debian/sanitizer jobs pass at 97d7c in run 37723374154. Separate upstream controlled placement evidence does not qualify smooth locomotion or this mirror."
+    },
+    {
+      "revision": "a5a1e06cbe3975c703a69535f3ff602d2d34620a",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Three exact documentation files imported without runtime changes. Records upstream trial 4 controlled placement and shooter-first-hit rejection; no connected damage/death pass, combined-mirror live pass, release or publication.",
+      "exact_files": {
+        "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "52d4651d095280702b882896a779e4d360ffdfb0",
+        "docs/validation/PLAYER_PROXY_POSE.md": "a3ff2fd68b029d1a4026659b5874d4c9d42ed4de",
+        "experiments/shared-encounter/connected/README.md": "d10a9a8caad5a7c5680eb5489c47f5030d75516a"
+      },
+      "previous_upstream_blobs": {
+        "docs/validation/PLAYER_PROXY_POSE.md": "fd99bfc7965aaf632ebb63d2e0cd1a3663464428",
+        "experiments/shared-encounter/connected/README.md": "78c8a521c40faa6d3d78a859d5d9cc2b50ef9be1"
+      },
+      "validation": "All active code matches preceding tested 97d7c merge. Foundation parity now checks 109 upstream, 176 reference, four proposal and 14 contribution files; previous build/25 CTests/LuaJIT/REDscript results remain applicable.",
+      "scope": "Checkpoint ends at a5a1e06. Later parent-owned passive player projection experiments are not included."
     }
   ],
-  "latest_upstream_revision": "97d7c1a0b0fb7751800bf0fa2697769ca4e4b238"
+  "latest_upstream_revision": "a5a1e06cbe3975c703a69535f3ff602d2d34620a"
 }
