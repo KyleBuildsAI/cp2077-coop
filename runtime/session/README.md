@@ -1,5 +1,22 @@
 # Typed game integration foundation (not a gameplay release)
 
+## Connected diagnostic source candidate - 2026-10-08
+
+The current mirror includes PR #11's opaque reliable `GameplayIntent` /
+`GameplayResult` routing and the script-facing `CP2077Session_Gameplay*` bridge.
+Use [the connected diagnostic](../../experiments/shared-encounter/connected/README.md)
+for exact calls and experimental body meanings. It is default-off and separate
+from the normal runtime entrypoint. The older `SubmitWorld` method remains
+unsupported; earlier missing-route descriptions below predate this candidate.
+
+The preparation includes pending PR #9 and work intended for draft PR #10.
+The separate upstream trial at `481609a` passed controlled connected health/death
+and same-body JOINER presentation; see [the exact checkpoint](../../docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md).
+This combined mirror has not been tested live. HOST-current-weapon application
+remains a controlled diagnostic, not JOINER weapon parity, attributed damage,
+ammunition consumption or production death recovery; reconnect restored idle. Keep the public
+v0.0.37 / alpha.5 package unchanged until a matched replacement passes its gates.
+
 ## CET startup and player session lifecycle
 
 The NPC observer registers during `onInit`, when CET exposes `Observe`. Player
@@ -14,29 +31,52 @@ enabling it does not make shared NPC simulation safe. Edit it with games closed
 and restart both clients for a controlled NPC experiment.
 
 See [lifecycle validation](../../docs/validation/CET_SESSION_LIFECYCLE.md) for the
-focused test record.
+focused test record. The experimental player pose actuator and its remaining
+live acceptance gates are recorded in [player proxy pose validation](../../docs/validation/PLAYER_PROXY_POSE.md).
 
-## Experimental player movement
+## One active player actuator
 
-The per-frame NPC transform call was observed to leave the body frozen. The
-game-thread `player_motor.lua` uses per-PlayerId movement commands, current
-movement policies, bounded recovery and idle turns. Body replacement and
-departure stop the owned command. Existing network interpolation is consumed
-without applying a second prediction step.
+Active `init.lua`, `config.lua`, `player_pose.lua`, `player_passive.lua` and
+`remote.reds` match upstream `481609a57ccf775657818fe059f6b87652836ef3`.
+With the default `experimentalPassivePlayers = false`, only `player_pose` drives
+the temporary Judy player actors. Explicit opt-in selects the passive controller
+instead; it does not run the two actuators on the same player.
+The earlier `player_motor.lua` and its tests remain unchanged as inactive
+reference. Its previous entrypoint and REDscript helpers are preserved byte for
+byte under `experiments/player-presentation/reference/`, outside the packaged
+runtime. The old `playerDiagnostics()` motor API belongs to that archived
+entrypoint and is not exposed by the current one.
 
-Two-game tests restored visible movement but still measured roughly 5 m P95
-tracking error. This is an unfinished development candidate. See the exact
-[movement evidence](../../docs/validation/PLAYER_PRESENTATION.md).
-Weapon, crouch and aiming state are not transmitted by the current typed route;
-unqualified local hook experiments remain outside this runtime under
-`experiments/player-presentation`. Keep the v0.0.37 package until replacement
-gameplay passes its acceptance gates.
+The old motor restored visible movement but still measured roughly 5 m P95
+tracking error. Its [evidence](../../docs/validation/PLAYER_PRESENTATION.md),
+weapon/posture experiments and proposed state contract remain available for
+later work. No second movement controller runs alongside the selected adapter.
+The current correction is placement research, not qualified smooth locomotion,
+weapon/crouch/aim synchronization or a new gameplay release. Keep v0.0.37 until
+a matched replacement passes its acceptance gates.
+
+## Opt-in passive player experiment
+
+`experimentalPassivePlayers = true` selects the original idle-only
+NetworkHumanoid asset through `StaticEntitySystem`, with separate passive-player
+tags, exact session/engine binding and observed asynchronous cleanup. It requires
+the experimental asset archive. Old dynamic player bodies must disappear before
+static activation; temporary observation failure retains owned tokens for cleanup.
+Both generation reset and failure recovery continue pumping retirement.
+
+This cosmetic body has no player hit collider, autonomous NPC AI or PvP behavior.
+It is intended for the controlled shooter-ray experiment. Separate upstream live
+evidence supports that encounter's accepted health/death route; the automated
+tests alone establish no live collision or damage outcome. The
+controller submits static transforms; actual placement still requires independent
+live readback. Default Judy/pose behavior and the inactive motor reference remain
+available. No new network data, appearance parity or release version is introduced.
 
 Default plugin: build/windows/CoopPlugin/Release/CP2077Coop.dll. Matching files are in this directory only. Generate role-specific, non-installed packages with `./scripts/package-session.ps1 -Server <IPv4> -Session <name> [-AccessKeyFile <path>]`; it creates HOST/JOINER profiles, matched scripts, Debian config/key and hashes under ignored artifacts/. Rates default to 60 Hz; interpolation is sampled on every CET update. No save or installation writes occur.
 
 The native frame is coherent from BeginFrame until the next BeginFrame. SetActive(false) invalidates it; workers own SessionClient and never access REDengine. SessionEntityId/engine EntityID remain exact 64-bit values. Game-thread EntityRegistry holds Player/NPC/Vehicle/World projections and rejects foreign epochs, authorities and duplicate local bindings. Player IDs currently correspond to server-registered player EntityIds. NPC adoption/state/release use the bounded SessionBridge NPC interface and protocol v3. Other world-action contracts remain Unsupported; no combat or stimuli are enabled.
 
-Judy is a temporary non-persistent player proxy, not an NPC simulation implementation. Spawned proxies use unique PlayerId tags and are removed on interest loss/disconnect. JOINER teleports once to its received HOST baseline. The player motor consumes interpolated samples each render frame; it does not apply raw packets. Native registration/CET names are checked by CTest; this does not compile REDscript or certify actual engine behavior.
+Judy is a temporary non-persistent player proxy, not an NPC simulation implementation. Spawned proxies use unique PlayerId tags and are removed on interest loss/disconnect. JOINER teleports once to its received HOST baseline. `player_pose.lua` samples the interpolated target every frame and applies it through one owned `AITeleportCommand` on the exactly bound player proxy. It coalesces newer targets while the engine command is pending, observes real placement, and bounds retries. This replaces the observed silent `TeleportationFacility` NPC no-op. It is an experimental placement correction, not validated smooth locomotion or animation synchronization. Native registration/CET names are checked by CTest; these tests alone do not certify actual engine behavior.
 
 ## Missing hooks/routes for Shared World Reaction MVP
 - VPS entity allocation/adoption acknowledgement for NPC/Vehicle/World, snapshot descriptors/archetypes, stable IDs across local streaming and explicit session epoch reset. Never derive identity from coordinates or invent it from a nearest-NPC query.

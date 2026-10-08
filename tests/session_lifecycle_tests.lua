@@ -163,33 +163,54 @@ for _, role in ipairs({"HOST","JOINER"}) do
     s.tick()
     assert(s.npcReads == 0 and s.npcOffers == 0 and s.npcSpawns == 0)
 end
--- Real entrypoint: independent motors, exact body replacement and cleanup.
-local made, stopped={},{}
-package.loaded.player_motor={new=function(actor)
-    made[#made+1]=actor
-    return {step=function(self,target) self.target=target end,
-        stop=function() stopped[#stopped+1]=actor end}
-end}
+-- The connected runtime has one active actuator. Keep the historical motor
+-- module available as reference, but fail if the entrypoint activates it too.
+local previousMotor=package.loaded.player_motor
+package.loaded.player_motor={new=function() error("inactive player_motor was activated") end}
 local s=fixture("HOST",false)
-local function body(hash) return {GetEntityID=function() return {hash=hash} end} end
+local function body(hash)
+    local actor={commands={},stops=0}
+    function actor:GetEntityID() return {hash=hash} end
+    function actor:IsAttached() return true end
+    function actor:CP2077Session_PoseReady() return true end
+    function actor:GetWorldPosition() return {x=1,y=2,z=3} end
+    function actor:GetWorldOrientation() return {ToEulerAngles=function() return {yaw=0} end} end
+    function actor:CP2077Session_SubmitPose(x,y,z,yaw)
+        local command={x=x,y=y,z=z,yaw=yaw,state=1}
+        self.commands[#self.commands+1]=command
+        return command
+    end
+    function actor:CP2077Session_PoseState(command) return command.state end
+    function actor:CP2077Session_StopPose(command)
+        self.stops=self.stops+1
+        command.state=3
+        return true
+    end
+    return actor
+end
 local first,second,replacement=body(uint64(1)),body(uint64(2)),body("replacementULL")
 s.remotes={{id=2,entity=uint64(1),x=10},{id=3,entity=uint64(2),x=20}}
 s.bodies["CP2077Session.Projection.2"]=first
 s.bodies["CP2077Session.Projection.3"]=second
 s.init(); s.tick(10)
-assert(#made==2 and #stopped==0,"one motor per exact remote body")
+assert(#first.commands==1 and #second.commands==1,"one pose command per exact remote body")
+assert(first.commands[1].x==10 and second.commands[1].x==20,"independent player targets")
+s.remotes[1].x=15; s.tick()
+assert(#first.commands==1 and #second.commands==1,"no second actuator while commands remain pending")
 s.bodies["CP2077Session.Projection.2"]=replacement
 s.tick()
-assert(#made==3 and stopped[1]==first,"replacement stops the old command owner")
+assert(#replacement.commands==1 and first.stops==1,"replacement stops the old command owner")
+assert(replacement.commands[1].x==15 and second.stops==0,"replacement uses latest target without touching another player")
 s.remotes={s.remotes[2]}
 s.tick()
-assert(stopped[2]==replacement,"departure stops only that player's motor")
+assert(replacement.stops==1 and second.stops==0,"departure stops only that player's pose")
 s.reconnect()
-assert(stopped[3]==second,"reconnect cancels remaining motor")
+assert(second.stops==1,"reconnect cancels remaining pose")
 s.tick()
-assert(#made==4 and made[4]==second,"new generation creates a fresh motor")
+assert(#second.commands==2,"new generation creates a fresh pose controller")
 s.shutdown()
-package.loaded.player_motor=nil
+assert(second.stops==2,"shutdown retires the new generation's command")
+package.loaded.player_motor=previousMotor
 print=report
 report("session_lifecycle: PASS (startup, stable Uint64 identity, replacement, unload, reconnect, NPC opt-in; " ..
     (hasFfi and "LuaJIT Uint64 cdata" or "opaque Uint64 mock") .. ")")

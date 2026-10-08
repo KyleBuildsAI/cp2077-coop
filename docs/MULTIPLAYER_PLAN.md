@@ -1,6 +1,6 @@
 # Large multiplayer co-op roadmap
 
-Updated 2026-10-05. Build one shared multiplayer foundation with dynamic player
+Updated 2026-10-08. Build one shared multiplayer foundation with dynamic player
 groups. **Two players are not the product limit.** Two-client smoke tests are the
 first test case; larger headless tests check architecture, while actual game
 capacity must be demonstrated through progressively larger live groups. Do not
@@ -19,10 +19,15 @@ record for this merge.
 
 - Current delivery order is core co-op/shared-world gameplay first, then measured
   stability/capacity, then possible RP, races or persistent-world expansion.
-  Dynamic membership remains a foundation requirement. Today, qualify one passive
-  NPC and supply engine evidence for the merged encounter proposal; that proposal
-  is not an implemented combat route. See `docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md`
-  and `docs/validation/PASSIVE_NETWORK_HUMANOID.md`.
+  Dynamic membership remains a foundation requirement. The experimental passive
+  checkpoint now has local exact physical-query and reaction/death evidence.
+  PR #11's generic reliable request/result route is now imported with an opt-in
+  game-side diagnostic candidate prepared for draft PR #10. PR #9 remains pending.
+  Production combat meanings and connected gameplay are still unqualified; the
+  diagnostic uses HOST weapon damage and reports observed state only.
+  See `docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md`,
+  `experiments/shared-encounter/connected/README.md` and the current source/test
+  limits in `docs/validation/CONNECTED_ENCOUNTER_MIRROR.md`.
 - The active source foundation is `shared/`, `SessionServer/`, `CoopPlugin/` and
   `runtime/session/`. It includes typed sessions, dynamic player/entity IDs,
   ownership/epochs, reconnect/catalog handling and the engine bridge.
@@ -32,9 +37,10 @@ record for this merge.
 - The existing **v0.0.37 / alpha.5** install package remains the previously tested
   prototype. Source integration and native compilation alone do not qualify its
   replacement or prove a shared world.
-- Current JOINER NPC creation is not proven passive. Host-authoritative
-  stimulus/hit/reaction/death behavior, full appearance, seats and campaign
-  synchronization still require implementation and game evidence.
+- A controlled static JOINER projection has local identity, passive presentation
+  and cleanup evidence. That does not qualify arbitrary NPC types or this combined
+  mirror in game. Host-authoritative stimulus/hit/reaction/death delivery, full
+  appearance, seats and campaign synchronization remain incomplete.
 - [Collaboration PR #1](https://github.com/Bukczyk/CP2077-Coop/pull/1),
   [game-side reuse PR #2](https://github.com/Bukczyk/CP2077-Coop/pull/2) and
   [network reuse PR #3](https://github.com/Bukczyk/CP2077-Coop/pull/3) remain

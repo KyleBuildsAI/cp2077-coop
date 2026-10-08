@@ -10,6 +10,14 @@ Source integration does not port every feature or qualify a new game package.
 The existing **v0.0.37 / alpha.5** download remains the tested two-client prototype.
 Do not mix its DLLs or scripts with the new typed session bridge.
 
+The current source preparation is tracked in
+[CONNECTED_ENCOUNTER_MIRROR.md](validation/CONNECTED_ENCOUNTER_MIRROR.md).
+It imports PR #11's reliable generic gameplay route and a default-off engine
+diagnostic prepared for draft PR #10. PR #9 remains pending. Use the existing
+`GameplayIntent` / `GameplayResult` contract; the experimental `CPEX1` body is a
+proposal, not production combat. The older `SubmitWorld` method remains unsupported
+and is not the new route. No connected or combined-mirror live pass is claimed.
+
 ## File ownership
 
 | Area | Paths | Lead responsibility |

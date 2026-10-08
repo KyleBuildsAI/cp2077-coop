@@ -1,5 +1,56 @@
 # Claude Code handoff - large co-op foundation
 
+## Current connected-source preparation - 2026-10-08 UTC
+
+Use `work/canonical-connected-combat-20261008` in
+`D:/Downloads/syncfix/collaboration/canonical-connected-combat-20261008`.
+It merges candidate `755ab0cf883ad80b519060814ff45f43f6d25714` from the upstream
+preparation branch into Kyle PR #6's `2f29c27`, preserving upstream ancestry,
+player presentation research and reference sources. The candidate contains PR #11's
+generic routing plus the script bridge and default-off encounter diagnostic.
+The subsequent import `aa289044907a273a34a6819dafae36a21fc50378` corrects GCC 12
+string-formatting compilation without changing the textual bridge ABI.
+Import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds bounded HOST ray
+readback. Pose import `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238` replaces
+ineffective NPC placement with one owned, bounded AI teleport command and actual
+readback. Active init/player_pose/remote match upstream exactly. The prior motor,
+its tests and presentation research stay inactive; its previous entrypoint and
+REDscript helpers are archived byte for byte outside packaged runtime. Do not
+activate both controllers or expect the archived playerDiagnostics API.
+Current Windows Release build, all 26 CTests and separate LuaJIT
+pose/lifecycle/passive tests pass. The preceding isolated matched REDscript
+compilation applies to the unchanged scripts. Live evidence belongs to the
+upstream test owner and does not qualify this mirror or smooth movement.
+Documentation checkpoint `a5a1e06cbe3975c703a69535f3ff602d2d34620a` records
+controlled placement passing, but the
+HOST ray still hit the authenticated shooter proxy. There was no connected damage
+or death. Current source import `481609a57ccf775657818fe059f6b87652836ef3` adds the
+false-by-default passive static-player option from `8416637`. It replaces Judy
+only when explicitly enabled and retains exact bindings/observed cleanup. Active
+runtime bytes match that upstream head. Automated tests do not prove its live
+collision behavior or successful connected damage. Trial 5 results and final restoration are now imported through docs-only
+`0a8103e316d1994d6be05123fd81d599b8de5bb1`: two connected requests yielded
+observed HOST health/death and the same JOINER body's reaction/death pose. F9
+also triggered quickload; subsequent reconnect restored an idle projection,
+so corpse recreation and terminal-state recovery remain unqualified.
+PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc` is still pending; draft PR #10
+must remain separate. Kyle PR #6 is published at `b361c8e`, still draft, with typed and reference CI
+passing on first attempts. The current follow-up imports documentation only.
+
+Read [the exact merge and validation record](validation/CONNECTED_ENCOUNTER_MIRROR.md)
+before continuing. KyleBuildsAI owns this merge's CMake/provenance/documentation
+and the engine diagnostic. Bukczyk owns session/server/network contracts.
+The `CPEX1` body is a proposal and HOST-current-weapon fixture, not a production
+remote hit/damage model. The upstream controlled pass does not establish a
+combined-mirror live test. Public v0.0.37 / alpha.5 package bytes are unchanged. This subtask does not
+operate games; the root live-test owner records installation and process state.
+
+Next: retain runtime `481609a` and the verified public package. Publish this
+validated documentation follow-up through existing draft PR #6 without pushing
+main, then record its hosted checks. Prioritize non-conflicting recreation input
+and agreed accepted-state restoration before wider combat claims. After Bukczyk merges PR #9, update PR #10 against that
+actual main and mirror its tested revision. The older sections are historical.
+
 ## Current player-presentation work - 2026-10-06T06:48:16+00:00
 
 KyleBuildsAI owns the game-side movement task requested after the regression was

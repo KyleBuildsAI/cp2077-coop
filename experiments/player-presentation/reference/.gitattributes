@@ -1,0 +1,3 @@
+# Preserve the exact historical runtime blobs, including their original newlines.
+*.lua -text whitespace=cr-at-eol
+*.reds -text whitespace=cr-at-eol

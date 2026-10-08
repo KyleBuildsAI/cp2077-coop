@@ -1,5 +1,76 @@
 # Large co-op foundation integration
 
+## Connected diagnostic source preparation - 2026-10-08 UTC
+
+Local branch `work/canonical-connected-combat-20261008` merges upstream candidate
+`755ab0cf883ad80b519060814ff45f43f6d25714` into Kyle PR #6's `2f29c27` checkpoint.
+It then imports the GCC 12 formatting correction
+`aa289044907a273a34a6819dafae36a21fc50378` through a second merge.
+Import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds bounded HOST ray
+rejection diagnostics. Pose import
+`97d7c1a0b0fb7751800bf0fa2697769ca4e4b238`, fixes the observed frozen player
+proxy through one owned AI teleport pose command with real placement readback.
+Documentation import `a5a1e06cbe3975c703a69535f3ff602d2d34620a` records the
+upstream controlled placement pass and unchanged shooter-first-hit rejection.
+The earlier ray blocker is retained in that historical record. Source import
+`481609a57ccf775657818fe059f6b87652836ef3` additionally
+includes an explicitly opt-in static cosmetic player controller and an evidence
+wording correction. Its source implementation is `8416637`; the option remains
+false by default. Documentation import `0a8103e316d1994d6be05123fd81d599b8de5bb1`
+records the separate upstream trial 5 connected health/death and same-body
+presentation pass, failed reconnect death recovery, and completed restoration.
+Runtime bytes remain at `481609a`; the combined mirror was not live-tested.
+The source candidate is from `work/connected-combat-20261007`, prepared for draft
+Bukczyk PR #10. It includes PR #11's merged generic gameplay routing and updated
+PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc`. PR #9 remains pending;
+this preparation does not claim that its engine changes have reached main.
+Kyle PR #6 was fast-forwarded to `b361c8e` and remains draft. Its typed and
+reference hosted checks passed on their first attempts. This next merge adds
+documentation only. Neither main is modified.
+
+The merge preserves both histories and all retained reference files. Active
+`init.lua`, `config.lua`, both current player adapters and `remote.reds` now
+match upstream `481609a` exactly. Kyle's original motor module, tests,
+experiments and evidence remain
+inactive reference; its previous entrypoint and helpers are archived byte for
+byte under `experiments/player-presentation/reference/`. The old motor diagnostics
+API is archived with that entrypoint. The current runtime selects one
+representation: default Judy/pose or explicit
+passive static player, never both.
+Actual README, entrypoint, REDscript and test-list conflicts were reconciled;
+every suite remains registered and lifecycle tests cover the chosen adapter.
+The generic bridge now exposes opaque
+reliable gameplay requests/results to scripts. The default-off `CPEX1` diagnostic
+is an experimental proposal, not agreed production combat. It applies the HOST's
+current weapon through a labelled synthetic fixture and reports observed health
+and life state, without claiming remote weapon parity or attributed damage.
+
+The upstream controlled pass is separate from combined-mirror live qualification. The public
+**v0.0.37 / alpha.5** package and release assets remain unchanged. Exact provenance,
+owned files, validation and next steps are in
+[the connected mirror record](validation/CONNECTED_ENCOUNTER_MIRROR.md).
+Earlier sections below retain their historical evidence and limitations.
+
+## Physical encounter mirror - 2026-10-07 UTC
+
+The `feat/session-passive-encounter-20261007` branch imports upstream implementation
+`63b70987c249860097bfc460a3406fcea5bf2837` and final evidence documentation
+`3aecdc114aee3762f812635bf5ad07793ac3d571` from
+[draft Bukczyk PR #10](https://github.com/Bukczyk/CP2077-Coop/pull/10), stacked on
+the previous passive checkpoint and KyleBuildsAI PR #5. Both histories remain.
+The merge preserves existing player presentation, every retained reference file,
+the reference-only CMake entry and the player motor test. Only the test-list merge
+needed conflict resolution; both branches' tests remain registered.
+
+The new source provides exact local firing/query candidates, local reaction/death
+presentation and safe pending-retirement handling. It does not implement shared
+combat transport: `SessionBridge::SubmitWorld` still returns `Unsupported`.
+The combined source has its own offline validation; upstream live evidence must
+not be described as a live test of this combined mirror. Final upstream evidence documents native HOST health loss/death and the corrected
+local presentation trial. All 20 combined local tests pass; the three-file final
+upstream refresh is documentation only. See [the current mirror record](validation/PHYSICAL_ENCOUNTER_MIRROR.md).
+No game installation or v0.0.37 / alpha.5 package changes are part of this mirror.
+
 ## Passive checkpoint mirror - 2026-10-07 UTC
 
 The `feat/session-passive-humanoid-20261006` branch combines upstream

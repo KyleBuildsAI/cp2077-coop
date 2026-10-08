@@ -32,6 +32,12 @@ the same package. See [known issues](docs/PLAYTEST_V37_BACKLOG.md).
 upstream. This repository combines its session foundation with KyleBuildsAI's
 retained game features and tests, ready for deliberate feature ports.
 
+Upstream source `481609a` now has a controlled JOINER shot -> HOST health/death
+-> JOINER presentation pass using an opt-in HOST-weapon diagnostic. Reconnect
+death recovery remains unfinished. Read the [exact checkpoint and limits](docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md)
+and [mirror validation](docs/validation/CONNECTED_ENCOUNTER_MIRROR.md). This source
+mirror has not been tested live and does not change the download above.
+
 - **Active foundation:** `shared/`, `SessionServer/`, `CoopPlugin/`, `runtime/session/`.
 - **Preserved prototype:** `bin/`, `r6/`, `plugin/`, `relay/` and the existing game package.
 - **Work split:** Bukczyk leads networking/server logic; KyleBuildsAI leads game integration, presentation and live testing.

@@ -9,78 +9,115 @@
     "ARCHITECTURE.md": "bebed3225c2bca6842b2f9027c293a7e69354e4d",
     "CoopPlugin/CMakeLists.txt": "fd7520d60f0f34097c5c4bad2b9184ce0d228905",
     "CoopPlugin/src/legacy_main.cpp": "c1178cb3b08385f47a795f0054d782ca7a1ef36c",
-    "CoopPlugin/src/main.cpp": "4e44a2e7fc12769e5346c7ce1daf7d437833cae4",
+    "CoopPlugin/src/main.cpp": "e5b5ab7c2c00b4d963b0e72b2e8aa03f01ef5f19",
     "CoopServer/CMakeLists.txt": "5fad92b0e6d7ae6c5f2c887eed05462918a4234c",
     "CoopServer/main.cpp": "b18bb963dc1c4bf279f1993f97c7ff6522d73b49",
     "MIGRATION_PLAN.md": "0002540da597f3f40c3f0779f4671d35d9471f59",
     "SessionServer/CMakeLists.txt": "dfd34f21f508d4ee063745210586b04082a78efb",
-    "SessionServer/main.cpp": "edbb699d51613b3bfa8d0350b73577b3472b5f12",
+    "SessionServer/main.cpp": "33cf9359d7042790c9b5802ba398c4dbaba32e7a",
     "_VehicleProbe_OFF.rar": "7f5e701de7d801e6a659c4861cf71a8d8cdaf1eb",
     "build-support/LuaTests.cmake": "41b2324b5d3367b41b5e370574d12450677cc41b",
     "build-support/RED4ext.cmake": "ef5714ade503089117da4f143150a9d67f1848a6",
+    "build-support/VerifyNpcProjectionAsset.cmake": "09c9581a564ae4e7ed51ad9ad50176637e1585dc",
     "build-support/VerifyRuntime.cmake": "e8771f4465f887dfd120d0400bd992afece65661",
     "build-support/VerifySessionBridge.cmake": "1289ce9717b7d236a33a58207580c8020f759f0e",
     "cmake": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "deploy/debian/cp2077-coop.service": "b66b81764ae2e8189c897dc286207cb1c97ef773",
     "deploy/debian/install.sh": "a7ff84f68e989b4f8ed202b4e873bb321d7e594f",
     "deploy/debian/server.ini": "ad16dca6173d8d5363f0942fdc66fd379993fecc",
+    "docs/ENCOUNTER_ENGINE_FINDINGS.md": "ccbcee7ac850c1a254662b2aaeb3a44c067fab31",
     "docs/PROTOCOL.md": "c2bf80d35763d42284949941bbc54d42c7ae91e4",
+    "docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md": "f2c957e3d1c330768547b45f588a656ac0806551",
+    "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "23d91897eceddb05203d5a3adeaef493c31cd2ae",
+    "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "6797bb6d24b23309ad4e7013e827adedeb662078",
+    "docs/validation/PASSIVE_PLAYER.md": "675a83114bf413b91f97c211ed8ddb077aeee0db",
+    "docs/validation/PLAYER_PROXY_POSE.md": "1a7ad997e8d1df5b9531cb58b141a1ff6b4f87c2",
+    "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "5ccc4cbf4af5514ffd9edb63e9d75598c3b9ff99",
+    "experiments/shared-encounter/PHYSICAL_SHOTS.md": "b1b44951e8152f611e8db6e80b399efe65d0bdc2",
+    "experiments/shared-encounter/PRESENTATION.md": "77a01a16a6d9a86b43b57cc021aed94c89048243",
+    "experiments/shared-encounter/README.md": "d469884eb708319f640ba7d38d748baddf3c550f",
+    "experiments/shared-encounter/assets/raw/base/cp2077coop/animations/networkhumanoid_encounter.animgraph.json": "638177257a9044a9fd65136933e77a2d4352238c",
+    "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_encounter.ent.json": "8b429311f466149ed87543f71d5f1df9f8d1867a",
+    "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_hittable.ent.json": "579eca9f62c4e1acc366ec076be0680536eebe4d",
+    "experiments/shared-encounter/connected/README.md": "e68a39fd6d4ba13a38bdf4888613f261bd2e75fc",
+    "experiments/shared-encounter/connected/bridge.lua": "a6c0ee84848e9525f2ff725e5f75e1ccf61ac0e4",
+    "experiments/shared-encounter/connected/codec.lua": "6bb80edd1952601666d0cb72bc4e44a8aac8398b",
+    "experiments/shared-encounter/connected/engine.lua": "c104527eff24bb0d3b7af992dd17c7757dcf56c4",
+    "experiments/shared-encounter/connected/host.lua": "cc4214b928e361ffe69c1bacb60564e0b6479f24",
+    "experiments/shared-encounter/connected/host_ray.reds": "27cc9cfb36ec8729a941acf0bf854168442905b8",
+    "experiments/shared-encounter/engine_hooks.reds": "3be98db93d763ea26365e92cbc2f34fadef444f8",
+    "experiments/shared-encounter/physical_shots.reds": "e82cd0cd3bc75c3a7f2c96a1c96ee2bc6ecfd617",
+    "experiments/shared-encounter/physical_trace.reds": "bd757e4989e1fbbf83cd19c72049e2e8f702c3fe",
+    "experiments/shared-encounter/presentation.lua": "5d3a6a493494b22931e2610e453c6b025b0d32bb",
+    "experiments/shared-encounter/presentation_state.lua": "a539d36af83b64af58be6b5a720e92da0f598943",
     "runtime/README.md": "1092bf825df67e52035bb4c733f84272e61024fd",
     "runtime/cet/CP2077Coop/init.lua": "7cb2a93626f8db5a9d430938a1b57a9210b4fb69",
     "runtime/import-manifest.json": "df2a8e9675038559b908a4471277be72401e0dbc",
     "runtime/redscript/CP2077Coop/combat.reds": "c5288f50c8c409ddd5c7c1dbff9513ae44d715c4",
     "runtime/redscript/CP2077Coop/natives.reds": "8186981dacd1c71b1e7c6d7c2c4432996f9bb524",
     "runtime/redscript/CP2077Coop/remote.reds": "429954605a7b45b80973ba13064880f6ae3117a8",
+    "runtime/session/assets/CP2077Coop_Experimental.archive": "eb472574682d2f9f39ed523d1fc6ef99e94f0857",
+    "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/animations/networkhumanoid_idle.animgraph": "f34e4070375a3fc981fb4675d2a6252029c50e18",
+    "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent": "62a915460020fc362c176fdcc7ffd03fb47f1b04",
+    "runtime/session/assets/README.md": "7546dd6ad4f47156ae087f5c43dcfc8ce402eb2d",
+    "runtime/session/assets/source/raw/base/cp2077coop/animations/networkhumanoid_idle.animgraph.json": "9232f24023f62f8cff1a53ffb1c7b9ce17d2d38e",
+    "runtime/session/assets/source/raw/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent.json": "a6c07e627e646b20170f08be58cd16e0022d8fe7",
+    "runtime/session/cet/CP2077Coop/config.lua": "fc06763e2319c68e876e9ab529b9e5c5cd0d4224",
+    "runtime/session/cet/CP2077Coop/init.lua": "f60f0588c9c284fd988e31a1a1955da9f28d788f",
     "runtime/session/cet/CP2077Coop/npc_population.lua": "55d7bdff58ad6f03ddd79c27b6552b85130436dc",
-    "runtime/session/cet/CP2077Coop/npc_runtime.lua": "cbb7d3dc32f9659747112b3bafa27ca75969b4d0",
-    "runtime/session/redscript/CP2077Coop/natives.reds": "728a7c8dfe0c52b55c6d286a59458414e8b586cb",
+    "runtime/session/cet/CP2077Coop/npc_runtime.lua": "c8a77208fa6c8cd123bf854d9b0c4d7e681b0d9c",
+    "runtime/session/cet/CP2077Coop/npc_static_population.lua": "1deb81efd1fdcd0c232e617f5493c52fc1e6d4da",
+    "runtime/session/cet/CP2077Coop/player_passive.lua": "9974341f8ee6ccb64377a2d15e2f0e098c9f98f5",
+    "runtime/session/cet/CP2077Coop/player_pose.lua": "e4c878ca6fbc3c70c4cf086bacab02ad2f4005d1",
+    "runtime/session/redscript/CP2077Coop/natives.reds": "d9428efd4896443215adde43f32a7f15d806b252",
+    "runtime/session/redscript/CP2077Coop/remote.reds": "401d45e8f1791d8a3345c869fe5285e36635dc69",
     "runtime/tweaks/CP2077Coop/vehicle_proxy.yaml": "6d69d277f17c94716a89eba87bd7f15563639d21",
+    "scripts/build-passive-encounter-archive.py": "97da9625e0cb8670f264fff90f38e9da364a6e92",
+    "scripts/build-passive-hittable-archive.py": "dac7ef9ca5867e4f1397eaf0e42cf47abf5ac50e",
+    "scripts/build-passive-idle-archive.py": "2ea498631657df7fe54d7c84b43c08dd2d4f10fb",
     "scripts/build.ps1": "f1190e908a24aa48b5345909b96c64385100be0d",
     "scripts/build.sh": "433edb4d88e0f7b9e971acfbe38817135fee61d7",
     "scripts/package-session.ps1": "211ef39618633906691ffd4ac3d1469a7950cf84",
     "shared/CMakeLists.txt": "018a67efdeee6b538e72ef72eb8c2d8d44f48a38",
-    "shared/include/coop/client.hpp": "829400b51e74fb0addd520264c9f46ddd9d04efa",
-    "shared/include/coop/game_bridge.hpp": "d727b182aeda9abca1ee8dd54f746fa3b2ccf5f4",
+    "shared/include/coop/client.hpp": "53cc80abda93c0f7659feacc397b14682aeb48f8",
+    "shared/include/coop/game_bridge.hpp": "386afb2c14da9da12a23a04d2594acbbe13c71eb",
     "shared/include/coop/interpolation.hpp": "25f4cfc727d4f10e8bfb2d3f6a4d20e67bde5f3b",
-    "shared/include/coop/net.hpp": "64d1eda834de5b1096a71478d380c2d5fcb557cd",
-    "shared/include/coop/protocol.hpp": "ae4d769176eeb3529a997ad3bb1150b159ac9d69",
-    "shared/include/coop/server.hpp": "b71b99408de7d95339d963aca1da268cf1ddfbd2",
+    "shared/include/coop/net.hpp": "e5e8cee152ebd1c39ec94ebcd16661e08aab9f15",
+    "shared/include/coop/protocol.hpp": "e2f16743f363cbf8990a1356e3498c65e4507a1e",
+    "shared/include/coop/request_ledger.hpp": "35e9bb4b6566e31aa744c02dad89c085e984ce67",
+    "shared/include/coop/server.hpp": "a5fa8a83bc95bb9cdee1475b5619c0b973ddca08",
     "shared/include/coop/session.hpp": "80e7ea3bbee5d26761bf11072d6e28abff30b811",
-    "shared/src/client.cpp": "4f6aa6551a727e19711a62d7ab30b437e9b34022",
-    "shared/src/game_bridge.cpp": "7333fe0bb8201f7c039d86904df4b892e2836935",
+    "shared/src/client.cpp": "1785b3074ce40702ed71b88c799ef2f622dbdb2d",
+    "shared/src/game_bridge.cpp": "8049b8be20960a849b2f59334411b3948ca28f1f",
     "shared/src/interpolation.cpp": "1f51e260956ec9a06ce160b63cf6005a6b0e2c51",
-    "shared/src/net.cpp": "feaa55d6a17754d7a0aae253238db27047aa25d4",
-    "shared/src/protocol.cpp": "de2f808369799c63905feb28ad449af365c69ea2",
-    "shared/src/server.cpp": "13a0b8efbab85a6f97a65bf3167452af120e44fa",
-    "shared/src/session.cpp": "4b70f8781e8809d23b834d631c267e47459a0e81",
+    "shared/src/net.cpp": "88e5a0027341791c270f0ec27e77e04b3872938e",
+    "shared/src/protocol.cpp": "9497df586cefa23a10206cda96023f97cc4c7249",
+    "shared/src/server.cpp": "998992a850748a370798dd49f4c6e85071889125",
+    "shared/src/session.cpp": "210b30392adab189f194011e7de3cf1ed56b41d2",
+    "tests/cet_require.lua": "ab726c517f409101b27b7f18d2a1baf5801fa7a2",
     "tests/check.hpp": "f5bf5ad9d9aee342cb1bce30dc0465419b8d5d91",
+    "tests/connected_encounter_tests.lua": "d637b38d0f91d390a6bbdb45b6cdf1b1b5d551a7",
+    "tests/encounter_presentation_adapter_tests.lua": "11dd082f1c04d4082f41637e19337b9eee78476f",
+    "tests/encounter_presentation_tests.lua": "45f7ddd026750b30b2b10a9de1891a38cde3fcbc",
     "tests/game_bridge_tests.cpp": "9493cf0dd39d1220988010eb0587adc7b72a481e",
+    "tests/gameplay_bridge_tests.cpp": "9a991979beff6500eb7aa28ee63d5c872ae48dda",
+    "tests/gameplay_routing_tests.cpp": "2b9f4f14c93831f20fce163a193a3b813ae7c458",
     "tests/interpolation_tests.cpp": "d96e707ecdb6a51df1c7b840c99596d333463e90",
     "tests/net_tests.cpp": "fa59371b79e5c0be7f1110c15f7730a1a195bc72",
     "tests/network_e2e_tests.cpp": "53bd4283a52cb969bc64952d1dca800070462b85",
-    "tests/npc_population_tests.lua": "175b51948d8da7e9baef8764b64f9d41868cf27c",
-    "tests/npc_tests.cpp": "f68db4c497b47e77bef342e22a23fcf359395650",
-    "tests/protocol_tests.cpp": "92707189d0707a46ad6acb51e40dfefee916f15d",
-    "tests/server.ini": "11409859f87f3fc61d3060bbdba8dc0fda528812",
-    "tests/session_tests.cpp": "a2296833d6e2ac4d0343cc22965d485571116f21",
-    "tests/test-access.key": "93f308c87c1f16c5c0f5909bc83e04727b9d0465",
-    "build-support/VerifyNpcProjectionAsset.cmake": "09c9581a564ae4e7ed51ad9ad50176637e1585dc",
-    "docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md": "f2c957e3d1c330768547b45f588a656ac0806551",
-    "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "6797bb6d24b23309ad4e7013e827adedeb662078",
-    "runtime/session/assets/CP2077Coop_Experimental.archive": "eb472574682d2f9f39ed523d1fc6ef99e94f0857",
-    "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent": "62a915460020fc362c176fdcc7ffd03fb47f1b04",
-    "runtime/session/assets/source/raw/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent.json": "a6c07e627e646b20170f08be58cd16e0022d8fe7",
-    "runtime/session/cet/CP2077Coop/npc_static_population.lua": "0dc318fa160858d97ea3190673947fa200343b23",
     "tests/network_impairment_tests.cpp": "a6b6963d92533690f32df107b2626ab2cb3c050e",
-    "tests/npc_static_identity_tests.lua": "57ddf02706eeedfd3f1677bf146c921cd1143a10",
+    "tests/npc_population_tests.lua": "175b51948d8da7e9baef8764b64f9d41868cf27c",
+    "tests/npc_static_identity_tests.lua": "ac34586de5ef30d2379d1c973f71daed5a3caa7a",
     "tests/npc_static_population_tests.lua": "4244eeff731532d2da063e7c9104209003902f42",
-    "docs/ENCOUNTER_ENGINE_FINDINGS.md": "ccbcee7ac850c1a254662b2aaeb3a44c067fab31",
-    "experiments/shared-encounter/README.md": "1bfd351c249bf5adc7700adbeb109120ec16aa32",
-    "experiments/shared-encounter/engine_hooks.reds": "60db18ed13e8356aeb69d88669077a731ec47cc3",
-    "runtime/session/assets/CP2077Coop_Experimental/base/cp2077coop/animations/networkhumanoid_idle.animgraph": "f34e4070375a3fc981fb4675d2a6252029c50e18",
-    "runtime/session/assets/README.md": "7546dd6ad4f47156ae087f5c43dcfc8ce402eb2d",
-    "runtime/session/assets/source/raw/base/cp2077coop/animations/networkhumanoid_idle.animgraph.json": "9232f24023f62f8cff1a53ffb1c7b9ce17d2d38e",
-    "scripts/build-passive-idle-archive.py": "2ea498631657df7fe54d7c84b43c08dd2d4f10fb"
+    "tests/npc_tests.cpp": "f68db4c497b47e77bef342e22a23fcf359395650",
+    "tests/passive_hittable_asset_tests.py": "5c6fdf946c3165175fc9f961d52307762db2a855",
+    "tests/passive_player_tests.lua": "dc81794af3ca3a7073366199be84b1e172674eb5",
+    "tests/player_pose_tests.lua": "c94fc5b387252a5cb81f44f35d593a25fa25efff",
+    "tests/protocol_tests.cpp": "ac8e52875a8da2259f664f3f69847a1ddae9a88d",
+    "tests/request_ledger_tests.cpp": "faba19f6460a05193e5e909a8854faa0f0b476e8",
+    "tests/server.ini": "045a331156036fde80c88768754c5d7245dd39f7",
+    "tests/session_tests.cpp": "a2296833d6e2ac4d0343cc22965d485571116f21",
+    "tests/test-access.key": "93f308c87c1f16c5c0f5909bc83e04727b9d0465"
   },
   "adapted_files": {
     ".gitattributes": "Combine raw runtime import attributes with existing package/shell rules.",
@@ -88,7 +125,8 @@
     "AGENTS.md": "Combined development instructions and current user-authorized integration.",
     "CMakeLists.txt": "Session build default; isolated reference-only build switch.",
     "README.md": "Current source direction, preserved playable release, and contributor/download presentation.",
-    "tests/CMakeLists.txt": "Retains reference-only test mode and player motor suite; includes all upstream lifecycle, static identity, asset and network impairment suites."
+    "tests/CMakeLists.txt": "Retains reference-only mode and inactive player_motor suite alongside every upstream suite, including player_pose, passive_player and connected_encounter.",
+    "tests/session_lifecycle_tests.lua": "Retains mirror lifecycle coverage; executes the real player_pose module for two exact actors, body replacement, departure/reconnect/shutdown and a guard against activating player_motor."
   },
   "reference_files": {
     "bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/init.lua": "b4df3ee1b7da5d1f72dd7e46cc39f4084cdbda10",
@@ -276,24 +314,25 @@
   },
   "proposal_status": "Copied pending PR #1/#2/#3 documentation; not accepted or merged in Bukczyk repository.",
   "contribution_files": {
-    "runtime/session/README.md": "c9afca548ddfe4f588044f0d91d30222dcf13806",
-    "runtime/session/cet/CP2077Coop/init.lua": "3d6ddd040fd422fd3f277de584afed2cb1e86fb1",
-    "runtime/session/cet/CP2077Coop/config.lua": "c90bf07c482fcd4458cd97fce8daa0358013b834",
-    "tests/session_lifecycle_tests.lua": "8dcaa17b85fe446a373252daece9793eb2e344f9",
+    "runtime/session/README.md": "49cb51d84f1fcb0d5c47de0a47ca596cff791f88",
+    "tests/session_lifecycle_tests.lua": "8b1f0d301ad2c973eca0226f595c6a24b953b049",
     "docs/validation/CET_SESSION_LIFECYCLE.md": "88472a0ba0aa1834c247289bc012f1bd5c64b1c5",
-    "runtime/session/redscript/CP2077Coop/remote.reds": "cc385beb15481427cae8994cd65e868d07afb296",
     "runtime/session/cet/CP2077Coop/player_motor.lua": "c0442c427f723b5bc7cc7899c463812c446668c8",
     "tests/player_motor_tests.lua": "fee2c17d7059bd26814e5b9f84f57dd5d666b695",
     "docs/validation/PLAYER_PRESENTATION.md": "5dd5fb701f356fe32c2883233911a078bb75c876",
     "docs/PLAYER_PRESENTATION_CONTRACT.md": "ce7a02bc85df326540ae8c9f0ab665c0e711dc61",
     "experiments/player-presentation/action_hooks.reds": "e37d7600ffc63ce66ff586b16082a3c381929f0d",
-    "experiments/player-presentation/README.md": "dcd388ccf1fa4757bce05d51c3268d0e6616bbb9"
+    "experiments/player-presentation/README.md": "dcd388ccf1fa4757bce05d51c3268d0e6616bbb9",
+    "experiments/player-presentation/reference/init_motor.lua": "3d6ddd040fd422fd3f277de584afed2cb1e86fb1",
+    "experiments/player-presentation/reference/remote_motor.reds": "cc385beb15481427cae8994cd65e868d07afb296",
+    "experiments/player-presentation/reference/README.md": "fdb31460c16a4dad77f14ed3113d1abc79c48bfd",
+    "experiments/player-presentation/reference/.gitattributes": "4417644a79bf42b182d38f2363e61cf5f8cc75e5"
   },
   "pending_contributions": [
     {
       "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/4",
       "revision": "614c145063759bbdf38f36942192d294be53361c",
-      "status": "Latest-main refresh proposed upstream; lifecycle changes retained in combined entrypoint/tests alongside PR5 and PR9. Not a new release.",
+      "status": "Merged upstream before this preparation. Combined entrypoint retains lifecycle and player presentation. Historical proposal revision retained here.",
       "original_upstream_blobs": {
         "runtime/session/README.md": "8449eb2754856fd9de42e2ffcf5415453e2c9b67",
         "runtime/session/cet/CP2077Coop/init.lua": "33ed19762b79b7e2333eb89cffe2938148228d1c"
@@ -312,13 +351,23 @@
         "runtime/session/cet/CP2077Coop/init.lua": "7bb9b3c753d66fcbbe9de4f8e13f158cc71527a3",
         "tests/session_lifecycle_tests.lua": "22e76a3bdc468f1a9a0c2ff98be868a61117343f"
       },
-      "reason": "Per-player engine movement, observed-error recovery, lifecycle tests, failed action experiments and measured evidence; network contracts unchanged."
+      "reason": "Per-player engine movement, observed-error recovery, lifecycle tests, failed action experiments and measured evidence; network contracts unchanged.",
+      "mirror_status": "Original player_motor, tests, experiments and evidence preserved. Previous active init/remote blobs are archived unchanged; current runtime activates only upstream player_pose. Historical draft status above is retained, not refreshed here."
     },
     {
       "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/9",
-      "revision": "b0cdce98fc6cb81516e09ef1cd5f70b128499a90",
-      "status": "Draft engine-validation contribution; passive identity/idle/cleanup and local HOST fixture evidence. Shared encounter and combined mirror live qualification remain incomplete.",
-      "reason": "Reuse experimental static asset; verified opaque identity and cleanup, authored idle graph, isolated encounter hook evidence. No combat transport implemented."
+      "revision": "5526210f669310ae4ba20ad58b8bb8712fd272fc",
+      "status": "Updated to PR11-era main and pending Bukczyk review/merge. Includes only passive identity/cleanup/idle work, not PR10.",
+      "reason": "Reuse experimental static asset; verified opaque identity and cleanup, authored idle graph, isolated encounter hook evidence. No combat transport implemented.",
+      "previous_revision": "b0cdce98fc6cb81516e09ef1cd5f70b128499a90"
+    },
+    {
+      "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
+      "status": "Draft PR remains separate. Candidate imported from local upstream preparation, not claimed as published PR head or accepted main. No connected live pass or combined-mirror live qualification.",
+      "reason": "Local fire-to-query candidate, exact entity scope, authored reaction/death graph and bounded local state guard, with retirement regressions. No backend/session/protocol change or release.",
+      "candidate_revision": "0a8103e316d1994d6be05123fd81d599b8de5bb1",
+      "candidate_branch": "work/connected-combat-20261007"
     }
   ],
   "upstream_refreshes": [
@@ -407,7 +456,274 @@
         "runtime/session/assets/README.md": "a4e8392862fdc6aa0eef4b51cc5bd8a8ef04f6d2"
       },
       "reason": "Import upstream asset-contract fix and final three-trial evidence/restoration handoff. Preserve prior failures and distinguish HOST-only fixture from shared combat."
+    },
+    {
+      "revision": "63b70987c249860097bfc460a3406fcea5bf2837",
+      "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Implementation source imported; Windows Release build, all20 combined CTests and source parity pass. Final evidence imported in the following documentation-only refresh. No combined live qualification, package or deployment.",
+      "exact_files": {
+        "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "8728e85261e7544f6ae3cd383697386d40f006e0",
+        "experiments/shared-encounter/PHYSICAL_SHOTS.md": "8ae0c442f16cc707d3a3df402aa804326b315523",
+        "experiments/shared-encounter/PRESENTATION.md": "f205e9993405aea5f0155de506e55b26c094b259",
+        "experiments/shared-encounter/README.md": "6100b3b49d4d51082f7f887c927625a42412a08c",
+        "experiments/shared-encounter/assets/raw/base/cp2077coop/animations/networkhumanoid_encounter.animgraph.json": "638177257a9044a9fd65136933e77a2d4352238c",
+        "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_encounter.ent.json": "8b429311f466149ed87543f71d5f1df9f8d1867a",
+        "experiments/shared-encounter/assets/raw/base/cp2077coop/entities/cp2077coop_networkhumanoid_hittable.ent.json": "579eca9f62c4e1acc366ec076be0680536eebe4d",
+        "experiments/shared-encounter/engine_hooks.reds": "3be98db93d763ea26365e92cbc2f34fadef444f8",
+        "experiments/shared-encounter/physical_shots.reds": "e82cd0cd3bc75c3a7f2c96a1c96ee2bc6ecfd617",
+        "experiments/shared-encounter/physical_trace.reds": "bd757e4989e1fbbf83cd19c72049e2e8f702c3fe",
+        "experiments/shared-encounter/presentation.lua": "5d3a6a493494b22931e2610e453c6b025b0d32bb",
+        "experiments/shared-encounter/presentation_state.lua": "a539d36af83b64af58be6b5a720e92da0f598943",
+        "runtime/session/cet/CP2077Coop/npc_runtime.lua": "c8a77208fa6c8cd123bf854d9b0c4d7e681b0d9c",
+        "runtime/session/cet/CP2077Coop/npc_static_population.lua": "1deb81efd1fdcd0c232e617f5493c52fc1e6d4da",
+        "scripts/build-passive-encounter-archive.py": "97da9625e0cb8670f264fff90f38e9da364a6e92",
+        "scripts/build-passive-hittable-archive.py": "dac7ef9ca5867e4f1397eaf0e42cf47abf5ac50e",
+        "tests/encounter_presentation_adapter_tests.lua": "11dd082f1c04d4082f41637e19337b9eee78476f",
+        "tests/encounter_presentation_tests.lua": "45f7ddd026750b30b2b10a9de1891a38cde3fcbc",
+        "tests/npc_static_identity_tests.lua": "ac34586de5ef30d2379d1c973f71daed5a3caa7a",
+        "tests/passive_hittable_asset_tests.py": "5c6fdf946c3165175fc9f961d52307762db2a855"
+      },
+      "previous_upstream_blobs": {
+        "experiments/shared-encounter/README.md": "1bfd351c249bf5adc7700adbeb109120ec16aa32",
+        "experiments/shared-encounter/engine_hooks.reds": "60db18ed13e8356aeb69d88669077a731ec47cc3",
+        "runtime/session/cet/CP2077Coop/npc_runtime.lua": "cbb7d3dc32f9659747112b3bafa27ca75969b4d0",
+        "runtime/session/cet/CP2077Coop/npc_static_population.lua": "0dc318fa160858d97ea3190673947fa200343b23",
+        "tests/npc_static_identity_tests.lua": "57ddf02706eeedfd3f1677bf146c921cd1143a10"
+      },
+      "combined_files": {
+        "tests/CMakeLists.txt": "3876b68f40ed22e57ceeac2c80083422ce650f5c"
+      },
+      "reason": "Import exact local physical-query probes, passive reaction/death fixtures and safe retirement fixes. Preserve player presentation, reference mode and prior source histories. No shared combat transport added."
+    },
+    {
+      "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
+      "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Final local-test and restoration documentation imported exactly; implementation remains63b7098. No runtime/test change since the passing combined build and20 CTests. Final-head hosted CI pending.",
+      "exact_files": {
+        "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "5ccc4cbf4af5514ffd9edb63e9d75598c3b9ff99",
+        "experiments/shared-encounter/PHYSICAL_SHOTS.md": "b1b44951e8152f611e8db6e80b399efe65d0bdc2",
+        "experiments/shared-encounter/PRESENTATION.md": "77a01a16a6d9a86b43b57cc021aed94c89048243"
+      },
+      "previous_upstream_blobs": {
+        "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "8728e85261e7544f6ae3cd383697386d40f006e0",
+        "experiments/shared-encounter/PHYSICAL_SHOTS.md": "8ae0c442f16cc707d3a3df402aa804326b315523",
+        "experiments/shared-encounter/PRESENTATION.md": "f205e9993405aea5f0155de506e55b26c094b259"
+      },
+      "reason": "Record natural HOST damage/death, corrected final passive presentation, exact limitations and restored test installations. No backend route or package change."
+    },
+    {
+      "revision": "755ab0cf883ad80b519060814ff45f43f6d25714",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "upstream_main_prerequisite": "b4a289c350af50ab5695615afd6b12e5121f9409",
+      "pending_passive_revision": "5526210f669310ae4ba20ad58b8bb8712fd272fc",
+      "status": "Local Windows native build, 24 typed CTests, 15 reference CTests, isolated combined REDscript and source parity passed. Reference sandbox setup failure passed focused rerun; known A10 waiver retained. PR9 pending; GCC12 formatting correction queued. No connected live pass, package change or publication.",
+      "exact_files": {
+        "CoopPlugin/src/main.cpp": "e5b5ab7c2c00b4d963b0e72b2e8aa03f01ef5f19",
+        "SessionServer/main.cpp": "33cf9359d7042790c9b5802ba398c4dbaba32e7a",
+        "experiments/shared-encounter/README.md": "d469884eb708319f640ba7d38d748baddf3c550f",
+        "experiments/shared-encounter/connected/README.md": "78c8a521c40faa6d3d78a859d5d9cc2b50ef9be1",
+        "experiments/shared-encounter/connected/bridge.lua": "a6c0ee84848e9525f2ff725e5f75e1ccf61ac0e4",
+        "experiments/shared-encounter/connected/codec.lua": "6bb80edd1952601666d0cb72bc4e44a8aac8398b",
+        "experiments/shared-encounter/connected/engine.lua": "c104527eff24bb0d3b7af992dd17c7757dcf56c4",
+        "experiments/shared-encounter/connected/host.lua": "cc4214b928e361ffe69c1bacb60564e0b6479f24",
+        "experiments/shared-encounter/connected/host_ray.reds": "68a0571b7079d01bc5a42a504a7042c563959567",
+        "runtime/session/redscript/CP2077Coop/natives.reds": "d9428efd4896443215adde43f32a7f15d806b252",
+        "shared/include/coop/client.hpp": "53cc80abda93c0f7659feacc397b14682aeb48f8",
+        "shared/include/coop/game_bridge.hpp": "386afb2c14da9da12a23a04d2594acbbe13c71eb",
+        "shared/include/coop/net.hpp": "e5e8cee152ebd1c39ec94ebcd16661e08aab9f15",
+        "shared/include/coop/protocol.hpp": "e2f16743f363cbf8990a1356e3498c65e4507a1e",
+        "shared/include/coop/request_ledger.hpp": "35e9bb4b6566e31aa744c02dad89c085e984ce67",
+        "shared/include/coop/server.hpp": "a5fa8a83bc95bb9cdee1475b5619c0b973ddca08",
+        "shared/src/client.cpp": "1785b3074ce40702ed71b88c799ef2f622dbdb2d",
+        "shared/src/game_bridge.cpp": "3a1cace176735644d0fc0b1f0de0b7e6dd6e2273",
+        "shared/src/net.cpp": "88e5a0027341791c270f0ec27e77e04b3872938e",
+        "shared/src/protocol.cpp": "9497df586cefa23a10206cda96023f97cc4c7249",
+        "shared/src/server.cpp": "998992a850748a370798dd49f4c6e85071889125",
+        "shared/src/session.cpp": "210b30392adab189f194011e7de3cf1ed56b41d2",
+        "tests/cet_require.lua": "ab726c517f409101b27b7f18d2a1baf5801fa7a2",
+        "tests/connected_encounter_tests.lua": "d637b38d0f91d390a6bbdb45b6cdf1b1b5d551a7",
+        "tests/gameplay_bridge_tests.cpp": "9a991979beff6500eb7aa28ee63d5c872ae48dda",
+        "tests/gameplay_routing_tests.cpp": "2b9f4f14c93831f20fce163a193a3b813ae7c458",
+        "tests/protocol_tests.cpp": "ac8e52875a8da2259f664f3f69847a1ddae9a88d",
+        "tests/request_ledger_tests.cpp": "faba19f6460a05193e5e909a8854faa0f0b476e8",
+        "tests/server.ini": "045a331156036fde80c88768754c5d7245dd39f7"
+      },
+      "previous_upstream_blobs": {
+        "CoopPlugin/src/main.cpp": "4e44a2e7fc12769e5346c7ce1daf7d437833cae4",
+        "SessionServer/main.cpp": "edbb699d51613b3bfa8d0350b73577b3472b5f12",
+        "experiments/shared-encounter/README.md": "6100b3b49d4d51082f7f887c927625a42412a08c",
+        "runtime/session/redscript/CP2077Coop/natives.reds": "728a7c8dfe0c52b55c6d286a59458414e8b586cb",
+        "shared/include/coop/client.hpp": "829400b51e74fb0addd520264c9f46ddd9d04efa",
+        "shared/include/coop/game_bridge.hpp": "d727b182aeda9abca1ee8dd54f746fa3b2ccf5f4",
+        "shared/include/coop/net.hpp": "64d1eda834de5b1096a71478d380c2d5fcb557cd",
+        "shared/include/coop/protocol.hpp": "ae4d769176eeb3529a997ad3bb1150b159ac9d69",
+        "shared/include/coop/server.hpp": "b71b99408de7d95339d963aca1da268cf1ddfbd2",
+        "shared/src/client.cpp": "4f6aa6551a727e19711a62d7ab30b437e9b34022",
+        "shared/src/game_bridge.cpp": "7333fe0bb8201f7c039d86904df4b892e2836935",
+        "shared/src/net.cpp": "feaa55d6a17754d7a0aae253238db27047aa25d4",
+        "shared/src/protocol.cpp": "de2f808369799c63905feb28ad449af365c69ea2",
+        "shared/src/server.cpp": "13a0b8efbab85a6f97a65bf3167452af120e44fa",
+        "shared/src/session.cpp": "4b70f8781e8809d23b834d631c267e47459a0e81",
+        "tests/protocol_tests.cpp": "92707189d0707a46ad6acb51e40dfefee916f15d",
+        "tests/server.ini": "11409859f87f3fc61d3060bbdba8dc0fda528812"
+      },
+      "combined_files": {
+        "tests/CMakeLists.txt": "30827f69bd5d17b8366ab24a2e54c12dd3ea3157"
+      },
+      "previous_contribution_blobs": {
+        "runtime/session/README.md": "c9afca548ddfe4f588044f0d91d30222dcf13806"
+      },
+      "updated_contribution_blobs": {
+        "runtime/session/README.md": "8e637c11fcdbf8365eba66a7f7cd3e88bd48e5ba"
+      },
+      "reason": "Preserve both histories while importing existing PR11 routing, bounded generic gameplay bridge and opt-in engine diagnostic. Retain player motor, reference-only build and reference source; update current runtime guidance without claiming production combat."
+    },
+    {
+      "revision": "aa289044907a273a34a6819dafae36a21fc50378",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Exact GCC12 formatting correction imported; incremental Windows Release native build, three affected CTests and full foundation parity passed at 2026-10-08T03:05Z. Earlier full 24 typed/15 reference passes remain scoped to initial merge. No connected live pass, release, hosted mirror CI or publication.",
+      "exact_files": {
+        "shared/src/game_bridge.cpp": "8049b8be20960a849b2f59334411b3948ca28f1f"
+      },
+      "previous_upstream_blobs": {
+        "shared/src/game_bridge.cpp": "3a1cace176735644d0fc0b1f0de0b7e6dd6e2273"
+      },
+      "reason": "Resolve GCC12 Release -Werror=restrict by explicit string append, preserving lossless bridge record bytes. No engine script, fixture, player presentation or reference change."
+    },
+    {
+      "revision": "a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Exact diagnostic-only REDscript imported. Isolated matched REDscript compilation passed at 20261008T031417107646Z with all inputs unchanged; full parity passed for 103 upstream/176 reference/4 proposal/12 contribution files. No connected live pass, release, mirror publication or PR6 head change.",
+      "exact_files": {
+        "experiments/shared-encounter/connected/host_ray.reds": "27cc9cfb36ec8729a941acf0bf854168442905b8"
+      },
+      "previous_upstream_blobs": {
+        "experiments/shared-encounter/connected/host_ray.reds": "68a0571b7079d01bc5a42a504a7042c563959567"
+      },
+      "reason": "Expose bounded HOST ray rejection-stage, exact binding and first-hit observations without changing acceptance, damage or routing. Live trial and outcome evidence remain root-owned."
+    },
+    {
+      "revision": "97d7c1a0b0fb7751800bf0fa2697769ca4e4b238",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Exact active pose adapter imported; Windows Release build and all 25 CTests pass. LuaJIT lifecycle/pose pass; matched REDscript isolated compile 20261008T034207094726Z passes with inputs unchanged. Source-only local preparation; PR9 pending, no connected damage/death pass, no mirror live test or publication.",
+      "exact_files": {
+        "runtime/session/cet/CP2077Coop/init.lua": "dc1c91d85d3d2aa28f5f8a05f2a69ded1fe8df00",
+        "runtime/session/redscript/CP2077Coop/remote.reds": "401d45e8f1791d8a3345c869fe5285e36635dc69",
+        "docs/validation/PLAYER_PROXY_POSE.md": "fd99bfc7965aaf632ebb63d2e0cd1a3663464428",
+        "runtime/session/cet/CP2077Coop/player_pose.lua": "e4c878ca6fbc3c70c4cf086bacab02ad2f4005d1",
+        "tests/player_pose_tests.lua": "c94fc5b387252a5cb81f44f35d593a25fa25efff"
+      },
+      "previous_contribution_blobs": {
+        "runtime/session/cet/CP2077Coop/init.lua": "3d6ddd040fd422fd3f277de584afed2cb1e86fb1",
+        "runtime/session/redscript/CP2077Coop/remote.reds": "cc385beb15481427cae8994cd65e868d07afb296",
+        "runtime/session/README.md": "8e637c11fcdbf8365eba66a7f7cd3e88bd48e5ba",
+        "tests/session_lifecycle_tests.lua": "8dcaa17b85fe446a373252daece9793eb2e344f9"
+      },
+      "archived_contribution_blobs": {
+        "experiments/player-presentation/reference/init_motor.lua": {
+          "original_path": "runtime/session/cet/CP2077Coop/init.lua",
+          "blob": "3d6ddd040fd422fd3f277de584afed2cb1e86fb1"
+        },
+        "experiments/player-presentation/reference/remote_motor.reds": {
+          "original_path": "runtime/session/redscript/CP2077Coop/remote.reds",
+          "blob": "cc385beb15481427cae8994cd65e868d07afb296"
+        }
+      },
+      "combined_files": [
+        "tests/CMakeLists.txt",
+        "runtime/session/README.md",
+        "tests/session_lifecycle_tests.lua"
+      ],
+      "actuator_decision": "Only player_pose is active, with exact upstream init/remote. The earlier player_motor and its broader presentation experiments remain inactive reference, with exact historical entrypoint/helpers preserved outside packaged runtime. No duplicate actuators; old playerDiagnostics API belongs to the archived entrypoint.",
+      "upstream_validation": "Parent verified all Windows/Debian/sanitizer jobs pass at 97d7c in run 37723374154. Separate upstream controlled placement evidence does not qualify smooth locomotion or this mirror."
+    },
+    {
+      "revision": "a5a1e06cbe3975c703a69535f3ff602d2d34620a",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Three exact documentation files imported without runtime changes. Records upstream trial 4 controlled placement and shooter-first-hit rejection; no connected damage/death pass, combined-mirror live pass, release or publication.",
+      "exact_files": {
+        "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "52d4651d095280702b882896a779e4d360ffdfb0",
+        "docs/validation/PLAYER_PROXY_POSE.md": "a3ff2fd68b029d1a4026659b5874d4c9d42ed4de",
+        "experiments/shared-encounter/connected/README.md": "d10a9a8caad5a7c5680eb5489c47f5030d75516a"
+      },
+      "previous_upstream_blobs": {
+        "docs/validation/PLAYER_PROXY_POSE.md": "fd99bfc7965aaf632ebb63d2e0cd1a3663464428",
+        "experiments/shared-encounter/connected/README.md": "78c8a521c40faa6d3d78a859d5d9cc2b50ef9be1"
+      },
+      "validation": "All active code matches preceding tested 97d7c merge. Foundation parity now checks 109 upstream, 176 reference, four proposal and 14 contribution files; previous build/25 CTests/LuaJIT/REDscript results remain applicable.",
+      "scope": "Checkpoint ends at a5a1e06. Later parent-owned passive player projection experiments are not included."
+    },
+    {
+      "revision": "481609a57ccf775657818fe059f6b87652836ef3",
+      "implementation_revision": "84166374849f1c7f512fb0e2cb87f165305318dc",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Exact default-off passive player experiment and runner-documentation correction imported. Windows Release build and all 26 CTests pass; separate LuaJIT 2.1 lifecycle/pose/passive tests pass. No live or mirror hosted result claimed, no release or publication.",
+      "exact_files": {
+        "docs/validation/PLAYER_PROXY_POSE.md": "1a7ad997e8d1df5b9531cb58b141a1ff6b4f87c2",
+        "runtime/session/cet/CP2077Coop/config.lua": "fc06763e2319c68e876e9ab529b9e5c5cd0d4224",
+        "runtime/session/cet/CP2077Coop/init.lua": "f60f0588c9c284fd988e31a1a1955da9f28d788f",
+        "runtime/session/cet/CP2077Coop/player_passive.lua": "9974341f8ee6ccb64377a2d15e2f0e098c9f98f5",
+        "tests/passive_player_tests.lua": "dc81794af3ca3a7073366199be84b1e172674eb5"
+      },
+      "previous_upstream_blobs": {
+        "docs/validation/PLAYER_PROXY_POSE.md": "a3ff2fd68b029d1a4026659b5874d4c9d42ed4de",
+        "runtime/session/cet/CP2077Coop/init.lua": "dc1c91d85d3d2aa28f5f8a05f2a69ded1fe8df00"
+      },
+      "previous_contribution_blobs": {
+        "runtime/session/README.md": "4dea37ba2ab75a08fcad0ee6c418c3067ef746d3",
+        "experiments/player-presentation/reference/README.md": "6a983b712291a6710efa9cc415892fd1d392d9a4",
+        "runtime/session/cet/CP2077Coop/config.lua": "c90bf07c482fcd4458cd97fce8daa0358013b834"
+      },
+      "combined_files": [
+        "tests/CMakeLists.txt",
+        "runtime/session/README.md",
+        "experiments/player-presentation/reference/README.md"
+      ],
+      "actuator_decision": "Default experimentalPassivePlayers=false retains Judy/player_pose. Explicit true selects StaticEntitySystem passive cosmetic players exclusively. The original player_motor and archived integration remain inactive reference.",
+      "validation": "LuaJIT session_lifecycle uses real Uint64 cdata. Pose/passive suites use opaque ID mocks, even under LuaJIT; 36 pose and 108 passive checks passed. REDscript and C++ source unchanged, prior isolated script compile remains applicable.",
+      "scope": "Ends at 481609a. Trial 5 is root-owned, not a mirror live pass; no inferred collision exclusion, accepted damage or death."
+    },
+    {
+      "revision": "0a8103e316d1994d6be05123fd81d599b8de5bb1",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Documentation-only checkpoint of upstream trial 5: limited connected health/death and same-body presentation pass, failed F9/quickload and reconnect death recovery, verified final cleanup/restoration. No runtime changes or combined-mirror live claim.",
+      "exact_files": {
+        "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "23d91897eceddb05203d5a3adeaef493c31cd2ae",
+        "docs/validation/PASSIVE_PLAYER.md": "675a83114bf413b91f97c211ed8ddb077aeee0db",
+        "experiments/shared-encounter/connected/README.md": "e68a39fd6d4ba13a38bdf4888613f261bd2e75fc"
+      },
+      "previous_upstream_blobs": {
+        "docs/validation/CONNECTED_ENCOUNTER_2026-10-08.md": "52d4651d095280702b882896a779e4d360ffdfb0",
+        "experiments/shared-encounter/connected/README.md": "d10a9a8caad5a7c5680eb5489c47f5030d75516a"
+      },
+      "previous_contribution_blobs": {
+        "runtime/session/README.md": "ca607fa9df40685afd2f44f7e00aed36b1edb87f"
+      },
+      "adapted_files": {
+        "README.md": "Preserve Kyle image, version history, contributor names, installation and release links; add only a development checkpoint pointer.",
+        "runtime/session/README.md": "Distinguish upstream controlled pass from untested mirror and retained production/reconnect limits."
+      },
+      "source_revision_unchanged": "481609a57ccf775657818fe059f6b87652836ef3",
+      "validation": "No local build/test rerun for Markdown-only merge. Active source parity unchanged; previous b361c8e 26/26 CTests, LuaJIT evidence and all three hosted workflows remain prior-source evidence. Final parity covers 113 upstream/176 reference/4 proposal/13 contribution files.",
+      "prior_mirror_publication": {
+        "revision": "b361c8e88acf5520eecef70038014af8716f7866",
+        "pr": "https://github.com/KyleBuildsAI/cp2077-coop/pull/6",
+        "status": "Published by normal fast-forward, draft, all hosted checks passed at first attempt.",
+        "runs": [
+          37725974750,
+          37725974757,
+          37725972268
+        ]
+      }
     }
   ],
-  "latest_upstream_revision": "b0cdce98fc6cb81516e09ef1cd5f70b128499a90"
+  "latest_upstream_revision": "0a8103e316d1994d6be05123fd81d599b8de5bb1",
+  "active_runtime_revision": "481609a57ccf775657818fe059f6b87652836ef3"
 }
