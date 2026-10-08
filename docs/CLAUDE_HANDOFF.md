@@ -6,13 +6,20 @@ Use `work/canonical-connected-combat-20261008` in
 `D:/Downloads/syncfix/collaboration/canonical-connected-combat-20261008`.
 It merges candidate `755ab0cf883ad80b519060814ff45f43f6d25714` from the upstream
 preparation branch into Kyle PR #6's `2f29c27`, preserving upstream ancestry,
-player presentation and reference sources. The candidate contains PR #11's
+player presentation research and reference sources. The candidate contains PR #11's
 generic routing plus the script bridge and default-off encounter diagnostic.
 The subsequent import `aa289044907a273a34a6819dafae36a21fc50378` corrects GCC 12
 string-formatting compilation without changing the textual bridge ABI.
-The current source import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds bounded
-HOST ray diagnostic readback without changing its acceptance checks. Do not infer
-a connected damage or presentation pass from that instrumentation.
+Import `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc` adds bounded HOST ray
+readback. Current import `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238` replaces
+ineffective NPC placement with one owned, bounded AI teleport command and actual
+readback. Active init/player_pose/remote match upstream exactly. The prior motor,
+its tests and presentation research stay inactive; its previous entrypoint and
+REDscript helpers are archived byte for byte outside packaged runtime. Do not
+activate both controllers or expect the archived playerDiagnostics API.
+Windows Release build, all 25 CTests, LuaJIT pose/lifecycle and isolated matched
+REDscript compilation pass for this combined tree. Live evidence belongs to the
+upstream test owner and does not qualify this mirror or smooth movement.
 PR #9 at `5526210f669310ae4ba20ad58b8bb8712fd272fc` is still pending; draft PR #10
 must remain separate. This local branch has not advanced or published Kyle PR #6.
 

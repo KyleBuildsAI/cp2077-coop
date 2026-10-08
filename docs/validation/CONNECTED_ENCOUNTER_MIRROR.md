@@ -8,7 +8,8 @@ Starting Kyle PR #6 revision: `2f29c27431c28c3fef38c1ef74d89a5abdbbf2c6`.
 Imported candidate: `755ab0cf883ad80b519060814ff45f43f6d25714`, from upstream
 preparation branch `work/connected-combat-20261007`, intended for draft PR #10.
 Follow-up source: `aa289044907a273a34a6819dafae36a21fc50378`.
-Current diagnostic source: `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc`.
+Ray diagnostic source: `a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc`.
+Current pose source: `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238`.
 Initial local merge: `cca5954c591afc94b76dfe92e51cf6527d9268b7`.
 Portability local merge: `c0db56a122e38083b5faa4810429ab1241223c38`.
 Upstream main prerequisite: `b4a289c350af50ab5695615afd6b12e5121f9409` (PR #11).
@@ -17,7 +18,7 @@ Updated pending PR #9: `5526210f669310ae4ba20ad58b8bb8712fd272fc`.
 ## Scope and dependency order
 
 This isolated source merge preserves both histories and the existing player
-presentation. Kyle's draft PR #6 remains on its earlier head and stacked on Kyle
+presentation research. Its active actuator changes explicitly as described below. Kyle's draft PR #6 remains on its earlier head and stacked on Kyle
 PR #5 until the parent task publishes this preparation. Neither main is changed.
 PR #9 is pending, not implicitly accepted by including its source here. After it
 lands, update upstream PR #10 onto actual main and mirror that tested checkpoint.
@@ -46,13 +47,29 @@ the original import, prior refreshes, reference blobs and player code provenance
 Bukczyk retains ownership of networking/session/server semantics; this merge
 imports those bytes unchanged.
 
-The only merge conflict was `tests/CMakeLists.txt`. Its reference-only prefix and
-player motor test remain, alongside all upstream suites, including gameplay
-routing, request ledger, generic gameplay bridge and connected Lua diagnostics.
-`runtime/session/cet/CP2077Coop/init.lua`, `player_motor.lua`, the player
-`remote.reds`, reference sources and `game-files/latest` stay byte-identical to
-the starting Kyle revision. The runtime README is the only updated existing
-contribution blob, with its prior hash retained in the refresh record.
+The initial connected merge conflicted only in `tests/CMakeLists.txt`; later pose
+import `97d7c1a` also conflicted in the runtime README, player entrypoint and
+`remote.reds`. The reference-only CMake entry and every upstream suite remain,
+including both the inactive motor's regression tests and active pose tests.
+
+The active `init.lua`, `player_pose.lua` and `remote.reds` now exactly match
+`97d7c1a`. Only `player_pose` applies movement. The previous `player_motor.lua`,
+its tests, presentation experiments, proposed state contract and failed
+smooth-tracking evidence stay unchanged. Their previous entrypoint and REDscript
+helpers are archived byte for byte in `experiments/player-presentation/reference/`:
+
+- `init_motor.lua`: blob `3d6ddd040fd422fd3f277de584afed2cb1e86fb1`.
+- `remote_motor.reds`: blob `cc385beb15481427cae8994cd65e868d07afb296`.
+
+Those files are not loaded, compiled or packaged. Their per-directory attributes
+preserve original bytes. The old `playerDiagnostics()` API belongs to the archived
+entrypoint; no invented compatibility metrics are exposed by the current one.
+The combined lifecycle test exercises the real pose module for two exact actors,
+replacement/departure/reconnect/shutdown and explicitly fails if the inactive
+motor is also activated. Upstream registry Bind already retires replaced reverse
+bindings, so no divergent explicit-unbind implementation is carried forward.
+The manifest records prior contribution hashes and this deliberate actuator choice.
+Reference sources and public package bytes remain unchanged.
 
 ## Validation
 
@@ -124,6 +141,39 @@ changed, so the native
 and reference builds above remain applicable. The live-test owner retains the
 current trial and final outcome record; this source mirror does not claim that
 trial as its own qualification.
+
+### Exact player pose follow-up
+
+Import `97d7c1a0b0fb7751800bf0fa2697769ca4e4b238` adds a bounded per-actor AI
+teleport adapter with cancellation, command spacing, actual pose readback and
+bounded failure. It addresses the prior frozen-body observation without defining
+new networking or combat semantics. The active files have exact upstream blob
+parity; the previous motor remains explicitly inactive as documented above.
+
+- Windows x64 Release plugin/server rebuild with parallelism two: PASS.
+- Full combined CTest suite: PASS, 25/25. Logs: `typed-build-97d7c1.log` and
+  `typed-ctest-97d7c1.log`.
+- Real LuaJIT 2.1 lifecycle and pose tests: PASS, including actual Uint64 cdata,
+  two independent actor lifecycles and 36 focused pose checks. Evidence:
+  `luajit-pose-lifecycle-97d7c1.log`.
+- Active typed REDscripts plus connected probes: isolated compile PASS at
+  `20261008T034207094726Z`, with every hashed input unchanged. Archived motor
+  helpers were correctly excluded. Evidence: corresponding JSON/log under
+  `redscript/`.
+- Source parity: 108 exact upstream, 176 unchanged reference, four proposal and
+  14 contribution files. Both archive blobs equal the previous active blobs.
+- Upstream hosted Windows/Debian/sanitizer checks: parent verified PASS at
+  `97d7c1a` in [run 37723374154](https://github.com/Bukczyk/CP2077-Coop/actions/runs/37723374154).
+  This is upstream CI evidence, not a mirror hosted run.
+
+The separate upstream trial confirmed controlled player placement after roughly
+6 m relocation, then rejected a connected shot because the first HOST ray hit
+was the authenticated shooter proxy. Native collision disable on that exact
+instance did not clear every queried hit shape. HOST health remained 221.400757;
+there is no connected damage/death pass. Final source evidence is imported through
+the test owner's separate documentation commit, not substituted for mirror live
+validation. Smooth movement, remote actions and the combined mirror remain
+unqualified in game.
 
 ## Handoff and package boundary
 

@@ -1,8 +1,8 @@
 -- Matched typed-session bridge. No combat/world side effects or legacy native calls.
 local NpcRuntime = require("npc_runtime")
-local PlayerPose = assert(require("player_pose"), "player_pose module missing")
 local population = require("npc_population")
 local config = require("config")
+local PlayerMotor = require("player_motor")
 local staticPopulation = require("npc_static_population")
 local npcProjection = nil
 local staticProjectionEnabled = false
@@ -23,7 +23,7 @@ local generation, localEntity, joined = nil, nil, false
 local active, failed, time = false, false, 0
 local commonTag = "CP2077Session.Projection"
 local function clear()
-    for _, entry in pairs(proxies) do if entry.pose then entry.pose:reset() end end
+    for _, entry in pairs(proxies) do if entry.motor then entry.motor:stop() end end
     ensureNpcProjection()
     npcProjection:reset()
     local system = Game.GetDynamicEntitySystem()
@@ -92,16 +92,8 @@ local function update(delta)
                 print("[CP2077Session] JOINER_BASELINE_TELEPORT player=" .. tostring(id))
             end
             local entry = proxies[id]
-            if entry ~= nil and tostring(entry.entity) ~= tostring(entity) then
-                entry.pose:reset()
-                system:DeleteTagged(entry.tag)
-                proxies[id], entry = nil, nil
-            end
             if entry == nil then
                 entry = { tag = CName.new(commonTag .. "." .. tostring(id)), entity = entity, nextSpawn = 0 }
-                entry.pose = PlayerPose.new(function(status)
-                    print("[CP2077Session] PLAYER_POSE player=" .. tostring(id) .. " " .. status)
-                end)
                 proxies[id] = entry
             end
             local entities = system:GetTagged(entry.tag)
@@ -112,13 +104,18 @@ local function update(delta)
                     entry.nextSpawn = time + 1
                 end
             else
+                local localKey = tostring(proxy:GetEntityID().hash)
+                if entry.localKey ~= localKey then
+                    if entry.motor then entry.motor:stop() end
+                    Game.CP2077Session_Unbind(entry.entity)
+                    entry.localKey = localKey
+                    entry.motor = PlayerMotor.new(proxy)
+                end
                 if not Game.CP2077Session_Bind(entry.entity, proxy:GetEntityID()) then
                     error("Remote projection binding rejected for player " .. tostring(id))
                 end
                 bubble.exclusions[#bubble.exclusions+1] = proxy:GetEntityID()
-                -- Keep sampling interpolation while one owned engine command is
-                -- pending. Only actual transform readback confirms placement.
-                entry.pose:step(proxy, {x=x,y=y,z=z,yaw=yaw}, time)
+                entry.motor:step({x=x,y=y,z=z,yaw=yaw}, delta)
             end
         end
     end
@@ -183,7 +180,11 @@ local function update(delta)
         end
     end -- experimentalNpcReplication; player cleanup always runs
     for id, entry in pairs(proxies) do
-        if not seen[id] then entry.pose:reset(); system:DeleteTagged(entry.tag); proxies[id] = nil end
+        if not seen[id] then
+            if entry.motor then entry.motor:stop() end
+            Game.CP2077Session_Unbind(entry.entity)
+            system:DeleteTagged(entry.tag); proxies[id] = nil
+        end
     end
 end
 registerForEvent("onInit", function()
@@ -211,3 +212,14 @@ registerHotkey("cp2077_session_reconnect", "Reconnect coop session", function()
     pcall(stop)
     failed = false
 end)
+
+-- Value-only diagnostics for local test tooling. No engine handles or setters.
+return { playerDiagnostics = function()
+    local result = {}
+    for id, entry in pairs(proxies) do
+        local m=entry.motor
+        if m then result[tostring(id)]={error=m.error,speed=m.speed,gait=m.gait,
+            commands=m.commands,snaps=m.snaps,state=m.commandState} end
+    end
+    return result
+end }

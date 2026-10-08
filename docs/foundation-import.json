@@ -29,6 +29,7 @@
     "docs/PROTOCOL.md": "c2bf80d35763d42284949941bbc54d42c7ae91e4",
     "docs/SHARED_ENCOUNTER_PROTOCOL_PROPOSAL.md": "f2c957e3d1c330768547b45f588a656ac0806551",
     "docs/validation/PASSIVE_NETWORK_HUMANOID.md": "6797bb6d24b23309ad4e7013e827adedeb662078",
+    "docs/validation/PLAYER_PROXY_POSE.md": "fd99bfc7965aaf632ebb63d2e0cd1a3663464428",
     "experiments/shared-encounter/PHYSICAL_ENCOUNTER_CHECKPOINT.md": "5ccc4cbf4af5514ffd9edb63e9d75598c3b9ff99",
     "experiments/shared-encounter/PHYSICAL_SHOTS.md": "b1b44951e8152f611e8db6e80b399efe65d0bdc2",
     "experiments/shared-encounter/PRESENTATION.md": "77a01a16a6d9a86b43b57cc021aed94c89048243",
@@ -59,10 +60,13 @@
     "runtime/session/assets/README.md": "7546dd6ad4f47156ae087f5c43dcfc8ce402eb2d",
     "runtime/session/assets/source/raw/base/cp2077coop/animations/networkhumanoid_idle.animgraph.json": "9232f24023f62f8cff1a53ffb1c7b9ce17d2d38e",
     "runtime/session/assets/source/raw/base/cp2077coop/entities/CP2077Coop_NetworkHumanoid.ent.json": "a6c07e627e646b20170f08be58cd16e0022d8fe7",
+    "runtime/session/cet/CP2077Coop/init.lua": "dc1c91d85d3d2aa28f5f8a05f2a69ded1fe8df00",
     "runtime/session/cet/CP2077Coop/npc_population.lua": "55d7bdff58ad6f03ddd79c27b6552b85130436dc",
     "runtime/session/cet/CP2077Coop/npc_runtime.lua": "c8a77208fa6c8cd123bf854d9b0c4d7e681b0d9c",
     "runtime/session/cet/CP2077Coop/npc_static_population.lua": "1deb81efd1fdcd0c232e617f5493c52fc1e6d4da",
+    "runtime/session/cet/CP2077Coop/player_pose.lua": "e4c878ca6fbc3c70c4cf086bacab02ad2f4005d1",
     "runtime/session/redscript/CP2077Coop/natives.reds": "d9428efd4896443215adde43f32a7f15d806b252",
+    "runtime/session/redscript/CP2077Coop/remote.reds": "401d45e8f1791d8a3345c869fe5285e36635dc69",
     "runtime/tweaks/CP2077Coop/vehicle_proxy.yaml": "6d69d277f17c94716a89eba87bd7f15563639d21",
     "scripts/build-passive-encounter-archive.py": "97da9625e0cb8670f264fff90f38e9da364a6e92",
     "scripts/build-passive-hittable-archive.py": "dac7ef9ca5867e4f1397eaf0e42cf47abf5ac50e",
@@ -103,6 +107,7 @@
     "tests/npc_static_population_tests.lua": "4244eeff731532d2da063e7c9104209003902f42",
     "tests/npc_tests.cpp": "f68db4c497b47e77bef342e22a23fcf359395650",
     "tests/passive_hittable_asset_tests.py": "5c6fdf946c3165175fc9f961d52307762db2a855",
+    "tests/player_pose_tests.lua": "c94fc5b387252a5cb81f44f35d593a25fa25efff",
     "tests/protocol_tests.cpp": "ac8e52875a8da2259f664f3f69847a1ddae9a88d",
     "tests/request_ledger_tests.cpp": "faba19f6460a05193e5e909a8854faa0f0b476e8",
     "tests/server.ini": "045a331156036fde80c88768754c5d7245dd39f7",
@@ -115,7 +120,8 @@
     "AGENTS.md": "Combined development instructions and current user-authorized integration.",
     "CMakeLists.txt": "Session build default; isolated reference-only build switch.",
     "README.md": "Current source direction, preserved playable release, and contributor/download presentation.",
-    "tests/CMakeLists.txt": "Retains reference-only mode and player motor suite alongside all upstream suites, including gameplay_routing, request_ledger, gameplay_bridge and connected_encounter."
+    "tests/CMakeLists.txt": "Retains reference-only mode and inactive player_motor tests alongside every upstream suite, including player_pose and connected_encounter.",
+    "tests/session_lifecycle_tests.lua": "Retains mirror lifecycle coverage; executes the real player_pose module for two exact actors, body replacement, departure/reconnect/shutdown and a guard against activating player_motor."
   },
   "reference_files": {
     "bin/x64/plugins/cyber_engine_tweaks/mods/CP2077Coop/init.lua": "b4df3ee1b7da5d1f72dd7e46cc39f4084cdbda10",
@@ -303,18 +309,20 @@
   },
   "proposal_status": "Copied pending PR #1/#2/#3 documentation; not accepted or merged in Bukczyk repository.",
   "contribution_files": {
-    "runtime/session/README.md": "8e637c11fcdbf8365eba66a7f7cd3e88bd48e5ba",
-    "runtime/session/cet/CP2077Coop/init.lua": "3d6ddd040fd422fd3f277de584afed2cb1e86fb1",
+    "runtime/session/README.md": "4dea37ba2ab75a08fcad0ee6c418c3067ef746d3",
     "runtime/session/cet/CP2077Coop/config.lua": "c90bf07c482fcd4458cd97fce8daa0358013b834",
-    "tests/session_lifecycle_tests.lua": "8dcaa17b85fe446a373252daece9793eb2e344f9",
+    "tests/session_lifecycle_tests.lua": "8b1f0d301ad2c973eca0226f595c6a24b953b049",
     "docs/validation/CET_SESSION_LIFECYCLE.md": "88472a0ba0aa1834c247289bc012f1bd5c64b1c5",
-    "runtime/session/redscript/CP2077Coop/remote.reds": "cc385beb15481427cae8994cd65e868d07afb296",
     "runtime/session/cet/CP2077Coop/player_motor.lua": "c0442c427f723b5bc7cc7899c463812c446668c8",
     "tests/player_motor_tests.lua": "fee2c17d7059bd26814e5b9f84f57dd5d666b695",
     "docs/validation/PLAYER_PRESENTATION.md": "5dd5fb701f356fe32c2883233911a078bb75c876",
     "docs/PLAYER_PRESENTATION_CONTRACT.md": "ce7a02bc85df326540ae8c9f0ab665c0e711dc61",
     "experiments/player-presentation/action_hooks.reds": "e37d7600ffc63ce66ff586b16082a3c381929f0d",
-    "experiments/player-presentation/README.md": "dcd388ccf1fa4757bce05d51c3268d0e6616bbb9"
+    "experiments/player-presentation/README.md": "dcd388ccf1fa4757bce05d51c3268d0e6616bbb9",
+    "experiments/player-presentation/reference/init_motor.lua": "3d6ddd040fd422fd3f277de584afed2cb1e86fb1",
+    "experiments/player-presentation/reference/remote_motor.reds": "cc385beb15481427cae8994cd65e868d07afb296",
+    "experiments/player-presentation/reference/README.md": "6a983b712291a6710efa9cc415892fd1d392d9a4",
+    "experiments/player-presentation/reference/.gitattributes": "4417644a79bf42b182d38f2363e61cf5f8cc75e5"
   },
   "pending_contributions": [
     {
@@ -339,7 +347,8 @@
         "runtime/session/cet/CP2077Coop/init.lua": "7bb9b3c753d66fcbbe9de4f8e13f158cc71527a3",
         "tests/session_lifecycle_tests.lua": "22e76a3bdc468f1a9a0c2ff98be868a61117343f"
       },
-      "reason": "Per-player engine movement, observed-error recovery, lifecycle tests, failed action experiments and measured evidence; network contracts unchanged."
+      "reason": "Per-player engine movement, observed-error recovery, lifecycle tests, failed action experiments and measured evidence; network contracts unchanged.",
+      "mirror_status": "Original player_motor, tests, experiments and evidence preserved. Previous active init/remote blobs are archived unchanged; current runtime activates only upstream player_pose. Historical draft status above is retained, not refreshed here."
     },
     {
       "pr": "https://github.com/Bukczyk/CP2077-Coop/pull/9",
@@ -353,7 +362,7 @@
       "revision": "3aecdc114aee3762f812635bf5ad07793ac3d571",
       "status": "Draft PR remains separate. Candidate imported from local upstream preparation, not claimed as published PR head or accepted main. No connected live pass or combined-mirror live qualification.",
       "reason": "Local fire-to-query candidate, exact entity scope, authored reaction/death graph and bounded local state guard, with retirement regressions. No backend/session/protocol change or release.",
-      "candidate_revision": "a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc",
+      "candidate_revision": "97d7c1a0b0fb7751800bf0fa2697769ca4e4b238",
       "candidate_branch": "work/connected-combat-20261007"
     }
   ],
@@ -591,7 +600,43 @@
         "experiments/shared-encounter/connected/host_ray.reds": "68a0571b7079d01bc5a42a504a7042c563959567"
       },
       "reason": "Expose bounded HOST ray rejection-stage, exact binding and first-hit observations without changing acceptance, damage or routing. Live trial and outcome evidence remain root-owned."
+    },
+    {
+      "revision": "97d7c1a0b0fb7751800bf0fa2697769ca4e4b238",
+      "source_branch": "work/connected-combat-20261007",
+      "intended_pr": "https://github.com/Bukczyk/CP2077-Coop/pull/10",
+      "status": "Exact active pose adapter imported; Windows Release build and all 25 CTests pass. LuaJIT lifecycle/pose pass; matched REDscript isolated compile 20261008T034207094726Z passes with inputs unchanged. Source-only local preparation; PR9 pending, no connected damage/death pass, no mirror live test or publication.",
+      "exact_files": {
+        "runtime/session/cet/CP2077Coop/init.lua": "dc1c91d85d3d2aa28f5f8a05f2a69ded1fe8df00",
+        "runtime/session/redscript/CP2077Coop/remote.reds": "401d45e8f1791d8a3345c869fe5285e36635dc69",
+        "docs/validation/PLAYER_PROXY_POSE.md": "fd99bfc7965aaf632ebb63d2e0cd1a3663464428",
+        "runtime/session/cet/CP2077Coop/player_pose.lua": "e4c878ca6fbc3c70c4cf086bacab02ad2f4005d1",
+        "tests/player_pose_tests.lua": "c94fc5b387252a5cb81f44f35d593a25fa25efff"
+      },
+      "previous_contribution_blobs": {
+        "runtime/session/cet/CP2077Coop/init.lua": "3d6ddd040fd422fd3f277de584afed2cb1e86fb1",
+        "runtime/session/redscript/CP2077Coop/remote.reds": "cc385beb15481427cae8994cd65e868d07afb296",
+        "runtime/session/README.md": "8e637c11fcdbf8365eba66a7f7cd3e88bd48e5ba",
+        "tests/session_lifecycle_tests.lua": "8dcaa17b85fe446a373252daece9793eb2e344f9"
+      },
+      "archived_contribution_blobs": {
+        "experiments/player-presentation/reference/init_motor.lua": {
+          "original_path": "runtime/session/cet/CP2077Coop/init.lua",
+          "blob": "3d6ddd040fd422fd3f277de584afed2cb1e86fb1"
+        },
+        "experiments/player-presentation/reference/remote_motor.reds": {
+          "original_path": "runtime/session/redscript/CP2077Coop/remote.reds",
+          "blob": "cc385beb15481427cae8994cd65e868d07afb296"
+        }
+      },
+      "combined_files": [
+        "tests/CMakeLists.txt",
+        "runtime/session/README.md",
+        "tests/session_lifecycle_tests.lua"
+      ],
+      "actuator_decision": "Only player_pose is active, with exact upstream init/remote. The earlier player_motor and its broader presentation experiments remain inactive reference, with exact historical entrypoint/helpers preserved outside packaged runtime. No duplicate actuators; old playerDiagnostics API belongs to the archived entrypoint.",
+      "upstream_validation": "Parent verified all Windows/Debian/sanitizer jobs pass at 97d7c in run 37723374154. Separate upstream controlled placement evidence does not qualify smooth locomotion or this mirror."
     }
   ],
-  "latest_upstream_revision": "a8b98c72d426e62e8e2df1ddcad35a402eb8e1bc"
+  "latest_upstream_revision": "97d7c1a0b0fb7751800bf0fa2697769ca4e4b238"
 }
